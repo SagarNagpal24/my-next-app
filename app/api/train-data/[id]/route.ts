@@ -9,6 +9,14 @@ function extractObjectId(raw: string) {
   return match?.[0] || null;
 }
 
+function toISODate10(v: any) {
+  // returns "YYYY-MM-DD" or "" (empty)
+  if (v === undefined || v === null) return "";
+  const s = String(v).trim();
+  if (!s) return "";
+  return s.slice(0, 10);
+}
+
 type Ctx = { params: Promise<{ id: string }> };
 
 export async function PUT(req: Request, ctx: Ctx) {
@@ -31,6 +39,9 @@ export async function PUT(req: Request, ctx: Ctx) {
     const trainTime = String(body.trainTime || "").trim();
     const boardingStation = String(body.boardingStation || "").trim();
 
+    // ✅ ADD THIS
+    const travelDate = toISODate10(body.travelDate);
+
     if (!name) return NextResponse.json({ error: "Name is required" }, { status: 400 });
     if (age !== null && Number.isNaN(age)) return NextResponse.json({ error: "Invalid age" }, { status: 400 });
 
@@ -42,6 +53,9 @@ export async function PUT(req: Request, ctx: Ctx) {
     if (!route) return NextResponse.json({ error: "Route is required" }, { status: 400 });
     if (!boardingStation) return NextResponse.json({ error: "Boarding station is required" }, { status: 400 });
 
+    // ✅ optional but recommended: require travel date on edit too
+    if (!travelDate) return NextResponse.json({ error: "Travel date is required" }, { status: 400 });
+
     const update = {
       name,
       age,
@@ -52,6 +66,10 @@ export async function PUT(req: Request, ctx: Ctx) {
       route,
       trainTime,
       boardingStation,
+
+      // ✅ IMPORTANT
+      travelDate,
+
       updatedAt: new Date(),
     };
 

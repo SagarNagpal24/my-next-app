@@ -37,7 +37,7 @@ const ROUTE_OPTIONS: RouteType[] = ["DLI-BEAS", "BEAS-DLI"];
 const BOARDING_OPTIONS: BoardingStation[] = ["New Delhi", "Old Delhi"];
 
 // You said you will add train time values later:
-const TRAIN_TIME_OPTIONS: string[] = []; // e.g. ["06:40 AM","07:10 AM"]
+const TRAIN_TIME_OPTIONS: string[] = ["06:40 AM","08:10 AM","07:15 AM","03:40 PM","10:00 AM","05:20 PM"]; // e.g. ["06:40 AM","07:10 AM"]
 
 function normalizeId(raw: any): string {
   const candidate =
@@ -487,69 +487,93 @@ export default function TrainDataPage() {
       <head>
         <meta charset="utf-8" />
         <title>Tickets</title>
-        <style>
-          @page { size: A4; margin: 10mm; }
+       <style>
+  @page { size: A4; margin: 8mm; }
 
-          html, body { margin:0; padding:0; font-family: Arial, sans-serif; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    font-family: Arial, sans-serif;
+  }
 
-          /* Each .page becomes one printed page */
-          .page {
-            width: 190mm;
-            height: 277mm;
-            box-sizing: border-box;
-            page-break-after: always;
-          }
-          .page:last-child { page-break-after: auto; }
+  .page {
+    width: 194mm;
+    height: 281mm;
+    box-sizing: border-box;
+    page-break-after: always;
+  }
+  .page:last-child { page-break-after: auto; }
 
-          .grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            grid-template-rows: 1fr 1fr 1fr;
-            gap: 8mm;
-            width: 100%;
-            height: 100%;
-          }
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr 1fr 1fr;
+    gap: 6mm;
+    width: 100%;
+    height: 100%;
+  }
 
-          .ticket {
-            border: 1.5px solid #111;
-            border-radius: 10px;
-            padding: 7mm;
-            box-sizing: border-box;
+  .ticket {
+    border: 1.2px solid #111;
+    border-radius: 8px;
+    padding: 5mm;
+    box-sizing: border-box;
 
-            display:flex;
-            flex-direction:column;
+    display: flex;
+    flex-direction: column;
 
-            break-inside: avoid;
-            page-break-inside: avoid;
-          }
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
 
-          /* Empty cell just occupies space, no border */
-          .ticket-empty {
-            border: 0;
-          }
+  .ticket-empty {
+    border: 0;
+  }
 
-          .head { display:flex; justify-content:space-between; align-items:center; margin-bottom: 4mm; }
-          .title { font-size: 16pt; font-weight: 800; }
-          .sn { font-size: 12pt; font-weight: 800; }
+  .head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 2.5mm;
+  }
 
-          .row {
-            display:flex;
-            gap: 8px;
-            margin: 2mm 0;
-            font-size: 13pt;
-            line-height: 1.15;
-          }
-          .label { width: 42%; font-weight: 800; }
-          .value { width: 58%; font-weight: 650; }
+  .title {
+    font-size: 14pt;
+    font-weight: 800;
+  }
 
-          .foot {
-            margin-top: auto;
-            border-top: 1px dashed #999;
-            padding-top: 3mm;
-            font-size: 12pt;
-            font-weight: 800;
-          }
-        </style>
+  .sn {
+    font-size: 10.5pt;
+    font-weight: 700;
+  }
+
+  .row {
+    display: flex;
+    gap: 6px;
+    margin: 1.6mm 0;
+    font-size: 11pt;
+    line-height: 1.15;
+  }
+
+  .label {
+    width: 40%;
+    font-weight: 700;
+  }
+
+  .value {
+    width: 60%;
+    font-weight: 600;
+  }
+
+  .foot {
+    margin-top: auto;
+    border-top: 1px dashed #999;
+    padding-top: 2mm;
+    font-size: 10.5pt;
+    font-weight: 700;
+  }
+</style>
+
       </head>
       <body>
         ${pages.join("")}

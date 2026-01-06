@@ -9,6 +9,14 @@ function toNum(v: any) {
   return Number.isNaN(n) ? undefined : n;
 }
 
+function toISODate10(v: any) {
+  // returns "YYYY-MM-DD" or "" (empty)
+  if (v === undefined || v === null) return "";
+  const s = String(v).trim();
+  if (!s) return "";
+  return s.slice(0, 10);
+}
+
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
@@ -21,6 +29,9 @@ export async function GET(req: Request) {
     const route = (searchParams.get("route") || "").trim();
     const boardingStation = (searchParams.get("boardingStation") || "").trim();
     const gender = (searchParams.get("gender") || "").trim();
+
+    // ✅ ADD THIS (filter)
+    const travelDate = toISODate10(searchParams.get("travelDate"));
 
     const limitRaw = toNum(searchParams.get("limit"));
     const limit = Math.min(Math.max(limitRaw ?? 500, 1), 10000);
@@ -36,6 +47,9 @@ export async function GET(req: Request) {
     if (boardingStation) filter.boardingStation = boardingStation;
     if (gender) filter.gender = gender;
 
+    // ✅ ADD THIS (exact match on YYYY-MM-DD)
+    if (travelDate) filter.travelDate = travelDate;
+
     // global search
     if (q) {
       filter.$or = [
@@ -45,6 +59,9 @@ export async function GET(req: Request) {
         { trainName: { $regex: q, $options: "i" } },
         { route: { $regex: q, $options: "i" } },
         { boardingStation: { $regex: q, $options: "i" } },
+
+        // ✅ optional: allow search by travel date too
+        { travelDate: { $regex: q, $options: "i" } },
       ];
     }
 
@@ -79,6 +96,9 @@ export async function POST(req: Request) {
     const trainTime = String(body.trainTime || "").trim(); // dropdown later ok
     const boardingStation = String(body.boardingStation || "").trim();
 
+    // ✅ ADD THIS (save)
+    const travelDate = toISODate10(body.travelDate);
+
     if (!name) return NextResponse.json({ error: "Name is required" }, { status: 400 });
     if (age !== null && Number.isNaN(age)) return NextResponse.json({ error: "Invalid age" }, { status: 400 });
 
@@ -90,6 +110,9 @@ export async function POST(req: Request) {
     if (!route) return NextResponse.json({ error: "Route is required" }, { status: 400 });
     if (!boardingStation) return NextResponse.json({ error: "Boarding station is required" }, { status: 400 });
 
+    // ✅ optional but recommended: require travel date
+    if (!travelDate) return NextResponse.json({ error: "Travel date is required" }, { status: 400 });
+
     const doc = {
       name,
       age,
@@ -100,6 +123,10 @@ export async function POST(req: Request) {
       route,
       trainTime,
       boardingStation,
+
+      // ✅ IMPORTANT
+      travelDate, // store as "YYYY-MM-DD"
+
       createdAt: new Date(),
       updatedAt: new Date(),
     };

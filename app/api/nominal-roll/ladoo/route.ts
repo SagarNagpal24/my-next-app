@@ -3,31 +3,81 @@ import { getDb } from "../../../lib/mongodb";
 
 const COLLECTION = "nominalRollLadoo";
 
-// Ensure unique constraint exists (idempotent)
+/** Safe YYYY-MM-DD output for Date or string */
+function toYMD(v: any) {
+  if (!v) return "";
+  // already "YYYY-MM-DD..." string
+  if (typeof v === "string") return v.slice(0, 10);
+  // Date object
+  if (v instanceof Date) return v.toISOString().slice(0, 10);
+  // Mongo might give something else
+  try {
+    const d = new Date(v);
+    if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+  } catch {}
+  return "";
+}
+
+// Ensure indexes exist (idempotent) — BUT do not crash GET if duplicates exist
 async function ensureIndexes(db: any) {
+  // customer duplicate protection
   await db.collection(COLLECTION).createIndex(
     { customerId: 1, jathaDateId: 1 },
     { unique: true, name: "uniq_customer_jathadate" }
+  );
+
+  // ticket locking (unique only when non-empty string)
+  await db.collection(COLLECTION).createIndex(
+    { ticketDelhiBeas: 1 },
+    {
+      unique: true,
+      name: "uniq_ticket_delhi_beas",
+      partialFilterExpression: { ticketDelhiBeas: { $type: "string", $ne: "" } },
+    }
+  );
+
+  await db.collection(COLLECTION).createIndex(
+    { ticketBeasDelhi: 1 },
+    {
+      unique: true,
+      name: "uniq_ticket_beas_delhi",
+      partialFilterExpression: { ticketBeasDelhi: { $type: "string", $ne: "" } },
+    }
   );
 }
 
 export async function GET() {
   try {
     const db = await getDb();
-    await ensureIndexes(db);
+
+    // ✅ IMPORTANT: Do not break GET if index creation fails due to existing duplicates
+    try {
+      await ensureIndexes(db);
+    } catch (e: any) {
+      // If you want, you can console.error this:
+      console.error("ensureIndexes failed (GET) - likely duplicates exist:", e?.message || e);
+      // Continue anyway so data loads
+    }
 
     const items = await db.collection(COLLECTION).find({}).sort({ createdAt: -1 }).limit(1000).toArray();
 
     const safe = items.map((x: any) => ({
       ...x,
       _id: x._id.toString(),
-      jathaDate: x.jathaDate ? x.jathaDate.toISOString().slice(0, 10) : "",
-      travelStartDate: x.travelStartDate ? x.travelStartDate.toISOString().slice(0, 10) : "",
-      travelEndDate: x.travelEndDate ? x.travelEndDate.toISOString().slice(0, 10) : "",
+
+      // ✅ safe formatting whether stored as Date or string
+      jathaDate: toYMD(x.jathaDate),
+      travelStartDate: toYMD(x.travelStartDate),
+      travelEndDate: toYMD(x.travelEndDate),
+
+      // keep as strings
+      ticketDelhiBeas: String(x.ticketDelhiBeas || ""),
+      ticketBeasDelhi: String(x.ticketBeasDelhi || ""),
     }));
 
     return NextResponse.json({ items: safe });
   } catch (e: any) {
+    console.error("GET /nominal-roll/ladoo error:", e);
     return NextResponse.json({ error: e?.message || "Server error" }, { status: 500 });
   }
 }
@@ -35,7 +85,14 @@ export async function GET() {
 export async function POST(req: Request) {
   try {
     const db = await getDb();
-    await ensureIndexes(db);
+
+    // ✅ For POST we DO want indexes; if duplicates exist, return readable error
+    try {
+      await ensureIndexes(db);
+    } catch (e: any) {
+      console.error("ensureIndexes failed (POST):", e?.message || e);
+      // still allow POST attempt; Mongo will enforce whatever indexes exist
+    }
 
     const body = await req.json();
 
@@ -53,11 +110,11 @@ export async function POST(req: Request) {
     // user fields
     const mode = String(body.mode || "").trim();
 
-    const bookingReqDelhiBeas = String(body.bookingReqDelhiBeas || "").trim();
-    const bookingReqBeasDelhi = String(body.bookingReqBeasDelhi || "").trim();
+    let bookingReqDelhiBeas = String(body.bookingReqDelhiBeas || "").trim();
+    let bookingReqBeasDelhi = String(body.bookingReqBeasDelhi || "").trim();
 
-    const ticketDelhiBeas = String(body.ticketDelhiBeas || "").trim();
-    const ticketBeasDelhi = String(body.ticketBeasDelhi || "").trim();
+    let ticketDelhiBeas = String(body.ticketDelhiBeas || "").trim();
+    let ticketBeasDelhi = String(body.ticketBeasDelhi || "").trim();
 
     const payment = String(body.payment || "").trim();
 
@@ -76,8 +133,19 @@ export async function POST(req: Request) {
 
     if (!mode) return NextResponse.json({ error: "Mode is required" }, { status: 400 });
 
-    if (!bookingReqDelhiBeas) return NextResponse.json({ error: "Booking REQ (Delhi–Beas) required" }, { status: 400 });
-    if (!bookingReqBeasDelhi) return NextResponse.json({ error: "Booking REQ (Beas–Delhi) required" }, { status: 400 });
+    // ✅ If mode != Train => force-disable booking/tickets
+    if (mode !== "Train") {
+      bookingReqDelhiBeas = "";
+      bookingReqBeasDelhi = "";
+      ticketDelhiBeas = "";
+      ticketBeasDelhi = "";
+    }
+
+    // ✅ If Train => booking required
+    if (mode === "Train") {
+      if (!bookingReqDelhiBeas) return NextResponse.json({ error: "Booking REQ (Delhi–Beas) required" }, { status: 400 });
+      if (!bookingReqBeasDelhi) return NextResponse.json({ error: "Booking REQ (Beas–Delhi) required" }, { status: 400 });
+    }
 
     if (!payment) return NextResponse.json({ error: "Payment required" }, { status: 400 });
     if (!travelStartDate) return NextResponse.json({ error: "Travel start date required" }, { status: 400 });
@@ -89,7 +157,7 @@ export async function POST(req: Request) {
       badgeNo,
       fatherOrHusbandName,
       gender,
-      age,
+      age: Number.isNaN(age) ? null : age,
       address,
       mobile,
       adhaarNumber,
@@ -120,8 +188,14 @@ export async function POST(req: Request) {
       const result = await db.collection(COLLECTION).insertOne(doc);
       return NextResponse.json({ ok: true, id: result.insertedId.toString() }, { status: 201 });
     } catch (err: any) {
-      // Duplicate key error
       if (err?.code === 11000) {
+        const msg = String(err?.message || "");
+        if (msg.includes("uniq_ticket_delhi_beas")) {
+          return NextResponse.json({ error: "Ticket (Delhi–Beas) is already assigned to someone else." }, { status: 409 });
+        }
+        if (msg.includes("uniq_ticket_beas_delhi")) {
+          return NextResponse.json({ error: "Ticket (Beas–Delhi) is already assigned to someone else." }, { status: 409 });
+        }
         return NextResponse.json(
           { error: "This customer is already added for the selected Jatha Date (duplicate not allowed)." },
           { status: 409 }
@@ -130,6 +204,7 @@ export async function POST(req: Request) {
       throw err;
     }
   } catch (e: any) {
+    console.error("POST /nominal-roll/ladoo error:", e);
     return NextResponse.json({ error: e?.message || "Server error" }, { status: 500 });
   }
 }

@@ -5,6 +5,9 @@ import React from "react";
 type YesNo = "Yes" | "No" | "";
 type Mode = "Train" | "Bus" | "Self" | "";
 
+// ✅ Train routes (must match your train-data route values)
+type RouteType = "DLI-BEAS" | "BEAS-DLI";
+
 type Customer = {
   _id: string;
   name: string;
@@ -21,6 +24,21 @@ type JathaDate = {
   _id: string;
   travelDate: string; // YYYY-MM-DD
   notes?: string;
+};
+
+// ✅ Train data row (for ticket dropdown)
+type TrainTicketRow = {
+  _id: string;
+  name?: string;
+  age?: number | null; // ✅ include
+  gender?: string; // ✅ include
+  seatNumber?: string;
+  pnrNumber?: string;
+  trainName?: string;
+  trainTime?: string;
+  boardingStation?: string;
+  route?: string;
+  travelDate?: string;
 };
 
 type NominalLadooRow = {
@@ -43,6 +61,7 @@ type NominalLadooRow = {
   bookingReqDelhiBeas: YesNo;
   bookingReqBeasDelhi: YesNo;
 
+  // ✅ store selected train-data _id
   ticketDelhiBeas: string;
   ticketBeasDelhi: string;
 
@@ -67,6 +86,32 @@ function inputCls() {
   return "app-input app-input-sm";
 }
 
+// ✅ label includes Age/Sex
+function makeTicketLabel(t: TrainTicketRow) {
+  const date = String(t.travelDate || "").slice(0, 10);
+  const pnr = String(t.pnrNumber || "").trim();
+  const seat = String(t.seatNumber || "").trim();
+  const name = String(t.name || "").trim();
+  const train = String(t.trainName || "").trim();
+  const time = String(t.trainTime || "").trim();
+  const boarding = String(t.boardingStation || "").trim();
+  const age = t.age ?? "";
+  const sex = String(t.gender || "").trim();
+
+  const parts = [
+    date || "---- -- --",
+    name ? name : "",
+    age !== "" || sex ? `${age !== "" ? age : "-"} / ${sex || "-"}` : "",
+    seat ? `Seat:${seat}` : "",
+    pnr ? `PNR:${pnr}` : "",
+    train ? train : "",
+    time ? time : "",
+    boarding ? `(${boarding})` : "",
+  ].filter(Boolean);
+
+  return parts.join(" • ");
+}
+
 export default function LadooNominalRollPage() {
   // customer search
   const [search, setSearch] = React.useState("");
@@ -78,12 +123,18 @@ export default function LadooNominalRollPage() {
   const [jathaDates, setJathaDates] = React.useState<JathaDate[]>([]);
   const [loadingJatha, setLoadingJatha] = React.useState(true);
 
+  // ✅ Train tickets dropdown data (from Train Data form)
+  const [trainDliBeas, setTrainDliBeas] = React.useState<TrainTicketRow[]>([]);
+  const [trainBeasDli, setTrainBeasDli] = React.useState<TrainTicketRow[]>([]);
+  const [loadingTickets, setLoadingTickets] = React.useState(true);
+
   // create form fields (user-filled)
   const [mode, setMode] = React.useState<Mode>("");
 
   const [bookingDelhiBeas, setBookingDelhiBeas] = React.useState<YesNo>("");
   const [bookingBeasDelhi, setBookingBeasDelhi] = React.useState<YesNo>("");
 
+  // ✅ store selected train-data _id
   const [ticketDelhiBeas, setTicketDelhiBeas] = React.useState("");
   const [ticketBeasDelhi, setTicketBeasDelhi] = React.useState("");
 
@@ -100,6 +151,91 @@ export default function LadooNominalRollPage() {
   const [editing, setEditing] = React.useState<NominalLadooRow | null>(null);
   const [saving, setSaving] = React.useState(false);
 
+  // ✅ Only Train should allow Booking REQ + Ticket fields
+  const isTrainMode = mode === "Train";
+  const isEditTrainMode = String(editing?.mode || "") === "Train";
+
+  // ✅ Used ticket ids (so assigned tickets disappear)
+  const usedDelhiBeasTicketIds = React.useMemo(() => {
+    const s = new Set<string>();
+    for (const r of items) {
+      const id = String(r.ticketDelhiBeas || "").trim();
+      if (id) s.add(id);
+    }
+    return s;
+  }, [items]);
+
+  const usedBeasDelhiTicketIds = React.useMemo(() => {
+    const s = new Set<string>();
+    for (const r of items) {
+      const id = String(r.ticketBeasDelhi || "").trim();
+      if (id) s.add(id);
+    }
+    return s;
+  }, [items]);
+
+  // ✅ Available tickets for CREATE (hide assigned)
+  const availableTrainDliBeas = React.useMemo(() => {
+    return trainDliBeas.filter((t) => !usedDelhiBeasTicketIds.has(t._id));
+  }, [trainDliBeas, usedDelhiBeasTicketIds]);
+
+  const availableTrainBeasDli = React.useMemo(() => {
+    return trainBeasDli.filter((t) => !usedBeasDelhiTicketIds.has(t._id));
+  }, [trainBeasDli, usedBeasDelhiTicketIds]);
+
+  // ✅ Available tickets for EDIT (keep current selection even if assigned)
+  const editTrainDliBeas = React.useMemo(() => {
+    const current = String(editing?.ticketDelhiBeas || "").trim();
+    return trainDliBeas.filter((t) => t._id === current || !usedDelhiBeasTicketIds.has(t._id));
+  }, [trainDliBeas, usedDelhiBeasTicketIds, editing?.ticketDelhiBeas]);
+
+  const editTrainBeasDli = React.useMemo(() => {
+    const current = String(editing?.ticketBeasDelhi || "").trim();
+    return trainBeasDli.filter((t) => t._id === current || !usedBeasDelhiTicketIds.has(t._id));
+  }, [trainBeasDli, usedBeasDelhiTicketIds, editing?.ticketBeasDelhi]);
+
+  // ✅ build maps so table can show labels instead of raw ids
+  const ticketLabelMap = React.useMemo(() => {
+    const m = new Map<string, string>();
+    for (const t of trainDliBeas) m.set(t._id, makeTicketLabel(t));
+    for (const t of trainBeasDli) m.set(t._id, makeTicketLabel(t));
+    return m;
+  }, [trainDliBeas, trainBeasDli]);
+
+  function renderTicketValue(v: string) {
+    const s = String(v || "").trim();
+    if (!s) return "-";
+    return ticketLabelMap.get(s) || s; // fallback for old saved values
+  }
+
+  // ✅ When mode is NOT Train, clear booking/ticket fields in create form
+  React.useEffect(() => {
+    if (!isTrainMode) {
+      setBookingDelhiBeas("");
+      setBookingBeasDelhi("");
+      setTicketDelhiBeas("");
+      setTicketBeasDelhi("");
+    }
+  }, [isTrainMode]);
+
+  // ✅ When edit mode is NOT Train, clear booking/ticket fields in edit modal
+  React.useEffect(() => {
+    if (!editing) return;
+    if (!isEditTrainMode) {
+      setEditing((prev) =>
+        prev
+          ? {
+              ...prev,
+              bookingReqDelhiBeas: "",
+              bookingReqBeasDelhi: "",
+              ticketDelhiBeas: "",
+              ticketBeasDelhi: "",
+            }
+          : prev
+      );
+    }
+  }, [editing?._id, isEditTrainMode]);
+
   async function loadJathaDates() {
     setLoadingJatha(true);
     try {
@@ -113,6 +249,40 @@ export default function LadooNominalRollPage() {
       setJathaDates(list);
     } finally {
       setLoadingJatha(false);
+    }
+  }
+
+  // ✅ Load Train Data as ticket dropdown options (by route)
+  async function loadTrainTickets() {
+    setLoadingTickets(true);
+    try {
+      const [res1, res2] = await Promise.all([
+        fetch(`/api/train-data?route=${encodeURIComponent("DLI-BEAS")}&limit=10000`, { cache: "no-store" }),
+        fetch(`/api/train-data?route=${encodeURIComponent("BEAS-DLI")}&limit=10000`, { cache: "no-store" }),
+      ]);
+
+      const [d1, d2] = await Promise.all([res1.json().catch(() => ({})), res2.json().catch(() => ({}))]);
+
+      const list1: TrainTicketRow[] = (d1.items || []).map((x: any) => ({
+        ...x,
+        _id: normalizeId(x),
+        age: x.age === null || x.age === undefined || x.age === "" ? null : Number(x.age),
+        gender: String(x.gender || "").trim(),
+        travelDate: String(x.travelDate || "").slice(0, 10),
+      }));
+
+      const list2: TrainTicketRow[] = (d2.items || []).map((x: any) => ({
+        ...x,
+        _id: normalizeId(x),
+        age: x.age === null || x.age === undefined || x.age === "" ? null : Number(x.age),
+        gender: String(x.gender || "").trim(),
+        travelDate: String(x.travelDate || "").slice(0, 10),
+      }));
+
+      setTrainDliBeas(list1);
+      setTrainBeasDli(list2);
+    } finally {
+      setLoadingTickets(false);
     }
   }
 
@@ -142,6 +312,7 @@ export default function LadooNominalRollPage() {
 
   React.useEffect(() => {
     loadJathaDates();
+    loadTrainTickets();
     loadNominal();
   }, []);
 
@@ -196,8 +367,13 @@ export default function LadooNominalRollPage() {
     if (!selectedCustomer?._id) return "Please search and select a customer first.";
     if (!jathaDateId) return "Jatha date is required.";
     if (!mode) return "Mode is required.";
-    if (!bookingDelhiBeas) return "Booking REQ (Delhi–Beas) is required.";
-    if (!bookingBeasDelhi) return "Booking REQ (Beas–Delhi) is required.";
+
+    // ✅ Only required if mode is Train
+    if (mode === "Train") {
+      if (!bookingDelhiBeas) return "Booking REQ (Delhi–Beas) is required.";
+      if (!bookingBeasDelhi) return "Booking REQ (Beas–Delhi) is required.";
+    }
+
     if (!payment.trim()) return "Payment is required.";
     if (!travelStartDate) return "Travel start date is required.";
     if (!travelEndDate) return "Travel end date is required.";
@@ -214,7 +390,6 @@ export default function LadooNominalRollPage() {
     setSaving(true);
     try {
       const payload = {
-        // snapshot customer details
         customerId: selectedCustomer!._id,
         customerName: selectedCustomer!.name,
         badgeNo: selectedCustomer!.badgeNo || "",
@@ -225,14 +400,13 @@ export default function LadooNominalRollPage() {
         mobile: selectedCustomer!.mobile || "",
         adhaarNumber: selectedCustomer!.adhaarNumber || "",
 
-        // user fields
         mode,
 
-        bookingReqDelhiBeas: bookingDelhiBeas,
-        bookingReqBeasDelhi: bookingBeasDelhi,
+        bookingReqDelhiBeas: mode === "Train" ? bookingDelhiBeas : "",
+        bookingReqBeasDelhi: mode === "Train" ? bookingBeasDelhi : "",
 
-        ticketDelhiBeas: ticketDelhiBeas.trim(),
-        ticketBeasDelhi: ticketBeasDelhi.trim(),
+        ticketDelhiBeas: mode === "Train" ? ticketDelhiBeas : "",
+        ticketBeasDelhi: mode === "Train" ? ticketBeasDelhi : "",
 
         payment: payment.trim(),
 
@@ -284,8 +458,12 @@ export default function LadooNominalRollPage() {
 
     if (!editing.jathaDateId) return alert("Jatha date is required.");
     if (!editing.mode) return alert("Mode is required.");
-    if (!editing.bookingReqDelhiBeas) return alert("Booking REQ (Delhi–Beas) is required.");
-    if (!editing.bookingReqBeasDelhi) return alert("Booking REQ (Beas–Delhi) is required.");
+
+    if (String(editing.mode) === "Train") {
+      if (!editing.bookingReqDelhiBeas) return alert("Booking REQ (Delhi–Beas) is required.");
+      if (!editing.bookingReqBeasDelhi) return alert("Booking REQ (Beas–Delhi) is required.");
+    }
+
     if (!editing.payment.trim()) return alert("Payment is required.");
     if (!editing.travelStartDate) return alert("Travel start date is required.");
     if (!editing.travelEndDate) return alert("Travel end date is required.");
@@ -301,11 +479,11 @@ export default function LadooNominalRollPage() {
         body: JSON.stringify({
           mode: editing.mode,
 
-          bookingReqDelhiBeas: editing.bookingReqDelhiBeas,
-          bookingReqBeasDelhi: editing.bookingReqBeasDelhi,
+          bookingReqDelhiBeas: String(editing.mode) === "Train" ? editing.bookingReqDelhiBeas : "",
+          bookingReqBeasDelhi: String(editing.mode) === "Train" ? editing.bookingReqBeasDelhi : "",
 
-          ticketDelhiBeas: (editing.ticketDelhiBeas || "").trim(),
-          ticketBeasDelhi: (editing.ticketBeasDelhi || "").trim(),
+          ticketDelhiBeas: String(editing.mode) === "Train" ? String(editing.ticketDelhiBeas || "").trim() : "",
+          ticketBeasDelhi: String(editing.mode) === "Train" ? String(editing.ticketBeasDelhi || "").trim() : "",
 
           payment: editing.payment.trim(),
 
@@ -416,28 +594,60 @@ export default function LadooNominalRollPage() {
 
           {/* Booking req */}
           <div className="lg:col-span-2">
-            <div className="app-label">Booking REQ (Delhi–Beas) *</div>
-            <select className={inputCls()} value={bookingDelhiBeas} onChange={(e) => setBookingDelhiBeas(e.target.value as any)}>
-              <option value="">Select</option>
+            <div className="app-label">Booking REQ (Delhi–Beas) {isTrainMode ? "*" : ""}</div>
+            <select className={inputCls()} value={bookingDelhiBeas} onChange={(e) => setBookingDelhiBeas(e.target.value as any)} disabled={!isTrainMode}>
+              <option value="">{isTrainMode ? "Select" : "Disabled"}</option>
               <option value="Yes">Yes</option>
               <option value="No">No</option>
             </select>
 
-            <div className="app-label mt-3">Booking REQ (Beas–Delhi) *</div>
-            <select className={inputCls()} value={bookingBeasDelhi} onChange={(e) => setBookingBeasDelhi(e.target.value as any)}>
-              <option value="">Select</option>
+            <div className="app-label mt-3">Booking REQ (Beas–Delhi) {isTrainMode ? "*" : ""}</div>
+            <select className={inputCls()} value={bookingBeasDelhi} onChange={(e) => setBookingBeasDelhi(e.target.value as any)} disabled={!isTrainMode}>
+              <option value="">{isTrainMode ? "Select" : "Disabled"}</option>
               <option value="Yes">Yes</option>
               <option value="No">No</option>
             </select>
           </div>
 
-          {/* Tickets */}
+          {/* ✅ Tickets dropdowns (assigned tickets hidden) */}
           <div className="lg:col-span-3">
             <div className="app-label">Ticket (Delhi–Beas)</div>
-            <input className={inputCls()} value={ticketDelhiBeas} onChange={(e) => setTicketDelhiBeas(e.target.value)} placeholder="PNR / Ticket No / Done" />
+            <select
+              className={inputCls()}
+              value={ticketDelhiBeas}
+              onChange={(e) => setTicketDelhiBeas(e.target.value)}
+              disabled={!isTrainMode || loadingTickets}
+              title="Options come from Train Data where route = DLI-BEAS"
+            >
+              <option value="">{!isTrainMode ? "Disabled" : loadingTickets ? "Loading..." : "Select ticket"}</option>
+              {availableTrainDliBeas.map((t) => (
+                <option key={t._id} value={t._id}>
+                  {makeTicketLabel(t)}
+                </option>
+              ))}
+            </select>
 
             <div className="app-label mt-3">Ticket (Beas–Delhi)</div>
-            <input className={inputCls()} value={ticketBeasDelhi} onChange={(e) => setTicketBeasDelhi(e.target.value)} placeholder="PNR / Ticket No / Done" />
+            <select
+              className={inputCls()}
+              value={ticketBeasDelhi}
+              onChange={(e) => setTicketBeasDelhi(e.target.value)}
+              disabled={!isTrainMode || loadingTickets}
+              title="Options come from Train Data where route = BEAS-DLI"
+            >
+              <option value="">{!isTrainMode ? "Disabled" : loadingTickets ? "Loading..." : "Select ticket"}</option>
+              {availableTrainBeasDli.map((t) => (
+                <option key={t._id} value={t._id}>
+                  {makeTicketLabel(t)}
+                </option>
+              ))}
+            </select>
+
+            <div className="mt-2 flex items-center justify-end">
+              <button type="button" className="app-btn app-btn-secondary h-9 px-3 text-xs" onClick={loadTrainTickets} disabled={loadingTickets}>
+                {loadingTickets ? "Refreshing..." : "Refresh Tickets"}
+              </button>
+            </div>
           </div>
         </div>
 
@@ -524,11 +734,11 @@ export default function LadooNominalRollPage() {
                   <td className="td">{r.badgeNo || "-"}</td>
 
                   <td className="td">{r.mode || "-"}</td>
-                  <td className="td">{r.bookingReqDelhiBeas}</td>
-                  <td className="td">{r.bookingReqBeasDelhi}</td>
+                  <td className="td">{r.bookingReqDelhiBeas || "-"}</td>
+                  <td className="td">{r.bookingReqBeasDelhi || "-"}</td>
 
-                  <td className="td">{r.ticketDelhiBeas || "-"}</td>
-                  <td className="td">{r.ticketBeasDelhi || "-"}</td>
+                  <td className="td whitespace-normal">{renderTicketValue(r.ticketDelhiBeas)}</td>
+                  <td className="td whitespace-normal">{renderTicketValue(r.ticketBeasDelhi)}</td>
 
                   <td className="td">{r.payment}</td>
                   <td className="td">{r.jathaDate || "-"}</td>
@@ -616,31 +826,66 @@ export default function LadooNominalRollPage() {
               </div>
 
               <div>
-                <div className="app-label">REQ (Delhi–Beas) *</div>
-                <select className={inputCls()} value={editing.bookingReqDelhiBeas} onChange={(e) => setEditing({ ...editing, bookingReqDelhiBeas: e.target.value as any })}>
-                  <option value="">Select</option>
+                <div className="app-label">REQ (Delhi–Beas) {isEditTrainMode ? "*" : ""}</div>
+                <select
+                  className={inputCls()}
+                  value={editing.bookingReqDelhiBeas}
+                  onChange={(e) => setEditing({ ...editing, bookingReqDelhiBeas: e.target.value as any })}
+                  disabled={!isEditTrainMode}
+                >
+                  <option value="">{isEditTrainMode ? "Select" : "Disabled"}</option>
                   <option value="Yes">Yes</option>
                   <option value="No">No</option>
                 </select>
               </div>
 
               <div>
-                <div className="app-label">REQ (Beas–Delhi) *</div>
-                <select className={inputCls()} value={editing.bookingReqBeasDelhi} onChange={(e) => setEditing({ ...editing, bookingReqBeasDelhi: e.target.value as any })}>
-                  <option value="">Select</option>
+                <div className="app-label">REQ (Beas–Delhi) {isEditTrainMode ? "*" : ""}</div>
+                <select
+                  className={inputCls()}
+                  value={editing.bookingReqBeasDelhi}
+                  onChange={(e) => setEditing({ ...editing, bookingReqBeasDelhi: e.target.value as any })}
+                  disabled={!isEditTrainMode}
+                >
+                  <option value="">{isEditTrainMode ? "Select" : "Disabled"}</option>
                   <option value="Yes">Yes</option>
                   <option value="No">No</option>
                 </select>
               </div>
 
+              {/* ✅ Tickets dropdowns in edit (hide assigned except current) */}
               <div>
                 <div className="app-label">Ticket (Delhi–Beas)</div>
-                <input className={inputCls()} value={editing.ticketDelhiBeas || ""} onChange={(e) => setEditing({ ...editing, ticketDelhiBeas: e.target.value })} />
+                <select
+                  className={inputCls()}
+                  value={String(editing.ticketDelhiBeas || "")}
+                  onChange={(e) => setEditing({ ...editing, ticketDelhiBeas: e.target.value })}
+                  disabled={!isEditTrainMode || loadingTickets}
+                >
+                  <option value="">{!isEditTrainMode ? "Disabled" : loadingTickets ? "Loading..." : "Select ticket"}</option>
+                  {editTrainDliBeas.map((t) => (
+                    <option key={t._id} value={t._id}>
+                      {makeTicketLabel(t)}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div>
                 <div className="app-label">Ticket (Beas–Delhi)</div>
-                <input className={inputCls()} value={editing.ticketBeasDelhi || ""} onChange={(e) => setEditing({ ...editing, ticketBeasDelhi: e.target.value })} />
+                <select
+                  className={inputCls()}
+                  value={String(editing.ticketBeasDelhi || "")}
+                  onChange={(e) => setEditing({ ...editing, ticketBeasDelhi: e.target.value })}
+                  disabled={!isEditTrainMode || loadingTickets}
+                >
+                  <option value="">{!isEditTrainMode ? "Disabled" : loadingTickets ? "Loading..." : "Select ticket"}</option>
+                  {editTrainBeasDli.map((t) => (
+                    <option key={t._id} value={t._id}>
+                      {makeTicketLabel(t)}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div>

@@ -9,7 +9,11 @@ const tabs = [
   { href: "/bulk-upload", label: "Bulk Upload" },
   { href:"/train-data", label: "Train Data" },
      { href:"/nominal-roll" ,label: "Nominal Roll" },
+      { href:"/reports" ,label: "Reports" },
       { href:"/jatha-date" ,label: "Jatha Date" },
+      
+     
+
 
 ];
 
