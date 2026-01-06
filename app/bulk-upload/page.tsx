@@ -51,7 +51,7 @@ export default function BulkUploadPage() {
           <div>
             <h1 className="app-title">Bulk Upload</h1>
             <p className="app-subtitle">
-              Download the sample Excel file, fill it with customer data, then upload.
+              Download the sample Excel file, fill it with sangat data, then upload.
             </p>
           </div>
 

@@ -24,7 +24,7 @@ export async function GET() {
     "Suresh Kumar",
     "Male",
     32,
-    "Hyderabad",
+    "Patel Nagar",
     "+919876543210",
     "123412341234",
     "+919812345678",
@@ -34,7 +34,7 @@ export async function GET() {
 
   const ws = XLSX.utils.aoa_to_sheet([headers, exampleRow]);
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "Customers");
+  XLSX.utils.book_append_sheet(wb, ws, "Jatha");
 
   const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
 
@@ -42,7 +42,7 @@ export async function GET() {
     status: 200,
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "Content-Disposition": `attachment; filename="customers_sample.xlsx"`,
+      "Content-Disposition": `attachment; filename="Sangat_sample.xlsx"`,
     },
   });
 }

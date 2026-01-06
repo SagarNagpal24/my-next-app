@@ -4,35 +4,54 @@ import { getDb } from "../../../lib/mongodb";
 
 const COLLECTION = "trainData";
 
-// tolerant id extraction
 function extractObjectId(raw: string) {
   const match = String(raw || "").match(/[a-fA-F0-9]{24}/);
   return match?.[0] || null;
 }
 
-export async function PUT(req: Request, { params }: { params: { id: string } }) {
+type Ctx = { params: Promise<{ id: string }> };
+
+export async function PUT(req: Request, ctx: Ctx) {
   try {
-    const id = extractObjectId(params.id);
+    const { id: rawId } = await ctx.params;
+    const id = extractObjectId(rawId);
     if (!id || !ObjectId.isValid(id)) return NextResponse.json({ error: "Invalid id" }, { status: 400 });
 
     const body = await req.json();
 
-    const trainName = String(body.trainName || "").trim();
-    const seatNumber = String(body.seatNumber || "").trim().toUpperCase();
-    const travelDate = String(body.travelDate || "").trim();
-    const travelRoute = String(body.travelRoute || "").trim();
+    const name = String(body.name || "").trim();
+    const age = body.age === "" || body.age === null || body.age === undefined ? null : Number(body.age);
+    const gender = String(body.gender || "").trim();
 
-    if (!trainName) return NextResponse.json({ error: "Train name is required" }, { status: 400 });
+    const seatNumber = String(body.seatNumber || "").trim().toUpperCase();
+    const pnrNumber = String(body.pnrNumber || "").trim();
+
+    const trainName = String(body.trainName || "").trim();
+    const route = String(body.route || "").trim();
+    const trainTime = String(body.trainTime || "").trim();
+    const boardingStation = String(body.boardingStation || "").trim();
+
+    if (!name) return NextResponse.json({ error: "Name is required" }, { status: 400 });
+    if (age !== null && Number.isNaN(age)) return NextResponse.json({ error: "Invalid age" }, { status: 400 });
+
     if (!seatNumber) return NextResponse.json({ error: "Seat number is required" }, { status: 400 });
-    if (!/^[A-Za-z]\d{1,3}$/.test(seatNumber)) return NextResponse.json({ error: "Invalid seat number format" }, { status: 400 });
-    if (!travelDate) return NextResponse.json({ error: "Travel date is required" }, { status: 400 });
-    if (!travelRoute) return NextResponse.json({ error: "Travel route is required" }, { status: 400 });
+    if (!/^[A-Za-z]\d{1,3}$/.test(seatNumber)) return NextResponse.json({ error: "Invalid seat number format (example: A1, B12)" }, { status: 400 });
+
+    if (!pnrNumber) return NextResponse.json({ error: "PNR is required" }, { status: 400 });
+    if (!trainName) return NextResponse.json({ error: "Train name is required" }, { status: 400 });
+    if (!route) return NextResponse.json({ error: "Route is required" }, { status: 400 });
+    if (!boardingStation) return NextResponse.json({ error: "Boarding station is required" }, { status: 400 });
 
     const update = {
-      trainName,
+      name,
+      age,
+      gender,
       seatNumber,
-      travelDate: new Date(travelDate),
-      travelRoute,
+      pnrNumber,
+      trainName,
+      route,
+      trainTime,
+      boardingStation,
       updatedAt: new Date(),
     };
 
@@ -47,9 +66,10 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
   }
 }
 
-export async function DELETE(_: Request, { params }: { params: { id: string } }) {
+export async function DELETE(_: Request, ctx: Ctx) {
   try {
-    const id = extractObjectId(params.id);
+    const { id: rawId } = await ctx.params;
+    const id = extractObjectId(rawId);
     if (!id || !ObjectId.isValid(id)) return NextResponse.json({ error: "Invalid id" }, { status: 400 });
 
     const db = await getDb();

@@ -21,8 +21,8 @@ export default function Navbar() {
       <div className="app-card">
         <div className="flex flex-wrap items-center justify-between gap-3 p-4 sm:p-5">
           <div>
-            <div className="text-lg font-semibold">Customer Manager</div>
-            <div className="text-xs text-zinc-600 dark:text-zinc-400">Jatha</div>
+            <div className="text-lg font-semibold">Jatha Manager</div>
+            <div className="text-xs text-zinc-600 dark:text-zinc-400"></div>
           </div>
 
           <nav className="flex flex-wrap items-center gap-2">

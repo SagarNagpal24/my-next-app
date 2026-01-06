@@ -379,7 +379,7 @@ export default function LadooNominalRollPage() {
             )}
 
             <div className="mt-3 rounded-xl border border-black/5 bg-zinc-50 p-3 text-sm dark:border-white/10 dark:bg-black/30">
-              <div className="text-xs font-semibold text-zinc-600 dark:text-zinc-400">Selected Customer</div>
+              <div className="text-xs font-semibold text-zinc-600 dark:text-zinc-400">Selected Data</div>
               <div className="mt-1">
                 <div className="font-semibold">{selectedCustomer?.name || "-"}</div>
                 <div className="text-xs text-zinc-600 dark:text-zinc-400">

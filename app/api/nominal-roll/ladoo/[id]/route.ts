@@ -9,9 +9,11 @@ function extractObjectId(raw: string) {
   return match?.[0] || null;
 }
 
-export async function PUT(req: Request, { params }: { params: { id: string } }) {
+type Ctx = { params: Promise<{ id: string }> };
+
+export async function PUT(req: Request,  ctx: Ctx) {
   try {
-    const id = extractObjectId(params.id);
+     const { id } = await ctx.params; 
     if (!id || !ObjectId.isValid(id)) return NextResponse.json({ error: "Invalid id" }, { status: 400 });
 
     const body = await req.json();
@@ -86,9 +88,9 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
   }
 }
 
-export async function DELETE(_: Request, { params }: { params: { id: string } }) {
+export async function DELETE(_: Request,ctx  :Ctx) {
   try {
-    const id = extractObjectId(params.id);
+     const { id } = await ctx.params; 
     if (!id || !ObjectId.isValid(id)) return NextResponse.json({ error: "Invalid id" }, { status: 400 });
 
     const db = await getDb();

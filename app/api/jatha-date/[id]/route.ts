@@ -4,15 +4,27 @@ import { getDb } from "../../../lib/mongodb";
 
 const COLLECTION = "jathaDates";
 
-function extractObjectId(raw: string) {
-  const match = String(raw || "").match(/[a-fA-F0-9]{24}/);
-  return match?.[0] || null;
+function toObjectId(raw: string) {
+  const decoded = decodeURIComponent(String(raw || "")).trim();
+  const match = decoded.match(/[a-fA-F0-9]{24}/);
+  const hex = (match?.[0] ?? decoded).trim();
+
+  try {
+    return new ObjectId(hex);
+  } catch {
+    return null;
+  }
 }
 
-export async function PUT(req: Request, { params }: { params: { id: string } }) {
+// ✅ IMPORTANT: in your Next.js version, params is a Promise
+type Ctx = { params: Promise<{ id: string }> };
+
+export async function PUT(req: Request, ctx: Ctx) {
   try {
-    const id = extractObjectId(params.id);
-    if (!id || !ObjectId.isValid(id)) return NextResponse.json({ error: "Invalid id" }, { status: 400 });
+    const { id } = await ctx.params; // ✅ unwrap params
+    const oid = toObjectId(id);
+
+    if (!oid) return NextResponse.json({ error: "Invalid id" }, { status: 400 });
 
     const body = await req.json();
 
@@ -31,7 +43,7 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
     };
 
     const db = await getDb();
-    const result = await db.collection(COLLECTION).updateOne({ _id: new ObjectId(id) }, { $set: update });
+    const result = await db.collection(COLLECTION).updateOne({ _id: oid }, { $set: update });
 
     if (result.matchedCount === 0) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
@@ -41,13 +53,15 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
   }
 }
 
-export async function DELETE(_: Request, { params }: { params: { id: string } }) {
+export async function DELETE(_req: Request, ctx: Ctx) {
   try {
-    const id = extractObjectId(params.id);
-    if (!id || !ObjectId.isValid(id)) return NextResponse.json({ error: "Invalid id" }, { status: 400 });
+    const { id } = await ctx.params; // ✅ unwrap params
+    const oid = toObjectId(id);
+
+    if (!oid) return NextResponse.json({ error: "Invalid id" }, { status: 400 });
 
     const db = await getDb();
-    const result = await db.collection(COLLECTION).deleteOne({ _id: new ObjectId(id) });
+    const result = await db.collection(COLLECTION).deleteOne({ _id: oid });
 
     if (result.deletedCount === 0) return NextResponse.json({ error: "Not found" }, { status: 404 });
 

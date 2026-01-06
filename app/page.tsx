@@ -143,7 +143,7 @@ export default function Home() {
       <div className="app-card app-card-pad">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h1 className="app-title">Add Customer</h1>
+            <h1 className="app-title">Add Sangat</h1>
             <p className="app-subtitle">Enter details and save the record.</p>
           </div>
 
@@ -297,7 +297,7 @@ export default function Home() {
             </button>
 
             <button type="submit" disabled={saving} className="app-btn app-btn-primary">
-              {saving ? "Saving..." : "Save Customer"}
+              {saving ? "Saving..." : "Save"}
             </button>
           </div>
         </form>

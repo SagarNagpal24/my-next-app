@@ -1,98 +1,102 @@
 import { NextResponse } from "next/server";
-import * as XLSX from "xlsx";
-import { getDb } from "../../../lib/mongodb";
+import { getDb } from "@/app/lib/mongodb";
 
 const COLLECTION = "customers";
 
-function cleanStr(v: any) {
-  return String(v ?? "").trim();
+function toNum(v: any) {
+  if (v === undefined || v === null || v === "") return undefined;
+  const n = Number(v);
+  return Number.isNaN(n) ? undefined : n;
 }
 
-function toISODate(value: any): Date | null {
-  if (!value) return null;
+export async function GET(req: Request) {
+  try {
+    const { searchParams } = new URL(req.url);
 
-  // If Excel date number
-  if (typeof value === "number") {
-    const d = XLSX.SSF.parse_date_code(value);
-    if (!d) return null;
-    return new Date(Date.UTC(d.y, d.m - 1, d.d));
+    const q = (searchParams.get("q") || "").trim();
+    const gender = (searchParams.get("gender") || "").trim();
+    const ageMin = toNum(searchParams.get("ageMin"));
+    const ageMax = toNum(searchParams.get("ageMax"));
+    const medFrom = (searchParams.get("medFrom") || "").trim();
+    const medTo = (searchParams.get("medTo") || "").trim();
+
+    // ✅ NEW: limit support (for export all)
+    const limitRaw = toNum(searchParams.get("limit"));
+    const limit = Math.min(Math.max(limitRaw ?? 200, 1), 10000); // max 10k for safety
+
+    const filter: any = {};
+
+    if (q) {
+      filter.$or = [
+        { name: { $regex: q, $options: "i" } },
+        { mobile: { $regex: q, $options: "i" } },
+        { adhaarNumber: { $regex: q, $options: "i" } },
+        { badgeNo: { $regex: q, $options: "i" } },
+      ];
+    }
+
+    if (gender) filter.gender = gender;
+
+    if (ageMin !== undefined || ageMax !== undefined) {
+      filter.age = {};
+      if (ageMin !== undefined) filter.age.$gte = ageMin;
+      if (ageMax !== undefined) filter.age.$lte = ageMax;
+    }
+
+    if (medFrom || medTo) {
+      filter.medicalDate = {};
+      if (medFrom) filter.medicalDate.$gte = new Date(medFrom);
+      if (medTo) filter.medicalDate.$lte = new Date(medTo);
+    }
+
+    const db = await getDb();
+    const items = await db
+      .collection(COLLECTION)
+      .find(filter)
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .toArray();
+
+    // ✅ ensure _id is string
+    const safeItems = items.map((x: any) => ({
+      ...x,
+      _id: x._id?.toString?.() ?? String(x._id),
+    }));
+
+    return NextResponse.json({ items: safeItems });
+  } catch (e: any) {
+    return NextResponse.json({ error: e?.message || "Server error" }, { status: 500 });
   }
-
-  // If string like "YYYY-MM-DD"
-  const s = cleanStr(value);
-  if (!s) return null;
-  const dt = new Date(s);
-  return isNaN(dt.getTime()) ? null : dt;
 }
 
 export async function POST(req: Request) {
   try {
-    const formData = await req.formData();
-    const file = formData.get("file");
+    const body = await req.json();
 
-    if (!file || !(file instanceof Blob)) {
-      return NextResponse.json({ error: "Excel file is required (field name: file)" }, { status: 400 });
-    }
+    const name = String(body.name || "").trim();
+    if (!name) return NextResponse.json({ error: "Name is required" }, { status: 400 });
 
-    const arrayBuffer = await file.arrayBuffer();
-    const wb = XLSX.read(arrayBuffer, { type: "array" });
-
-    const sheetName = wb.SheetNames[0];
-    if (!sheetName) return NextResponse.json({ error: "No sheet found in Excel" }, { status: 400 });
-
-    const ws = wb.Sheets[sheetName];
-    const rows: any[] = XLSX.utils.sheet_to_json(ws, { defval: "" });
-
-    if (!rows.length) {
-      return NextResponse.json({ error: "Excel has no data rows" }, { status: 400 });
-    }
-
-    // Expect these columns (matching the sample)
-    const required = ["Name"];
-    for (const r of required) {
-      if (!(r in rows[0])) {
-        return NextResponse.json({ error: `Missing column "${r}". Download sample and use same headers.` }, { status: 400 });
-      }
-    }
-
-    const docs = rows
-      .map((r) => {
-        const name = cleanStr(r["Name"]);
-        if (!name) return null;
-
-        const ageRaw = cleanStr(r["Age"]);
-        const age = ageRaw ? Number(ageRaw) : null;
-
-        return {
-          name,
-          badgeNo: cleanStr(r["Badge No"]),
-          fatherOrHusbandName: cleanStr(r["Father’s / Husband’s Name"]),
-          gender: cleanStr(r["Gender"]),
-          age: Number.isFinite(age as number) ? age : null,
-          address: cleanStr(r["Address"]),
-          mobile: cleanStr(r["Mobile"]),
-          adhaarNumber: cleanStr(r["Adhaar Number"]),
-          emergencyNumber: cleanStr(r["Emergency Number"]),
-          medicalDate: toISODate(r["Medical Date"]),
-          notes: cleanStr(r["Notes"]),
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        };
-      })
-      .filter(Boolean) as any[];
-
-    if (!docs.length) {
-      return NextResponse.json({ error: "No valid rows found (Name is required)." }, { status: 400 });
-    }
+    const doc = {
+      name,
+      badgeNo: String(body.badgeNo || "").trim(),
+      fatherOrHusbandName: String(body.fatherOrHusbandName || "").trim(),
+      gender: String(body.gender || "").trim(),
+      age: body.age === "" || body.age === null || body.age === undefined ? null : Number(body.age),
+      address: String(body.address || "").trim(),
+      mobile: String(body.mobile || "").trim(),
+      adhaarNumber: String(body.adhaarNumber || "").trim(),
+      emergencyNumber: String(body.emergencyNumber || "").trim(),
+      medicalDate: body.medicalDate ? new Date(String(body.medicalDate)) : null,
+      notes: String(body.notes || "").trim(),
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
 
     const db = await getDb();
-    const result = await db.collection(COLLECTION).insertMany(docs);
+    const result = await db.collection(COLLECTION).insertOne(doc);
 
-    return NextResponse.json({
-      ok: true,
-      inserted: result.insertedCount,
-    });
+    return NextResponse.json({ ok: true, id: result.insertedId.toString() }, { status: 201 });
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message || "Bulk upload failed" }, { status: 500 });
+    return NextResponse.json({ error: e?.message || "Server error" }, { status: 500 });
   }
 }
