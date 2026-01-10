@@ -423,12 +423,10 @@ export default function ReportsPage() {
               </div>
 
               <div class="row"><span class="label">Name:</span><span class="value">${name}</span></div>
-              <div class="row"><span class="label">F/H:</span><span class="value">${father}</span></div>
-              <div class="row"><span class="label">Gender:</span><span class="value">${gender}</span></div>
-              <div class="row"><span class="label">Age:</span><span class="value">${age}</span></div>
+            
               <div class="row"><span class="label">Mobile:</span><span class="value">${mobile}</span></div>
               <div class="row"><span class="label">Badge:</span><span class="value">${badge}</span></div>
-              <div class="row"><span class="label">Mode:</span><span class="value">${mode}</span></div>
+            
               <div class="row"><span class="label">Jatha:</span><span class="value">${jd}</span></div>
 
               <div class="sep"></div>
@@ -448,7 +446,7 @@ export default function ReportsPage() {
 
               <!-- ✅ Small contact line -->
               <div class="contact">
-                Contact: Gurjeet Kaur - 9999934357 &nbsp;&nbsp; Pulkit Sethi - 9871331688
+                Contact:<br> Gurjeet Kaur - 9999934357  <br> Pulkit Sethi - 9871331688
               </div>
             </div>
           `;
@@ -539,9 +537,9 @@ export default function ReportsPage() {
             margin-top:auto;
             padding-top: 2mm;
             font-size: 8pt;
-            font-weight: 600;
-            color: #333;
-            text-align: right;
+            font-weight: 800;
+            color: #353434ff;
+            text-align: left;
           }
         </style>
       </head>

@@ -9,6 +9,12 @@ function toNum(v: any) {
   return Number.isNaN(n) ? undefined : n;
 }
 
+function toNumRequired(v: any) {
+  if (v === undefined || v === null || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
 function toISODate10(v: any) {
   // returns "YYYY-MM-DD" or "" (empty)
   if (v === undefined || v === null) return "";
@@ -29,9 +35,11 @@ export async function GET(req: Request) {
     const route = (searchParams.get("route") || "").trim();
     const boardingStation = (searchParams.get("boardingStation") || "").trim();
     const gender = (searchParams.get("gender") || "").trim();
-
-    // ✅ ADD THIS (filter)
     const travelDate = toISODate10(searchParams.get("travelDate"));
+
+    // ✅ optional fare filters
+    const fareMin = toNum(searchParams.get("fareMin"));
+    const fareMax = toNum(searchParams.get("fareMax"));
 
     const limitRaw = toNum(searchParams.get("limit"));
     const limit = Math.min(Math.max(limitRaw ?? 500, 1), 10000);
@@ -46,9 +54,14 @@ export async function GET(req: Request) {
     if (route) filter.route = route;
     if (boardingStation) filter.boardingStation = boardingStation;
     if (gender) filter.gender = gender;
-
-    // ✅ ADD THIS (exact match on YYYY-MM-DD)
     if (travelDate) filter.travelDate = travelDate;
+
+    // ✅ fare range
+    if (fareMin !== undefined || fareMax !== undefined) {
+      filter.fare = {};
+      if (fareMin !== undefined) filter.fare.$gte = fareMin;
+      if (fareMax !== undefined) filter.fare.$lte = fareMax;
+    }
 
     // global search
     if (q) {
@@ -59,8 +72,6 @@ export async function GET(req: Request) {
         { trainName: { $regex: q, $options: "i" } },
         { route: { $regex: q, $options: "i" } },
         { boardingStation: { $regex: q, $options: "i" } },
-
-        // ✅ optional: allow search by travel date too
         { travelDate: { $regex: q, $options: "i" } },
       ];
     }
@@ -85,7 +96,7 @@ export async function POST(req: Request) {
     const body = await req.json();
 
     const name = String(body.name || "").trim();
-    const age = body.age === "" || body.age === null || body.age === undefined ? null : Number(body.age);
+    const age = toNumRequired(body.age);
     const gender = String(body.gender || "").trim();
 
     const seatNumber = String(body.seatNumber || "").trim().toUpperCase();
@@ -93,25 +104,45 @@ export async function POST(req: Request) {
 
     const trainName = String(body.trainName || "").trim();
     const route = String(body.route || "").trim();
-    const trainTime = String(body.trainTime || "").trim(); // dropdown later ok
+    const trainTime = String(body.trainTime || "").trim();
     const boardingStation = String(body.boardingStation || "").trim();
 
-    // ✅ ADD THIS (save)
     const travelDate = toISODate10(body.travelDate);
 
+    // ✅ NEW: fare
+    const fare = toNumRequired(body.fare);
+
+    // ✅ ALL REQUIRED VALIDATIONS
     if (!name) return NextResponse.json({ error: "Name is required" }, { status: 400 });
-    if (age !== null && Number.isNaN(age)) return NextResponse.json({ error: "Invalid age" }, { status: 400 });
+
+    if (age === null || age <= 0) {
+      return NextResponse.json({ error: "Age is required and must be a valid number" }, { status: 400 });
+    }
+
+    if (!gender) return NextResponse.json({ error: "Gender is required" }, { status: 400 });
+    if (!["M", "F", "Other"].includes(gender)) {
+      return NextResponse.json({ error: "Gender must be M, F, or Other" }, { status: 400 });
+    }
 
     if (!seatNumber) return NextResponse.json({ error: "Seat number is required" }, { status: 400 });
-    if (!/^[A-Za-z]\d{1,3}$/.test(seatNumber)) return NextResponse.json({ error: "Invalid seat number format (example: A1, B12)" }, { status: 400 });
+    if (!/^[A-Za-z]\d{1,3}$/.test(seatNumber)) {
+      return NextResponse.json({ error: "Invalid seat number format (example: A1, B12)" }, { status: 400 });
+    }
 
     if (!pnrNumber) return NextResponse.json({ error: "PNR is required" }, { status: 400 });
     if (!trainName) return NextResponse.json({ error: "Train name is required" }, { status: 400 });
     if (!route) return NextResponse.json({ error: "Route is required" }, { status: 400 });
+
+    // ✅ make trainTime required
+    if (!trainTime) return NextResponse.json({ error: "Train time is required" }, { status: 400 });
+
     if (!boardingStation) return NextResponse.json({ error: "Boarding station is required" }, { status: 400 });
 
-    // ✅ optional but recommended: require travel date
     if (!travelDate) return NextResponse.json({ error: "Travel date is required" }, { status: 400 });
+
+    if (fare === null || fare < 0) {
+      return NextResponse.json({ error: "Fare is required and must be a valid number" }, { status: 400 });
+    }
 
     const doc = {
       name,
@@ -123,10 +154,8 @@ export async function POST(req: Request) {
       route,
       trainTime,
       boardingStation,
-
-      // ✅ IMPORTANT
-      travelDate, // store as "YYYY-MM-DD"
-
+      travelDate, // "YYYY-MM-DD"
+      fare, // ✅ IMPORTANT: saved to Mongo
       createdAt: new Date(),
       updatedAt: new Date(),
     };

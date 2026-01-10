@@ -4,6 +4,10 @@ import { getDb } from "../../../lib/mongodb"; // keep your current working relat
 
 const COLLECTION = "customers";
 
+function digitsOnly(v: any) {
+  return String(v ?? "").replace(/\D/g, "");
+}
+
 function toObjectId(raw: string) {
   const decoded = decodeURIComponent(String(raw || "")).trim();
   const match = decoded.match(/[a-fA-F0-9]{24}/);
@@ -16,13 +20,9 @@ function toObjectId(raw: string) {
   }
 }
 
-export async function PUT(
-  req: Request,
-  ctx: { params: Promise<{ id: string }> } // ✅ params is Promise
-) {
+export async function PUT(req: Request, ctx: { params: Promise<{ id: string }> }) {
   try {
-    const { id } = await ctx.params; // ✅ unwrap params
-    console.log("PUT params.id =", id);
+    const { id } = await ctx.params;
 
     const oid = toObjectId(id);
     if (!oid) return NextResponse.json({ error: "Invalid customer id" }, { status: 400 });
@@ -30,21 +30,66 @@ export async function PUT(
     const body = await req.json();
 
     const name = String(body.name || "").trim();
-    if (!name) return NextResponse.json({ error: "Name is required" }, { status: 400 });
+    const badgeNo = String(body.badgeNo || "").trim();
+    const adhaarNumber = digitsOnly(body.adhaarNumber || "").slice(0, 12);
 
-    const md = String(body.medicalDate || "").trim();
+    const fatherOrHusbandName = String(body.fatherOrHusbandName || "").trim();
+    const gender = String(body.gender || "").trim(); // M/F/Other
+    const address = String(body.address || "").trim();
+    const mobile = digitsOnly(body.mobile || "");
+    const blacklisted = String(body.blacklisted || "No").trim();
+
+    const age = body.age === "" || body.age === null || body.age === undefined ? null : Number(body.age);
+
+    // ✅ REQUIRED fields
+    if (!name) return NextResponse.json({ error: "Name is required" }, { status: 400 });
+    if (!fatherOrHusbandName) return NextResponse.json({ error: "Father/Husband Name is required" }, { status: 400 });
+    if (!gender) return NextResponse.json({ error: "Gender is required" }, { status: 400 });
+    if (!address) return NextResponse.json({ error: "Address is required" }, { status: 400 });
+    if (!mobile) return NextResponse.json({ error: "Mobile is required" }, { status: 400 });
+
+    if (age === null || Number.isNaN(age) || age <= 0) {
+      return NextResponse.json({ error: "Age is required and must be valid" }, { status: 400 });
+    }
+
+    // ✅ Badge OR Aadhaar required
+    if (!badgeNo && !adhaarNumber) {
+      return NextResponse.json({ error: "Either Badge No or Aadhaar must be filled" }, { status: 400 });
+    }
+
+    // ✅ Aadhaar must be 12 digits if provided
+    if (adhaarNumber && adhaarNumber.length !== 12) {
+      return NextResponse.json({ error: "Aadhaar must be exactly 12 digits (if provided)" }, { status: 400 });
+    }
+
+    // ✅ Gender allowed values
+    if (!["M", "F", "Other"].includes(gender)) {
+      return NextResponse.json({ error: "Gender must be M, F, or Other" }, { status: 400 });
+    }
+
+    // ✅ Blacklisted allowed values
+    if (blacklisted && !["Yes", "No"].includes(blacklisted)) {
+      return NextResponse.json({ error: "Blacklisted must be Yes or No" }, { status: 400 });
+    }
+
+    const mdRaw = String(body.medicalDate || "").trim();
+    const medicalDate = mdRaw ? new Date(mdRaw) : null;
+    if (mdRaw && Number.isNaN(medicalDate!.getTime())) {
+      return NextResponse.json({ error: "Invalid medical date" }, { status: 400 });
+    }
 
     const update: any = {
       name,
-      badgeNo: String(body.badgeNo || "").trim(),
-      fatherOrHusbandName: String(body.fatherOrHusbandName || "").trim(),
-      gender: String(body.gender || "").trim(),
-      age: body.age === "" || body.age === null || body.age === undefined ? null : Number(body.age),
-      address: String(body.address || "").trim(),
-      mobile: String(body.mobile || "").trim(),
-      adhaarNumber: String(body.adhaarNumber || "").trim(),
-      emergencyNumber: String(body.emergencyNumber || "").trim(),
-      medicalDate: md ? new Date(md) : null,
+      badgeNo,
+      fatherOrHusbandName,
+      gender,
+      age,
+      address,
+      mobile,
+      adhaarNumber: adhaarNumber || "",
+      blacklisted: blacklisted || "No",
+      emergencyNumber: digitsOnly(body.emergencyNumber || ""),
+      medicalDate,
       notes: String(body.notes || "").trim(),
       updatedAt: new Date(),
     };
@@ -65,13 +110,9 @@ export async function PUT(
   }
 }
 
-export async function DELETE(
-  _req: Request,
-  ctx: { params: Promise<{ id: string }> } // ✅ params is Promise
-) {
+export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   try {
-    const { id } = await ctx.params; // ✅ unwrap params
-    console.log("DELETE params.id =", id);
+    const { id } = await ctx.params;
 
     const oid = toObjectId(id);
     if (!oid) return NextResponse.json({ error: "Invalid customer id" }, { status: 400 });

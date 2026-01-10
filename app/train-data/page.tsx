@@ -9,22 +9,39 @@ type TrainName =
   | "Pathankot Express"
   | "Shatabdi Express"
   | "Jallianwala Bagh Express";
-type RouteType = "" | "DLI-BEAS" | "BEAS-DLI";
+type RouteType = "" | "DELHI-BEAS" | "BEAS-DELHI";
 type BoardingStation = "" | "New Delhi" | "Old Delhi";
+
+type RowErr = { row: number; field: string; message: string };
 
 type TrainRow = {
   _id: string;
   name: string;
-  age?: number | null;
-  gender?: Gender | string;
-  seatNumber?: string;
-  pnrNumber?: string;
-  trainName?: TrainName | string;
-  route?: RouteType | string;
-  trainTime?: string; // dropdown later
-  boardingStation?: BoardingStation | string;
-  travelDate?: string | null; // YYYY-MM-DD or ISO
+  age: number; // REQUIRED
+  gender: Gender | string; // REQUIRED
+  seatNumber: string; // REQUIRED
+  pnrNumber: string; // REQUIRED
+  trainName: TrainName | string; // REQUIRED
+  route: RouteType | string; // REQUIRED
+  trainTime: string; // REQUIRED
+  boardingStation: BoardingStation | string; // REQUIRED
+  travelDate: string | null; // REQUIRED
+  fare: number; // ✅ REQUIRED
   createdAt?: string | null;
+};
+
+type FormState = {
+  name: string;
+  age: string;
+  gender: Gender;
+  seatNumber: string;
+  pnrNumber: string;
+  trainName: TrainName;
+  route: RouteType;
+  trainTime: string;
+  boardingStation: BoardingStation;
+  travelDate: string;
+  fare: string; // keep string for input, convert to number
 };
 
 const TRAIN_OPTIONS: TrainName[] = [
@@ -33,11 +50,16 @@ const TRAIN_OPTIONS: TrainName[] = [
   "Shatabdi Express",
   "Jallianwala Bagh Express",
 ];
-const ROUTE_OPTIONS: RouteType[] = ["DLI-BEAS", "BEAS-DLI"];
+const ROUTE_OPTIONS: RouteType[] = ["DELHI-BEAS", "BEAS-DELHI"];
 const BOARDING_OPTIONS: BoardingStation[] = ["New Delhi", "Old Delhi"];
-
-// You said you will add train time values later:
-const TRAIN_TIME_OPTIONS: string[] = ["06:40 AM","08:10 AM","07:15 AM","03:40 PM","10:00 AM","05:20 PM"]; // e.g. ["06:40 AM","07:10 AM"]
+const TRAIN_TIME_OPTIONS: string[] = [
+  "06:40 AM",
+  "08:10 AM",
+  "07:15 AM",
+  "03:40 PM",
+  "10:00 AM",
+  "05:20 PM",
+];
 
 function normalizeId(raw: any): string {
   const candidate =
@@ -71,14 +93,112 @@ function escapeHtml(s: any) {
     .replaceAll("'", "&#039;");
 }
 
+function toNumStrict(v: any) {
+  if (v === undefined || v === null || v === "") return null;
+  const n = Number(v);
+  if (!Number.isFinite(n)) return null;
+  return n;
+}
+
+function normalizeKey(k: string) {
+  return String(k || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+}
+
+function pickAny(row: any, keys: string[]) {
+  for (const k of keys) {
+    if (row[k] !== undefined && row[k] !== null && row[k] !== "") return row[k];
+  }
+  const nkSet = new Set(keys.map(normalizeKey));
+  for (const rk of Object.keys(row || {})) {
+    if (nkSet.has(normalizeKey(rk))) {
+      const v = row[rk];
+      if (v !== undefined && v !== null && v !== "") return v;
+    }
+  }
+  return "";
+}
+
+function validateSingle(payload: FormState): string | null {
+  const name = payload.name.trim();
+  const age = toNumStrict(payload.age);
+  const fare = toNumStrict(payload.fare);
+
+  if (!name) return "Name is required.";
+  if (age === null || age <= 0) return "Age is required and must be a valid number.";
+  if (!payload.gender) return "Gender is required.";
+  if (!payload.seatNumber.trim()) return "Seat Number is required.";
+  if (!payload.pnrNumber.trim()) return "PNR is required.";
+  if (!payload.trainName) return "Train Name is required.";
+  if (!payload.route) return "Route is required.";
+  if (!payload.trainTime.trim()) return "Train Time is required.";
+  if (!payload.boardingStation) return "Boarding Station is required.";
+  if (!payload.travelDate) return "Travel Date is required.";
+  if (fare === null || fare < 0) return "Fare is required and must be a valid number.";
+
+  // allowed checks
+  if (!["M", "F", "Other"].includes(payload.gender)) return "Gender must be M, F, or Other.";
+  if (!TRAIN_OPTIONS.includes(payload.trainName)) return "Train Name is invalid.";
+  if (!ROUTE_OPTIONS.includes(payload.route)) return "Route is invalid.";
+  if (!BOARDING_OPTIONS.includes(payload.boardingStation)) return "Boarding Station is invalid.";
+  if (!TRAIN_TIME_OPTIONS.includes(payload.trainTime)) return "Train Time is invalid.";
+
+  return null;
+}
+
+function validateExcelRow(clean: any, rowNumber: number): RowErr[] {
+  const errs: RowErr[] = [];
+
+  const name = String(clean.name || "").trim();
+  const age = toNumStrict(clean.age);
+  const gender = String(clean.gender || "").trim();
+  const seatNumber = String(clean.seatNumber || "").trim();
+  const pnrNumber = String(clean.pnrNumber || "").trim();
+  const trainName = String(clean.trainName || "").trim();
+  const route = String(clean.route || "").trim();
+  const trainTime = String(clean.trainTime || "").trim();
+  const boardingStation = String(clean.boardingStation || "").trim();
+  const travelDate = String(clean.travelDate || "").trim();
+  const fare = toNumStrict(clean.fare);
+
+  if (!name) errs.push({ row: rowNumber, field: "Name", message: "Name is required." });
+  if (age === null || age <= 0) errs.push({ row: rowNumber, field: "Age", message: "Age is required and must be a valid number." });
+  if (!gender) errs.push({ row: rowNumber, field: "Gender", message: "Gender is required." });
+  if (!seatNumber) errs.push({ row: rowNumber, field: "Seat Number", message: "Seat Number is required." });
+  if (!pnrNumber) errs.push({ row: rowNumber, field: "PNR", message: "PNR is required." });
+  if (!trainName) errs.push({ row: rowNumber, field: "Train Name", message: "Train Name is required." });
+  if (!route) errs.push({ row: rowNumber, field: "Route", message: "Route is required." });
+  if (!trainTime) errs.push({ row: rowNumber, field: "Train Time", message: "Train Time is required." });
+  if (!boardingStation) errs.push({ row: rowNumber, field: "Boarding Station", message: "Boarding Station is required." });
+  if (!travelDate) errs.push({ row: rowNumber, field: "Travel Date", message: "Travel Date is required." });
+  if (fare === null || fare < 0) errs.push({ row: rowNumber, field: "Fare", message: "Fare is required and must be a valid number." });
+
+  // allowed values
+  if (gender && !["M", "F", "Other"].includes(gender)) errs.push({ row: rowNumber, field: "Gender", message: "Gender must be M, F, or Other." });
+  if (trainName && !TRAIN_OPTIONS.includes(trainName as any)) errs.push({ row: rowNumber, field: "Train Name", message: "Invalid Train Name." });
+  if (route && !ROUTE_OPTIONS.includes(route as any)) errs.push({ row: rowNumber, field: "Route", message: "Invalid Route." });
+  if (boardingStation && !BOARDING_OPTIONS.includes(boardingStation as any)) errs.push({ row: rowNumber, field: "Boarding Station", message: "Invalid Boarding Station." });
+  if (trainTime && !TRAIN_TIME_OPTIONS.includes(trainTime)) errs.push({ row: rowNumber, field: "Train Time", message: "Invalid Train Time." });
+
+  // travelDate format check
+  if (travelDate) {
+    const d = new Date(travelDate);
+    if (Number.isNaN(d.getTime())) errs.push({ row: rowNumber, field: "Travel Date", message: "Invalid Travel Date." });
+  }
+
+  return errs;
+}
+
 export default function TrainDataPage() {
   const [items, setItems] = React.useState<TrainRow[]>([]);
   const [loading, setLoading] = React.useState(true);
 
-  // form
-  const [form, setForm] = React.useState<Omit<TrainRow, "_id">>({
+  // ✅ Form (all required)
+  const [form, setForm] = React.useState<FormState>({
     name: "",
-    age: null,
+    age: "",
     gender: "",
     seatNumber: "",
     pnrNumber: "",
@@ -87,6 +207,7 @@ export default function TrainDataPage() {
     trainTime: "",
     boardingStation: "",
     travelDate: todayISO(),
+    fare: "",
   });
 
   // edit
@@ -102,7 +223,7 @@ export default function TrainDataPage() {
   const [fRoute, setFRoute] = React.useState<RouteType>("");
   const [fBoarding, setFBoarding] = React.useState<BoardingStation>("");
   const [fGender, setFGender] = React.useState<Gender>("");
-  const [fTravelDate, setFTravelDate] = React.useState(""); // YYYY-MM-DD
+  const [fTravelDate, setFTravelDate] = React.useState("");
 
   // suggestions
   const [suggestions, setSuggestions] = React.useState<string[]>([]);
@@ -119,10 +240,24 @@ export default function TrainDataPage() {
   const [printing, setPrinting] = React.useState(false);
   const [bulkLoading, setBulkLoading] = React.useState(false);
 
+  // ✅ Bulk UI report (ALL OR NOTHING)
+  const [bulkStatus, setBulkStatus] = React.useState<{ type: "idle" | "ok" | "err"; msg: string }>({
+    type: "idle",
+    msg: "",
+  });
+  const [bulkErrors, setBulkErrors] = React.useState<RowErr[]>([]);
+  const [bulkTotalErrors, setBulkTotalErrors] = React.useState(0);
+
+  // ✅ NEW: allow user to close report (errors OR success)
+  const [showBulkReport, setShowBulkReport] = React.useState(true);
+
+  // ✅ NEW: file clear support
+  const bulkInputRef = React.useRef<HTMLInputElement | null>(null);
+
   function resetForm() {
     setForm({
       name: "",
-      age: null,
+      age: "",
       gender: "",
       seatNumber: "",
       pnrNumber: "",
@@ -131,6 +266,7 @@ export default function TrainDataPage() {
       trainTime: "",
       boardingStation: "",
       travelDate: todayISO(),
+      fare: "",
     });
   }
 
@@ -156,7 +292,6 @@ export default function TrainDataPage() {
 
       if (resetPage) setPage(1);
 
-      // keep selection only for existing ids
       setSelectedIds((prev) => {
         const next: Record<string, boolean> = {};
         for (const r of safe) if (prev[r._id]) next[r._id] = true;
@@ -242,17 +377,24 @@ export default function TrainDataPage() {
   async function onCreate(e: React.FormEvent) {
     e.preventDefault();
 
+    const errMsg = validateSingle(form);
+    if (errMsg) {
+      alert(errMsg);
+      return;
+    }
+
     const payload = {
-      name: String(form.name || "").trim(),
-      age: form.age === null || form.age === undefined ? null : Number(form.age),
-      gender: String(form.gender || "").trim(),
-      seatNumber: String(form.seatNumber || "").trim().toUpperCase(),
-      pnrNumber: String(form.pnrNumber || "").trim(),
-      trainName: String(form.trainName || "").trim(),
-      route: String(form.route || "").trim(),
-      trainTime: String(form.trainTime || "").trim(),
-      boardingStation: String(form.boardingStation || "").trim(),
+      name: form.name.trim(),
+      age: Number(form.age),
+      gender: form.gender,
+      seatNumber: form.seatNumber.trim().toUpperCase(),
+      pnrNumber: form.pnrNumber.trim(),
+      trainName: form.trainName,
+      route: form.route,
+      trainTime: form.trainTime.trim(),
+      boardingStation: form.boardingStation,
       travelDate: String(form.travelDate || "").slice(0, 10),
+      fare: Number(form.fare),
     };
 
     setSaving(true);
@@ -304,9 +446,29 @@ export default function TrainDataPage() {
       return;
     }
 
+    // ✅ all required in edit
+    const editCheck: FormState = {
+      name: String(editing.name || ""),
+      age: String(editing.age ?? ""),
+      gender: (editing.gender as any) || "",
+      seatNumber: String(editing.seatNumber || ""),
+      pnrNumber: String(editing.pnrNumber || ""),
+      trainName: (editing.trainName as any) || "",
+      route: (editing.route as any) || "",
+      trainTime: String(editing.trainTime || ""),
+      boardingStation: (editing.boardingStation as any) || "",
+      travelDate: String(editing.travelDate || "").slice(0, 10),
+      fare: String((editing as any).fare ?? ""),
+    };
+    const errMsg = validateSingle(editCheck);
+    if (errMsg) {
+      alert(errMsg);
+      return;
+    }
+
     const payload = {
       name: String(editing.name || "").trim(),
-      age: editing.age === null || editing.age === undefined ? null : Number(editing.age),
+      age: Number(editing.age),
       gender: String(editing.gender || "").trim(),
       seatNumber: String(editing.seatNumber || "").trim().toUpperCase(),
       pnrNumber: String(editing.pnrNumber || "").trim(),
@@ -315,6 +477,7 @@ export default function TrainDataPage() {
       trainTime: String(editing.trainTime || "").trim(),
       boardingStation: String(editing.boardingStation || "").trim(),
       travelDate: String(editing.travelDate || "").slice(0, 10),
+      fare: Number((editing as any).fare),
     };
 
     setSaving(true);
@@ -382,6 +545,7 @@ export default function TrainDataPage() {
       "Train Time",
       "Boarding Station",
       "Travel Date",
+      "Fare",
     ];
     const aoa: any[][] = [header];
 
@@ -398,6 +562,7 @@ export default function TrainDataPage() {
         r.trainTime || "",
         r.boardingStation || "",
         r.travelDate ? String(r.travelDate).slice(0, 10) : "",
+        (r as any).fare ?? "",
       ]);
     });
 
@@ -460,6 +625,7 @@ export default function TrainDataPage() {
               <div class="row"><span class="label">Route:</span><span class="value">${escapeHtml(p.route || "-")}</span></div>
               <div class="row"><span class="label">Time:</span><span class="value">${escapeHtml(p.trainTime || "-")}</span></div>
               <div class="row"><span class="label">Boarding:</span><span class="value">${escapeHtml(p.boardingStation || "-")}</span></div>
+              <div class="row"><span class="label">Fare:</span><span class="value">${escapeHtml((p as any).fare ?? "-")}</span></div>
 
               <div class="foot"><span>Travel Date: ${escapeHtml(dateStr)}</span></div>
             </div>
@@ -467,7 +633,6 @@ export default function TrainDataPage() {
         })
         .join("");
 
-      // Fill empty cells so grid is always 2x3
       const emptyCount = chunkSize - chunk.length;
       const empties = Array.from({ length: emptyCount }, () => `<div class="ticket ticket-empty"></div>`).join("");
 
@@ -490,18 +655,9 @@ export default function TrainDataPage() {
        <style>
   @page { size: A4; margin: 8mm; }
 
-  html, body {
-    margin: 0;
-    padding: 0;
-    font-family: Arial, sans-serif;
-  }
+  html, body { margin: 0; padding: 0; font-family: Arial, sans-serif; }
 
-  .page {
-    width: 194mm;
-    height: 281mm;
-    box-sizing: border-box;
-    page-break-after: always;
-  }
+  .page { width: 194mm; height: 281mm; box-sizing: border-box; page-break-after: always; }
   .page:last-child { page-break-after: auto; }
 
   .grid {
@@ -518,62 +674,24 @@ export default function TrainDataPage() {
     border-radius: 8px;
     padding: 5mm;
     box-sizing: border-box;
-
     display: flex;
     flex-direction: column;
-
     break-inside: avoid;
     page-break-inside: avoid;
   }
 
-  .ticket-empty {
-    border: 0;
-  }
+  .ticket-empty { border: 0; }
 
-  .head {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 2.5mm;
-  }
+  .head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2.5mm; }
+  .title { font-size: 14pt; font-weight: 800; }
+  .sn { font-size: 10.5pt; font-weight: 700; }
 
-  .title {
-    font-size: 14pt;
-    font-weight: 800;
-  }
+  .row { display: flex; gap: 6px; margin: 1.6mm 0; font-size: 11pt; line-height: 1.15; }
+  .label { width: 40%; font-weight: 700; }
+  .value { width: 60%; font-weight: 600; }
 
-  .sn {
-    font-size: 10.5pt;
-    font-weight: 700;
-  }
-
-  .row {
-    display: flex;
-    gap: 6px;
-    margin: 1.6mm 0;
-    font-size: 11pt;
-    line-height: 1.15;
-  }
-
-  .label {
-    width: 40%;
-    font-weight: 700;
-  }
-
-  .value {
-    width: 60%;
-    font-weight: 600;
-  }
-
-  .foot {
-    margin-top: auto;
-    border-top: 1px dashed #999;
-    padding-top: 2mm;
-    font-size: 10.5pt;
-    font-weight: 700;
-  }
+  .foot { margin-top: auto; border-top: 1px dashed #999; padding-top: 2mm; font-size: 10.5pt; font-weight: 700; }
 </style>
-
       </head>
       <body>
         ${pages.join("")}
@@ -621,6 +739,7 @@ export default function TrainDataPage() {
       "trainTime",
       "boardingStation",
       "travelDate",
+      "fare",
     ];
     const example = [
       "Sagar",
@@ -629,10 +748,11 @@ export default function TrainDataPage() {
       "A1",
       "1234567890",
       "Shan-e-Punjab Express",
-      "DLI-BEAS",
-      "",
+      "DELHI-BEAS",
+      "06:40 AM",
       "New Delhi",
       todayISO(),
+      250,
     ];
 
     const ws = XLSX.utils.aoa_to_sheet([header, example]);
@@ -641,8 +761,23 @@ export default function TrainDataPage() {
     XLSX.writeFile(wb, `train_data_sample_${todayISO()}.xlsx`);
   }
 
-  // bulk upload
+  function clearSelectedBulkFile() {
+    if (bulkInputRef.current) bulkInputRef.current.value = "";
+    setShowBulkReport(true);
+    setBulkStatus({ type: "idle", msg: "" });
+    setBulkErrors([]);
+    setBulkTotalErrors(0);
+  }
+
+  // ✅ Bulk upload: validate ALL rows first, show report, upload ONLY when no errors
   async function onBulkUpload(file: File) {
+    // open the report panel for new attempt
+    setShowBulkReport(true);
+
+    setBulkStatus({ type: "idle", msg: "" });
+    setBulkErrors([]);
+    setBulkTotalErrors(0);
+
     setBulkLoading(true);
     try {
       const XLSX = await import("xlsx");
@@ -651,19 +786,41 @@ export default function TrainDataPage() {
       const ws = wb.Sheets[wb.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json(ws, { defval: "" }) as any[];
 
+      if (!rows.length) {
+        setBulkStatus({ type: "err", msg: "Excel file is empty." });
+        return;
+      }
+
+      // normalize headers
       const normalized = rows.map((r) => ({
-        name: r.name ?? r.Name ?? "",
-        age: r.age ?? r.Age ?? "",
-        gender: r.gender ?? r.Gender ?? "",
-        seatNumber: r.seatNumber ?? r["Seat Number"] ?? r.seat ?? "",
-        pnrNumber: r.pnrNumber ?? r.PNR ?? r.pnr ?? "",
-        trainName: r.trainName ?? r.Train ?? "",
-        route: r.route ?? r.Route ?? "",
-        trainTime: r.trainTime ?? r["Train Time"] ?? "",
-        boardingStation: r.boardingStation ?? r.Boarding ?? r["Boarding Station"] ?? "",
-        travelDate: r.travelDate ?? r["Travel Date"] ?? r.date ?? "",
+        name: pickAny(r, ["name", "Name"]),
+        age: pickAny(r, ["age", "Age"]),
+        gender: pickAny(r, ["gender", "Gender"]),
+        seatNumber: pickAny(r, ["seatNumber", "Seat Number", "seat", "Seat"]),
+        pnrNumber: pickAny(r, ["pnrNumber", "PNR", "pnr"]),
+        trainName: pickAny(r, ["trainName", "Train", "train"]),
+        route: pickAny(r, ["route", "Route"]),
+        trainTime: pickAny(r, ["trainTime", "Train Time"]),
+        boardingStation: pickAny(r, ["boardingStation", "Boarding Station", "boarding", "Boarding"]),
+        travelDate: pickAny(r, ["travelDate", "Travel Date", "date"]),
+        fare: pickAny(r, ["fare", "Fare"]),
       }));
 
+      // ✅ Validate ALL rows locally (NO upload if any errors)
+      const errs: RowErr[] = [];
+      normalized.forEach((r, idx) => {
+        const rowNumber = idx + 2; // header is row 1
+        errs.push(...validateExcelRow(r, rowNumber));
+      });
+
+      if (errs.length) {
+        setBulkErrors(errs);
+        setBulkTotalErrors(errs.length);
+        setBulkStatus({ type: "err", msg: "Validation failed. Fix the errors below and upload again." });
+        return; // ✅ STOP - nothing uploaded
+      }
+
+      // ✅ Now upload (backend should still validate)
       const res = await fetch(`/api/train-data/bulk`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -672,11 +829,25 @@ export default function TrainDataPage() {
 
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
-        alert(`Bulk upload failed. ${JSON.stringify(json)}`);
+        const list: RowErr[] = Array.isArray(json?.errors) ? json.errors : [];
+        setBulkErrors(list);
+        setBulkTotalErrors(Number(json?.totalErrors || list.length || 0));
+        setBulkStatus({ type: "err", msg: json?.error || "Bulk upload failed." });
         return;
       }
 
-      alert(`Bulk upload done. Inserted: ${json.insertedCount}. Errors: ${json.errors?.length || 0}`);
+      // ✅ SUCCESS MESSAGE ON SCREEN
+      const inserted = Number(json?.insertedCount ?? json?.inserted ?? 0);
+      setBulkStatus({
+        type: "ok",
+        msg: inserted > 0 ? `Successfully uploaded all the data. Inserted ${inserted} records.` : "Successfully uploaded all the data.",
+      });
+      setBulkErrors([]);
+      setBulkTotalErrors(0);
+
+      // optional: clear file input after success
+      if (bulkInputRef.current) bulkInputRef.current.value = "";
+
       await load(true);
     } finally {
       setBulkLoading(false);
@@ -690,7 +861,7 @@ export default function TrainDataPage() {
           <div>
             <h1 className="text-xl font-semibold">Train Data</h1>
             <p className="app-subtitle">
-              Add records, bulk upload via Excel, search/filter with suggestions, export, and print A4 tickets (6 per page, multi-page).
+              Add records, bulk upload via Excel (all-or-nothing), search/filter with suggestions, export, and print A4 tickets (6 per page, multi-page).
             </p>
           </div>
 
@@ -699,16 +870,29 @@ export default function TrainDataPage() {
               Download Sample Excel
             </button>
 
+            {/* ✅ CLEAR FILE BUTTON + UPLOAD */}
+            <button
+              type="button"
+              onClick={clearSelectedBulkFile}
+              className="app-btn app-btn-secondary h-10 px-4"
+              disabled={bulkLoading}
+              title="Clear selected file"
+            >
+              Clear Errors
+            </button>
+
             <label className="app-btn app-btn-secondary h-10 px-4 cursor-pointer">
-              {bulkLoading ? "Uploading..." : "Bulk Upload Excel"}
+              {bulkLoading ? "Validating..." : "Bulk Upload Excel"}
               <input
+                ref={bulkInputRef}
                 type="file"
                 accept=".xlsx,.xls"
                 className="hidden"
                 onChange={(e) => {
                   const f = e.target.files?.[0];
+                  // reopen report for every new selection
+                  setShowBulkReport(true);
                   if (f) onBulkUpload(f);
-                  e.currentTarget.value = "";
                 }}
               />
             </label>
@@ -727,31 +911,92 @@ export default function TrainDataPage() {
           </div>
         </div>
 
-        {/* FORM */}
+        {/* ✅ Bulk status + error report (closable) */}
+        {showBulkReport && bulkStatus.type !== "idle" && (
+          <div
+            className={[
+              "mt-4 rounded-xl border p-3 text-sm relative pr-10",
+              bulkStatus.type === "ok"
+                ? "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900/40 dark:bg-emerald-900/20 dark:text-emerald-200"
+                : "border-red-200 bg-red-50 text-red-800 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-200",
+            ].join(" ")}
+            role="status"
+          >
+            <button
+              type="button"
+              onClick={() => setShowBulkReport(false)}
+              className="absolute right-2 top-2 h-7 w-7 rounded-lg font-bold hover:bg-black/5 dark:hover:bg-white/10"
+              title="Close"
+              aria-label="Close"
+            >
+              ✕
+            </button>
+            {bulkStatus.msg}
+          </div>
+        )}
+
+        {showBulkReport && bulkErrors.length > 0 && (
+          <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-200 relative pr-10">
+            <button
+              type="button"
+              onClick={() => setShowBulkReport(false)}
+              className="absolute right-3 top-3 h-8 w-8 rounded-lg font-bold hover:bg-black/5 dark:hover:bg-white/10"
+              title="Close report"
+              aria-label="Close report"
+            >
+              ✕
+            </button>
+
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="font-semibold">Fix these rows and upload again</div>
+              <div className="text-xs opacity-90">
+                Total errors: <span className="font-semibold">{bulkTotalErrors || bulkErrors.length}</span>
+              </div>
+            </div>
+
+            <div className="mt-3 max-h-72 overflow-auto rounded-xl border border-red-200/60 bg-white/60 p-3 text-xs dark:border-red-900/30 dark:bg-black/10">
+              <ul className="space-y-1">
+                {bulkErrors.slice(0, 200).map((e, idx) => (
+                  <li key={idx} className="leading-5">
+                    <span className="font-semibold">Row {e.row}</span> — {e.field}: {e.message}
+                  </li>
+                ))}
+              </ul>
+              {bulkErrors.length > 200 && <div className="mt-2 font-semibold">Showing first 200 errors…</div>}
+            </div>
+
+            <div className="mt-3 text-xs opacity-90">
+              Nothing was uploaded because some rows are invalid. Please correct the rows above and upload again.
+            </div>
+          </div>
+        )}
+
+        {/* FORM (all required) */}
         <form onSubmit={onCreate} className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          <input className="app-input app-input-sm" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Name" />
+          <input className="app-input app-input-sm" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Name *" required />
 
           <input
             className="app-input app-input-sm"
-            value={form.age === null || form.age === undefined ? "" : String(form.age)}
-            onChange={(e) => setForm({ ...form, age: e.target.value ? Number(e.target.value) : null })}
-            placeholder="Age"
+            value={form.age}
+            onChange={(e) => setForm({ ...form, age: e.target.value.replace(/[^\d]/g, "") })}
+            placeholder="Age *"
             inputMode="numeric"
+            required
           />
 
-          <select className="app-input app-input-sm" value={(form.gender as any) || ""} onChange={(e) => setForm({ ...form, gender: e.target.value as any })}>
-            <option value="">Gender</option>
+          <select className="app-input app-input-sm" value={form.gender} onChange={(e) => setForm({ ...form, gender: e.target.value as any })} required>
+            <option value="">Gender *</option>
             <option value="M">M</option>
             <option value="F">F</option>
             <option value="Other">Other</option>
           </select>
 
-          <input className="app-input app-input-sm" value={form.seatNumber || ""} onChange={(e) => setForm({ ...form, seatNumber: e.target.value })} placeholder="Seat Number (A1, B12)" />
+          <input className="app-input app-input-sm" value={form.seatNumber} onChange={(e) => setForm({ ...form, seatNumber: e.target.value })} placeholder="Seat Number *" required />
 
-          <input className="app-input app-input-sm" value={form.pnrNumber || ""} onChange={(e) => setForm({ ...form, pnrNumber: e.target.value })} placeholder="PNR" />
+          <input className="app-input app-input-sm" value={form.pnrNumber} onChange={(e) => setForm({ ...form, pnrNumber: e.target.value })} placeholder="PNR *" required />
 
-          <select className="app-input app-input-sm" value={(form.trainName as any) || ""} onChange={(e) => setForm({ ...form, trainName: e.target.value as any })}>
-            <option value="">Train Name</option>
+          <select className="app-input app-input-sm" value={form.trainName} onChange={(e) => setForm({ ...form, trainName: e.target.value as any })} required>
+            <option value="">Train Name *</option>
             {TRAIN_OPTIONS.map((t) => (
               <option key={t} value={t}>
                 {t}
@@ -759,8 +1004,8 @@ export default function TrainDataPage() {
             ))}
           </select>
 
-          <select className="app-input app-input-sm" value={(form.route as any) || ""} onChange={(e) => setForm({ ...form, route: e.target.value as any })}>
-            <option value="">Route</option>
+          <select className="app-input app-input-sm" value={form.route} onChange={(e) => setForm({ ...form, route: e.target.value as any })} required>
+            <option value="">Route *</option>
             {ROUTE_OPTIONS.map((r) => (
               <option key={r} value={r}>
                 {r}
@@ -768,8 +1013,8 @@ export default function TrainDataPage() {
             ))}
           </select>
 
-          <select className="app-input app-input-sm" value={form.trainTime || ""} onChange={(e) => setForm({ ...form, trainTime: e.target.value })}>
-            <option value="">Train Time</option>
+          <select className="app-input app-input-sm" value={form.trainTime} onChange={(e) => setForm({ ...form, trainTime: e.target.value })} required>
+            <option value="">Train Time *</option>
             {TRAIN_TIME_OPTIONS.map((t) => (
               <option key={t} value={t}>
                 {t}
@@ -777,8 +1022,8 @@ export default function TrainDataPage() {
             ))}
           </select>
 
-          <select className="app-input app-input-sm" value={(form.boardingStation as any) || ""} onChange={(e) => setForm({ ...form, boardingStation: e.target.value as any })}>
-            <option value="">Boarding Station</option>
+          <select className="app-input app-input-sm" value={form.boardingStation} onChange={(e) => setForm({ ...form, boardingStation: e.target.value as any })} required>
+            <option value="">Boarding Station *</option>
             {BOARDING_OPTIONS.map((b) => (
               <option key={b} value={b}>
                 {b}
@@ -786,12 +1031,16 @@ export default function TrainDataPage() {
             ))}
           </select>
 
+          <input type="date" className="app-input app-input-sm" value={form.travelDate} onChange={(e) => setForm({ ...form, travelDate: e.target.value })} required />
+
+          {/* ✅ NEW Fare */}
           <input
-            type="date"
             className="app-input app-input-sm"
-            value={(form.travelDate as any) || ""}
-            onChange={(e) => setForm({ ...form, travelDate: e.target.value })}
-            placeholder="Travel Date"
+            value={form.fare}
+            onChange={(e) => setForm({ ...form, fare: e.target.value.replace(/[^\d.]/g, "") })}
+            placeholder="Fare *"
+            inputMode="decimal"
+            required
           />
 
           <div className="sm:col-span-2 lg:col-span-3 mt-2 flex items-center justify-end gap-2">
@@ -804,7 +1053,7 @@ export default function TrainDataPage() {
           </div>
         </form>
 
-        {/* FILTERS + SEARCH WITH SUGGESTIONS */}
+        {/* FILTERS */}
         <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-6">
           <div className="relative" ref={sugBoxRef}>
             <div className="app-label">Search (with suggestions)</div>
@@ -953,7 +1202,7 @@ export default function TrainDataPage() {
 
         {/* TABLE */}
         <div className="w-full overflow-x-auto mt-4">
-          <table className="min-w-[1600px] table-fixed border-collapse text-xs">
+          <table className="min-w-[1750px] table-fixed border-collapse text-xs">
             <thead className="thead">
               <tr>
                 <th className="th w-12 px-2 py-2 text-center">
@@ -970,6 +1219,7 @@ export default function TrainDataPage() {
                 <th className="th w-28 px-2 py-2">Train Time</th>
                 <th className="th w-28 px-2 py-2">Boarding</th>
                 <th className="th w-28 px-2 py-2">Travel Date</th>
+                <th className="th w-20 px-2 py-2">Fare</th>
                 <th className="th w-28 px-2 py-2">Actions</th>
               </tr>
             </thead>
@@ -977,13 +1227,13 @@ export default function TrainDataPage() {
             <tbody className="divide-y divide-black/5 dark:divide-white/10">
               {loading ? (
                 <tr>
-                  <td className="td px-2 py-2 text-zinc-600 dark:text-zinc-400" colSpan={13}>
+                  <td className="td px-2 py-2 text-zinc-600 dark:text-zinc-400" colSpan={14}>
                     Loading...
                   </td>
                 </tr>
               ) : pageItems.length === 0 ? (
                 <tr>
-                  <td className="td px-2 py-2 text-zinc-600 dark:text-zinc-400" colSpan={13}>
+                  <td className="td px-2 py-2 text-zinc-600 dark:text-zinc-400" colSpan={14}>
                     No records found.
                   </td>
                 </tr>
@@ -1017,14 +1267,11 @@ export default function TrainDataPage() {
                       <td className="td px-2 py-2">{r.trainTime || "-"}</td>
                       <td className="td px-2 py-2">{r.boardingStation || "-"}</td>
                       <td className="td px-2 py-2 whitespace-nowrap">{r.travelDate ? String(r.travelDate).slice(0, 10) : "-"}</td>
+                      <td className="td px-2 py-2">{String((r as any).fare ?? "-")}</td>
 
                       <td className="td px-2 py-2 whitespace-nowrap">
                         <div className="flex items-center gap-1">
-                          <button
-                            className="app-btn app-btn-secondary h-8 px-2 text-[11px]"
-                            type="button"
-                            onClick={() => setEditing({ ...r, travelDate: toDateInputValue(r.travelDate) })}
-                          >
+                          <button className="app-btn app-btn-secondary h-8 px-2 text-[11px]" type="button" onClick={() => setEditing({ ...r, travelDate: toDateInputValue(r.travelDate) })}>
                             Edit
                           </button>
                           <button
@@ -1057,29 +1304,30 @@ export default function TrainDataPage() {
             </div>
 
             <form onSubmit={onSaveEdit} className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              <input className="app-input app-input-sm" value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} placeholder="Name" />
+              <input className="app-input app-input-sm" value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} placeholder="Name *" required />
 
               <input
                 className="app-input app-input-sm"
                 value={editing.age === null || editing.age === undefined ? "" : String(editing.age)}
-                onChange={(e) => setEditing({ ...editing, age: e.target.value ? Number(e.target.value) : null })}
-                placeholder="Age"
+                onChange={(e) => setEditing({ ...editing, age: e.target.value ? Number(e.target.value) : (null as any) })}
+                placeholder="Age *"
                 inputMode="numeric"
+                required
               />
 
-              <select className="app-input app-input-sm" value={(editing.gender as any) || ""} onChange={(e) => setEditing({ ...editing, gender: e.target.value as any })}>
-                <option value="">Gender</option>
+              <select className="app-input app-input-sm" value={(editing.gender as any) || ""} onChange={(e) => setEditing({ ...editing, gender: e.target.value as any })} required>
+                <option value="">Gender *</option>
                 <option value="M">M</option>
                 <option value="F">F</option>
                 <option value="Other">Other</option>
               </select>
 
-              <input className="app-input app-input-sm" value={editing.seatNumber || ""} onChange={(e) => setEditing({ ...editing, seatNumber: e.target.value })} placeholder="Seat Number (A1, B12)" />
+              <input className="app-input app-input-sm" value={editing.seatNumber || ""} onChange={(e) => setEditing({ ...editing, seatNumber: e.target.value })} placeholder="Seat Number *" required />
 
-              <input className="app-input app-input-sm" value={editing.pnrNumber || ""} onChange={(e) => setEditing({ ...editing, pnrNumber: e.target.value })} placeholder="PNR" />
+              <input className="app-input app-input-sm" value={editing.pnrNumber || ""} onChange={(e) => setEditing({ ...editing, pnrNumber: e.target.value })} placeholder="PNR *" required />
 
-              <select className="app-input app-input-sm" value={(editing.trainName as any) || ""} onChange={(e) => setEditing({ ...editing, trainName: e.target.value as any })}>
-                <option value="">Train Name</option>
+              <select className="app-input app-input-sm" value={(editing.trainName as any) || ""} onChange={(e) => setEditing({ ...editing, trainName: e.target.value as any })} required>
+                <option value="">Train Name *</option>
                 {TRAIN_OPTIONS.map((t) => (
                   <option key={t} value={t}>
                     {t}
@@ -1087,8 +1335,8 @@ export default function TrainDataPage() {
                 ))}
               </select>
 
-              <select className="app-input app-input-sm" value={(editing.route as any) || ""} onChange={(e) => setEditing({ ...editing, route: e.target.value as any })}>
-                <option value="">Route</option>
+              <select className="app-input app-input-sm" value={(editing.route as any) || ""} onChange={(e) => setEditing({ ...editing, route: e.target.value as any })} required>
+                <option value="">Route *</option>
                 {ROUTE_OPTIONS.map((r) => (
                   <option key={r} value={r}>
                     {r}
@@ -1096,8 +1344,8 @@ export default function TrainDataPage() {
                 ))}
               </select>
 
-              <select className="app-input app-input-sm" value={editing.trainTime || ""} onChange={(e) => setEditing({ ...editing, trainTime: e.target.value })}>
-                <option value="">Train Time</option>
+              <select className="app-input app-input-sm" value={editing.trainTime || ""} onChange={(e) => setEditing({ ...editing, trainTime: e.target.value })} required>
+                <option value="">Train Time *</option>
                 {TRAIN_TIME_OPTIONS.map((t) => (
                   <option key={t} value={t}>
                     {t}
@@ -1105,12 +1353,8 @@ export default function TrainDataPage() {
                 ))}
               </select>
 
-              <select
-                className="app-input app-input-sm"
-                value={(editing.boardingStation as any) || ""}
-                onChange={(e) => setEditing({ ...editing, boardingStation: e.target.value as any })}
-              >
-                <option value="">Boarding Station</option>
+              <select className="app-input app-input-sm" value={(editing.boardingStation as any) || ""} onChange={(e) => setEditing({ ...editing, boardingStation: e.target.value as any })} required>
+                <option value="">Boarding Station *</option>
                 {BOARDING_OPTIONS.map((b) => (
                   <option key={b} value={b}>
                     {b}
@@ -1118,12 +1362,16 @@ export default function TrainDataPage() {
                 ))}
               </select>
 
+              <input type="date" className="app-input app-input-sm" value={(editing.travelDate as any) || ""} onChange={(e) => setEditing({ ...editing, travelDate: e.target.value })} required />
+
+              {/* ✅ Fare in edit */}
               <input
-                type="date"
                 className="app-input app-input-sm"
-                value={(editing.travelDate as any) || ""}
-                onChange={(e) => setEditing({ ...editing, travelDate: e.target.value })}
-                placeholder="Travel Date"
+                value={String((editing as any).fare ?? "")}
+                onChange={(e) => setEditing({ ...editing, fare: e.target.value ? Number(e.target.value) : 0 } as any)}
+                placeholder="Fare *"
+                inputMode="decimal"
+                required
               />
 
               <div className="sm:col-span-2 lg:col-span-3 mt-2 flex items-center justify-end gap-2">

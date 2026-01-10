@@ -6,8 +6,8 @@ import { usePathname } from "next/navigation";
 const tabs = [
   { href: "/", label: "Add Sangat" },
   { href: "/customers", label: "Sangat Data" },
-  { href: "/bulk-upload", label: "Bulk Upload" },
-  { href:"/train-data", label: "Train Data" },
+  { href: "/bulk-upload", label: "Sangat Bulk Upload" },
+  { href:"/train-data", label: "Ticket Data" },
      { href:"/nominal-roll" ,label: "Nominal Roll" },
       { href:"/reports" ,label: "Reports" },
       { href:"/jatha-date" ,label: "Jatha Date" },

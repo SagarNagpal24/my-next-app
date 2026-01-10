@@ -3,10 +3,12 @@
 import React from "react";
 
 type Gender = "M" | "F" | "Other" | "";
+type Blacklisted = "Yes" | "No" | "";
 
 type Customer = {
   _id: string;
   name: string;
+
   badgeNo?: string;
   fatherOrHusbandName?: string;
   gender?: Gender | string;
@@ -14,6 +16,9 @@ type Customer = {
   address?: string;
   mobile?: string;
   adhaarNumber?: string;
+
+  blacklisted?: Blacklisted | string;
+
   emergencyNumber?: string;
   medicalDate?: string | null; // serialized ISO string OR "YYYY-MM-DD"
   notes?: string;
@@ -60,6 +65,38 @@ function fmtExcelDate(d?: string | null) {
   }
 }
 
+function digitsOnly(s: string) {
+  return (s || "").replace(/\D/g, "");
+}
+
+function validateCustomerInput(c: Customer) {
+  const name = (c.name || "").trim();
+  const badge = (c.badgeNo || "").trim();
+  const aadhaar = digitsOnly(c.adhaarNumber || "").trim();
+  const fh = (c.fatherOrHusbandName || "").trim();
+  const addr = (c.address || "").trim();
+  const mob = digitsOnly(c.mobile || "").trim();
+  const gender = (c.gender as any) || "";
+  const age = c.age;
+
+  if (!name) return { ok: false, msg: "Name is required." };
+
+  // ✅ One of Badge or Aadhaar must be filled
+  if (!badge && !aadhaar) return { ok: false, msg: "Please fill either Badge No or Aadhaar (one is mandatory)." };
+
+  // ✅ Mandatory fields
+  if (!fh) return { ok: false, msg: "Father/Husband Name is mandatory." };
+  if (!addr) return { ok: false, msg: "Address is mandatory." };
+  if (!gender) return { ok: false, msg: "Gender is mandatory." };
+  if (age === null || age === undefined || Number.isNaN(Number(age))) return { ok: false, msg: "Age is mandatory." };
+  if (Number(age) <= 0) return { ok: false, msg: "Age must be a valid number." };
+  if (!mob) return { ok: false, msg: "Mobile is mandatory." };
+
+  if (aadhaar && aadhaar.length !== 12) return { ok: false, msg: "Aadhaar must be 12 digits (if provided)." };
+
+  return { ok: true as const, msg: "" };
+}
+
 export default function CustomersPage() {
   const [items, setItems] = React.useState<Customer[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -67,6 +104,7 @@ export default function CustomersPage() {
   // search / filters
   const [q, setQ] = React.useState("");
   const [gender, setGender] = React.useState<Gender>("");
+  const [blacklisted, setBlacklisted] = React.useState<Blacklisted>(""); // ✅ NEW
   const [ageMin, setAgeMin] = React.useState("");
   const [ageMax, setAgeMax] = React.useState("");
   const [medFrom, setMedFrom] = React.useState("");
@@ -93,12 +131,13 @@ export default function CustomersPage() {
     { label: "S.No", width: "w-12" },
     { label: "Name", width: "w-32" },
     { label: "Badge No", width: "w-20" },
+    { label: "Aadhaar", width: "w-28" },
     { label: "Father/Husband", width: "w-36" },
     { label: "Gender", width: "w-16" },
     { label: "Age", width: "w-12" },
     { label: "Address", width: "w-48" },
     { label: "Mobile", width: "w-28" },
-    { label: "Aadhaar", width: "w-28" },
+    { label: "Blacklisted", width: "w-20" },
     { label: "Emergency", width: "w-28" },
     { label: "Medical Date", width: "w-24" },
     { label: "Notes", width: "w-40" },
@@ -111,6 +150,7 @@ export default function CustomersPage() {
       const params = new URLSearchParams();
       if (q.trim()) params.set("q", q.trim());
       if (gender) params.set("gender", gender);
+      if (blacklisted) params.set("blacklisted", blacklisted); // ✅ NEW
       if (ageMin) params.set("ageMin", ageMin);
       if (ageMax) params.set("ageMax", ageMax);
       if (medFrom) params.set("medFrom", medFrom);
@@ -127,8 +167,6 @@ export default function CustomersPage() {
         .filter((x: any) => /^[a-fA-F0-9]{24}$/.test(x._id));
 
       setItems(safe);
-
-      // ✅ reset pagination after search/filter
       setPage(1);
     } finally {
       setLoading(false);
@@ -143,6 +181,7 @@ export default function CustomersPage() {
   function clearFilters() {
     setQ("");
     setGender("");
+    setBlacklisted("");
     setAgeMin("");
     setAgeMax("");
     setMedFrom("");
@@ -180,8 +219,9 @@ export default function CustomersPage() {
       return;
     }
 
-    if (!editing.name?.trim()) {
-      alert("Name is required");
+    const v = validateCustomerInput(editing);
+    if (!v.ok) {
+      alert(v.msg);
       return;
     }
 
@@ -191,7 +231,11 @@ export default function CustomersPage() {
 
       const payload = {
         ...rest,
+        adhaarNumber: rest.adhaarNumber ? digitsOnly(String(rest.adhaarNumber)).slice(0, 12) : "",
+        mobile: rest.mobile ? digitsOnly(String(rest.mobile)) : "",
+        emergencyNumber: rest.emergencyNumber ? digitsOnly(String(rest.emergencyNumber)) : "",
         medicalDate: rest.medicalDate ? String(rest.medicalDate).slice(0, 10) : null,
+        blacklisted: (rest.blacklisted as any) || "No",
       };
 
       const res = await fetch(`/api/customers/${realId}`, {
@@ -221,12 +265,13 @@ export default function CustomersPage() {
       "S.No",
       "Name",
       "Badge No",
+      "Aadhaar",
       "Father/Husband",
       "Gender",
       "Age",
       "Address",
       "Mobile",
-      "Aadhaar",
+      "Blacklisted",
       "Emergency",
       "Medical Date",
       "Notes",
@@ -238,12 +283,13 @@ export default function CustomersPage() {
         idx + 1,
         c.name || "",
         c.badgeNo || "",
+        c.adhaarNumber || "",
         c.fatherOrHusbandName || "",
         c.gender || "",
         c.age ?? "",
         c.address || "",
         c.mobile || "",
-        c.adhaarNumber || "",
+        (c.blacklisted as any) || "No",
         c.emergencyNumber || "",
         fmtExcelDate(c.medicalDate),
         c.notes || "",
@@ -270,7 +316,6 @@ export default function CustomersPage() {
   async function onExportAll() {
     try {
       setExporting("all");
-      // IMPORTANT: /api/customers should support limit=10000
       const res = await fetch(`/api/customers?limit=10000`, { cache: "no-store" });
       const data = await res.json().catch(() => ({}));
 
@@ -333,7 +378,7 @@ export default function CustomersPage() {
       } catch {
         // ignore
       }
-    }, 200); // debounce delay
+    }, 200);
 
     return () => window.clearTimeout(t);
   }, [q]);
@@ -355,7 +400,6 @@ export default function CustomersPage() {
     setQ(s);
     setSugOpen(false);
     setHighlightIndex(-1);
-    // optional: auto search after pick
     load();
   }
 
@@ -386,7 +430,7 @@ export default function CustomersPage() {
       <div className="app-card app-card-pad w-full max-w-none">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h1 className="text-xl font-semibold">Jatha Data</h1>
+            <h1 className="text-xl font-semibold">Sangat Data</h1>
             <p className="app-subtitle">Search, filter, edit and delete records.</p>
           </div>
 
@@ -421,7 +465,7 @@ export default function CustomersPage() {
 
         {/* Filters */}
         <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
-          {/* ✅ Search with suggestions */}
+          {/* Search with suggestions */}
           <div className="relative" ref={sugBoxRef}>
             <div className="app-label">Search</div>
             <input
@@ -467,6 +511,15 @@ export default function CustomersPage() {
           </div>
 
           <div>
+            <div className="app-label">Blacklisted</div>
+            <select className="app-input app-input-sm" value={blacklisted} onChange={(e) => setBlacklisted(e.target.value as Blacklisted)}>
+              <option value="">All</option>
+              <option value="No">No</option>
+              <option value="Yes">Yes</option>
+            </select>
+          </div>
+
+          <div>
             <div className="app-label">Age Min</div>
             <input className="app-input app-input-sm" value={ageMin} onChange={(e) => setAgeMin(e.target.value)} inputMode="numeric" />
           </div>
@@ -487,7 +540,7 @@ export default function CustomersPage() {
           </div>
         </div>
 
-        {/* Pagination bar (top) */}
+        {/* Pagination bar */}
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
           <div className="text-sm text-zinc-600 dark:text-zinc-400">
             Showing <span className="font-semibold">{total === 0 ? 0 : startIndex + 1}</span>–<span className="font-semibold">{Math.min(endIndex, total)}</span> of{" "}
@@ -544,9 +597,9 @@ export default function CustomersPage() {
           </div>
         </div>
 
-        {/* Table with horizontal scrollbar */}
+        {/* Table */}
         <div className="w-full overflow-x-auto mt-4">
-          <table className="min-w-[1400px] table-fixed border-collapse text-xs">
+          <table className="min-w-[1600px] table-fixed border-collapse text-xs">
             <thead className="thead">
               <tr>
                 {columns.map((c) => (
@@ -573,8 +626,11 @@ export default function CustomersPage() {
               ) : (
                 pageItems.map((c, i) => {
                   const serial = (page - 1) * pageSize + i + 1;
+
+                  // ✅ FIX: TD order must match header order
                   return (
                     <tr key={c._id} className={["row", i % 2 === 0 ? "row-alt" : "row-alt2"].join(" ")}>
+                      {/* S.No */}
                       <td className="td whitespace-nowrap px-2 py-2 text-center">
                         <button
                           type="button"
@@ -582,6 +638,7 @@ export default function CustomersPage() {
                             setEditing({
                               ...c,
                               medicalDate: toDateInputValue(c.medicalDate),
+                              blacklisted: (c.blacklisted as any) || "No",
                             })
                           }
                           className="rounded-lg px-2 py-1 font-semibold hover:bg-zinc-100 dark:hover:bg-zinc-900/40"
@@ -591,18 +648,43 @@ export default function CustomersPage() {
                         </button>
                       </td>
 
+                      {/* Name */}
                       <td className="td whitespace-normal break-words px-2 py-2 font-medium">{c.name || "-"}</td>
+
+                      {/* Badge No */}
                       <td className="td whitespace-normal break-words px-2 py-2">{c.badgeNo || "-"}</td>
-                      <td className="td whitespace-normal break-words px-2 py-2">{c.fatherOrHusbandName || "-"}</td>
-                      <td className="td whitespace-normal break-words px-2 py-2">{c.gender || "-"}</td>
-                      <td className="td whitespace-normal break-words px-2 py-2">{c.age ?? "-"}</td>
-                      <td className="td whitespace-normal break-words px-2 py-2">{c.address || "-"}</td>
-                      <td className="td whitespace-normal break-all px-2 py-2">{c.mobile || "-"}</td>
+
+                      {/* Aadhaar */}
                       <td className="td whitespace-normal break-all px-2 py-2">{c.adhaarNumber || "-"}</td>
+
+                      {/* Father/Husband */}
+                      <td className="td whitespace-normal break-words px-2 py-2">{c.fatherOrHusbandName || "-"}</td>
+
+                      {/* Gender */}
+                      <td className="td whitespace-normal break-words px-2 py-2">{(c.gender as any) || "-"}</td>
+
+                      {/* Age */}
+                      <td className="td whitespace-normal break-words px-2 py-2">{c.age ?? "-"}</td>
+
+                      {/* Address */}
+                      <td className="td whitespace-normal break-words px-2 py-2">{c.address || "-"}</td>
+
+                      {/* Mobile */}
+                      <td className="td whitespace-normal break-all px-2 py-2">{c.mobile || "-"}</td>
+
+                      {/* Blacklisted */}
+                      <td className="td whitespace-normal break-words px-2 py-2">{(c.blacklisted as any) || "No"}</td>
+
+                      {/* Emergency */}
                       <td className="td whitespace-normal break-all px-2 py-2">{c.emergencyNumber || "-"}</td>
+
+                      {/* Medical Date */}
                       <td className="td whitespace-normal break-words px-2 py-2">{fmtDate(c.medicalDate)}</td>
+
+                      {/* Notes */}
                       <td className="td whitespace-normal break-words px-2 py-2">{c.notes || "-"}</td>
 
+                      {/* Actions */}
                       <td className="td whitespace-nowrap px-2 py-2">
                         <div className="flex items-center gap-1">
                           <button
@@ -610,6 +692,7 @@ export default function CustomersPage() {
                               setEditing({
                                 ...c,
                                 medicalDate: toDateInputValue(c.medicalDate),
+                                blacklisted: (c.blacklisted as any) || "No",
                               })
                             }
                             className="app-btn app-btn-secondary h-8 px-2 text-[11px]"
@@ -646,37 +729,118 @@ export default function CustomersPage() {
             </div>
 
             <form onSubmit={onSaveEdit} className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              <input className="app-input app-input-sm" value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} placeholder="Name" />
-              <input className="app-input app-input-sm" value={editing.badgeNo || ""} onChange={(e) => setEditing({ ...editing, badgeNo: e.target.value })} placeholder="Badge No" />
-              <input className="app-input app-input-sm" value={editing.fatherOrHusbandName || ""} onChange={(e) => setEditing({ ...editing, fatherOrHusbandName: e.target.value })} placeholder="Father/Husband Name" />
+              {/* Name */}
+              <input
+                className="app-input app-input-sm"
+                value={editing.name}
+                onChange={(e) => setEditing({ ...editing, name: e.target.value })}
+                placeholder="Name"
+                required
+              />
 
-              <select className="app-input app-input-sm" value={(editing.gender as any) || ""} onChange={(e) => setEditing({ ...editing, gender: e.target.value as any })}>
+              {/* Badge */}
+              <input
+                className="app-input app-input-sm"
+                value={editing.badgeNo || ""}
+                onChange={(e) => setEditing({ ...editing, badgeNo: e.target.value })}
+                placeholder="Badge No"
+              />
+
+              {/* Aadhaar */}
+              <input
+                className="app-input app-input-sm"
+                value={editing.adhaarNumber || ""}
+                onChange={(e) => setEditing({ ...editing, adhaarNumber: digitsOnly(e.target.value).slice(0, 12) })}
+                placeholder="Aadhaar"
+                inputMode="numeric"
+              />
+
+              {/* Father/Husband */}
+              <input
+                className="app-input app-input-sm"
+                value={editing.fatherOrHusbandName || ""}
+                onChange={(e) => setEditing({ ...editing, fatherOrHusbandName: e.target.value })}
+                placeholder="Father/Husband Name"
+                required
+              />
+
+              {/* Gender */}
+              <select
+                className="app-input app-input-sm"
+                value={(editing.gender as any) || ""}
+                onChange={(e) => setEditing({ ...editing, gender: e.target.value as any })}
+                required
+              >
                 <option value="">Gender</option>
                 <option value="M">M</option>
                 <option value="F">F</option>
                 <option value="Other">Other</option>
               </select>
 
+              {/* Age */}
               <input
                 className="app-input app-input-sm"
                 value={String(editing.age ?? "")}
                 onChange={(e) => setEditing({ ...editing, age: e.target.value ? Number(e.target.value) : null })}
                 placeholder="Age"
                 inputMode="numeric"
+                required
               />
 
-              <input className="app-input app-input-sm" value={editing.mobile || ""} onChange={(e) => setEditing({ ...editing, mobile: e.target.value })} placeholder="Mobile" />
+              {/* Mobile */}
               <input
                 className="app-input app-input-sm"
-                value={editing.adhaarNumber || ""}
-                onChange={(e) => setEditing({ ...editing, adhaarNumber: e.target.value.replace(/\D/g, "").slice(0, 12) })}
-                placeholder="Aadhaar (12 digits)"
+                value={editing.mobile || ""}
+                onChange={(e) => setEditing({ ...editing, mobile: digitsOnly(e.target.value) })}
+                placeholder="Mobile"
+                inputMode="numeric"
+                required
               />
-              <input className="app-input app-input-sm" value={editing.emergencyNumber || ""} onChange={(e) => setEditing({ ...editing, emergencyNumber: e.target.value })} placeholder="Emergency Number" />
-              <input type="date" className="app-input app-input-sm" value={(editing.medicalDate as any) || ""} onChange={(e) => setEditing({ ...editing, medicalDate: e.target.value })} />
 
-              <input className="app-input app-input-sm sm:col-span-2 lg:col-span-3" value={editing.address || ""} onChange={(e) => setEditing({ ...editing, address: e.target.value })} placeholder="Address" />
-              <textarea className="app-textarea sm:col-span-2 lg:col-span-3" rows={4} value={editing.notes || ""} onChange={(e) => setEditing({ ...editing, notes: e.target.value })} placeholder="Notes" />
+              {/* Blacklisted */}
+              <select
+                className="app-input app-input-sm"
+                value={(editing.blacklisted as any) || "No"}
+                onChange={(e) => setEditing({ ...editing, blacklisted: e.target.value as any })}
+              >
+                <option value="No">Blacklisted: No</option>
+                <option value="Yes">Blacklisted: Yes</option>
+              </select>
+
+              {/* Emergency */}
+              <input
+                className="app-input app-input-sm"
+                value={editing.emergencyNumber || ""}
+                onChange={(e) => setEditing({ ...editing, emergencyNumber: digitsOnly(e.target.value) })}
+                placeholder="Emergency Number"
+                inputMode="numeric"
+              />
+
+              {/* Medical Date */}
+              <input
+                type="date"
+                className="app-input app-input-sm"
+                value={(editing.medicalDate as any) || ""}
+                onChange={(e) => setEditing({ ...editing, medicalDate: e.target.value })}
+              />
+
+              {/* Address */}
+              <input
+                className="app-input app-input-sm sm:col-span-2 lg:col-span-3"
+                value={editing.address || ""}
+                onChange={(e) => setEditing({ ...editing, address: e.target.value })}
+                placeholder="Address"
+                required
+              />
+
+              {/* Notes */}
+              <textarea
+                className="app-textarea sm:col-span-2 lg:col-span-3"
+                rows={4}
+                value={editing.notes || ""}
+                onChange={(e) => setEditing({ ...editing, notes: e.target.value })}
+                placeholder="Notes"
+              />
 
               <div className="sm:col-span-2 lg:col-span-3 mt-2 flex items-center justify-end gap-2">
                 <button type="button" onClick={() => setEditing(null)} className="app-btn app-btn-secondary h-10 px-4">
@@ -687,6 +851,10 @@ export default function CustomersPage() {
                 </button>
               </div>
             </form>
+
+            <div className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
+              Note: Either <span className="font-semibold">Badge No</span> or <span className="font-semibold">Aadhaar</span> must be filled.
+            </div>
           </div>
         </div>
       )}
