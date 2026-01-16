@@ -5,9 +5,13 @@ import React from "react";
 type Category = "ladoo" | "parantha" | "bhati";
 type GenderFilter = "Male" | "Female" | "Other" | "";
 
+type YesNo = "Yes" | "No" | "";
+
 type ReportRow = {
   _id: string;
 
+  // customer snapshot
+  customerId?: string;
   customerName?: string;
   badgeNo?: string;
   fatherOrHusbandName?: string;
@@ -16,6 +20,10 @@ type ReportRow = {
   address?: string;
   mobile?: string;
   adhaarNumber?: string;
+
+  // nominal roll extras
+  department?: string;
+  sangat?: YesNo;
 
   mode?: string;
 
@@ -26,11 +34,16 @@ type ReportRow = {
 
   payment?: string;
 
+  // stored as start date string/date (we print as DD-Mon-YYYY)
   jathaDate?: string; // YYYY-MM-DD
+
   travelStartDate?: string; // YYYY-MM-DD
   travelEndDate?: string; // YYYY-MM-DD
 
   notes?: string;
+
+  createdAt?: string;
+  updatedAt?: string;
 };
 
 type TrainTicketRow = {
@@ -47,6 +60,8 @@ type TrainTicketRow = {
   boardingStation?: string;
   route?: string;
   travelDate?: string;
+
+  fare?: number | string | null;
 };
 
 function inputCls() {
@@ -101,7 +116,13 @@ function paymentToNumber(v: any) {
   return Number.isFinite(n) ? n : 0;
 }
 
-/** ✅ show train ticket label with Age/Sex also */
+function toNumberOrNull(v: any): number | null {
+  if (v === null || v === undefined || String(v).trim() === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** ✅ show train ticket label with Age/Sex + Fare */
 function makeTicketLabel(t: TrainTicketRow) {
   const date = String(t.travelDate || "").slice(0, 10);
   const pnr = (t.pnrNumber || "").trim();
@@ -115,7 +136,10 @@ function makeTicketLabel(t: TrainTicketRow) {
   const time = (t.trainTime || "").trim();
   const boarding = (t.boardingStation || "").trim();
 
-  const pax = [pname, [pGender, pAge !== "" ? String(pAge) : ""].filter(Boolean).join("/")]
+  const fareNum = toNumberOrNull(t.fare);
+  const fare = fareNum !== null ? `Fare:${fareNum}` : "";
+
+  const pax = [pname, [pAge !== "" ? String(pAge) : "", pGender].filter(Boolean).join(" / ")]
     .filter(Boolean)
     .join(" • ");
 
@@ -127,6 +151,7 @@ function makeTicketLabel(t: TrainTicketRow) {
     train ? train : "",
     time ? time : "",
     boarding ? `(${boarding})` : "",
+    fare ? fare : "",
   ].filter(Boolean);
 
   return parts.join(" • ");
@@ -138,10 +163,13 @@ async function exportToExcel(rows: ReportRow[], filename: string) {
   const header = [
     "S.No",
     "Name",
+    "Department",
+    "Sangat",
     "Father/Husband",
     "Gender",
     "Age",
     "Mobile",
+    "Aadhaar",
     "Address",
     "Badge",
     "Mode",
@@ -154,6 +182,8 @@ async function exportToExcel(rows: ReportRow[], filename: string) {
     "Travel Start",
     "Travel End",
     "Notes",
+    "Created At",
+    "Updated At",
   ];
 
   const aoa: any[][] = [header];
@@ -161,10 +191,13 @@ async function exportToExcel(rows: ReportRow[], filename: string) {
     aoa.push([
       idx + 1,
       r.customerName || "",
+      r.department || "",
+      r.sangat || "",
       r.fatherOrHusbandName || "",
       r.gender || "",
       r.age ?? "",
       r.mobile || "",
+      r.adhaarNumber || "",
       r.address || "",
       r.badgeNo || "",
       r.mode || "",
@@ -177,6 +210,8 @@ async function exportToExcel(rows: ReportRow[], filename: string) {
       r.travelStartDate || "",
       r.travelEndDate || "",
       r.notes || "",
+      r.createdAt || "",
+      r.updatedAt || "",
     ]);
   });
 
@@ -194,6 +229,13 @@ export default function ReportsPage() {
   const [name, setName] = React.useState("");
   const [badgeNo, setBadgeNo] = React.useState("");
   const [gender, setGender] = React.useState<GenderFilter>("");
+
+  const [department, setDepartment] = React.useState("");
+  const [sangat, setSangat] = React.useState<YesNo>("");
+  const [mode, setMode] = React.useState<string>("");
+
+  const [reqDB, setReqDB] = React.useState<YesNo>("");
+  const [reqBD, setReqBD] = React.useState<YesNo>("");
 
   const [jathaFrom, setJathaFrom] = React.useState("");
   const [jathaTo, setJathaTo] = React.useState("");
@@ -218,23 +260,114 @@ export default function ReportsPage() {
     return m;
   }, [trainDliBeas, trainBeasDli]);
 
-  /** ✅ FIX: show full label if id exists, else show text fallback */
+  /** ✅ show full label if id exists, else show text fallback */
   function renderTicket(v?: string) {
     const s = String(v || "").trim();
     if (!s) return "-";
-    if (isObjectIdLike(s)) return ticketLabelMap.get(s) || s; // if label not loaded, show id (better than blank)
+    if (isObjectIdLike(s)) return ticketLabelMap.get(s) || s;
     return s;
   }
 
-  // ✅ FIX: Gender filter mismatch -> DO FILTER CLIENT-SIDE (supports M/F/Male/Female)
+  // ✅ Full client-side filtering (supports new columns, and consistent gender filtering)
   const items = React.useMemo(() => {
-    if (!gender) return rawItems;
+    let list = rawItems;
 
-    const want =
-      gender === "Male" ? "male" : gender === "Female" ? "female" : gender === "Other" ? "other" : "unknown";
+    // gender (normalized)
+    if (gender) {
+      const want = gender === "Male" ? "male" : gender === "Female" ? "female" : gender === "Other" ? "other" : "unknown";
+      list = list.filter((r) => normGender(r.gender) === want);
+    }
 
-    return rawItems.filter((r) => normGender(r.gender) === want);
-  }, [rawItems, gender]);
+    // department
+    if (department.trim()) {
+      const d = department.trim().toLowerCase();
+      list = list.filter((r) => String(r.department || "").trim().toLowerCase() === d);
+    }
+
+    // sangat
+    if (sangat) {
+      list = list.filter((r) => String(r.sangat || "").trim() === sangat);
+    }
+
+    // mode
+    if (mode.trim()) {
+      const m = mode.trim().toLowerCase();
+      list = list.filter((r) => String(r.mode || "").trim().toLowerCase() === m);
+    }
+
+    // req filters
+    if (reqDB) list = list.filter((r) => String(r.bookingReqDelhiBeas || "").trim() === reqDB);
+    if (reqBD) list = list.filter((r) => String(r.bookingReqBeasDelhi || "").trim() === reqBD);
+
+    // quick search q (includes tickets, dept, etc.)
+    const qq = q.trim().toLowerCase();
+    if (qq) {
+      list = list.filter((r) => {
+        const hay = [
+          r.customerName,
+          r.fatherOrHusbandName,
+          r.gender,
+          r.age ?? "",
+          r.address,
+          r.mobile,
+          r.adhaarNumber,
+          r.badgeNo,
+          r.department,
+          r.sangat,
+          r.mode,
+          r.bookingReqDelhiBeas,
+          r.bookingReqBeasDelhi,
+          r.ticketDelhiBeas,
+          r.ticketBeasDelhi,
+          renderTicket(r.ticketDelhiBeas),
+          renderTicket(r.ticketBeasDelhi),
+          r.payment,
+          r.jathaDate,
+          r.travelStartDate,
+          r.travelEndDate,
+          r.notes,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        return hay.includes(qq);
+      });
+    }
+
+    // name filter
+    if (name.trim()) {
+      const n = name.trim().toLowerCase();
+      list = list.filter((r) => String(r.customerName || "").toLowerCase().includes(n));
+    }
+
+    // badge filter
+    if (badgeNo.trim()) {
+      const b = badgeNo.trim().toLowerCase();
+      list = list.filter((r) => String(r.badgeNo || "").toLowerCase().includes(b));
+    }
+
+    // date filters (jatha date)
+    if (jathaFrom) {
+      const f = jathaFrom;
+      list = list.filter((r) => toYMD(r.jathaDate) >= f);
+    }
+    if (jathaTo) {
+      const t = jathaTo;
+      list = list.filter((r) => toYMD(r.jathaDate) <= t);
+    }
+
+    // travel filters (when bhati, backend may use jatha date; but still filter client-side safely)
+    if (travelFrom) {
+      const f = travelFrom;
+      list = list.filter((r) => toYMD(r.travelStartDate || r.jathaDate) >= f);
+    }
+    if (travelTo) {
+      const t = travelTo;
+      list = list.filter((r) => toYMD(r.travelEndDate || r.jathaDate) <= t);
+    }
+
+    return list;
+  }, [rawItems, q, name, badgeNo, gender, department, sangat, mode, reqDB, reqBD, jathaFrom, jathaTo, travelFrom, travelTo, ticketLabelMap]);
 
   // Load train tickets once (for readable labels)
   async function loadTrainTickets() {
@@ -260,6 +393,7 @@ export default function ReportsPage() {
         trainTime: x.trainTime || "",
         boardingStation: x.boardingStation || "",
         route: x.route || "",
+        fare: x.fare === null || x.fare === undefined || x.fare === "" ? null : x.fare,
       }));
 
       const list2: TrainTicketRow[] = (d2.items || []).map((x: any) => ({
@@ -275,6 +409,7 @@ export default function ReportsPage() {
         trainTime: x.trainTime || "",
         boardingStation: x.boardingStation || "",
         route: x.route || "",
+        fare: x.fare === null || x.fare === undefined || x.fare === "" ? null : x.fare,
       }));
 
       setTrainDliBeas(list1);
@@ -287,15 +422,15 @@ export default function ReportsPage() {
   async function load() {
     setLoading(true);
     try {
+      // keep API query minimal; we do consistent filtering client-side
       const params = new URLSearchParams();
       params.set("category", tab);
+      params.set("limit", "10000");
 
+      // (optional): still send coarse filters to reduce payload
       if (q.trim()) params.set("q", q.trim());
       if (name.trim()) params.set("name", name.trim());
       if (badgeNo.trim()) params.set("badgeNo", badgeNo.trim());
-
-      // ✅ DO NOT send gender to API (backend may be M/F). We filter client-side.
-      // if (gender) params.set("gender", gender);
 
       if (jathaFrom) params.set("jathaFrom", jathaFrom);
       if (jathaTo) params.set("jathaTo", jathaTo);
@@ -303,11 +438,10 @@ export default function ReportsPage() {
       if (travelFrom) params.set("travelFrom", travelFrom);
       if (travelTo) params.set("travelTo", travelTo);
 
-      params.set("limit", "10000");
-
       const res = await fetch(`/api/reports/nominal-roll?${params.toString()}`, { cache: "no-store" });
       const data = await res.json().catch(() => ({}));
-      setRawItems(Array.isArray(data.items) ? data.items : []);
+      const list: ReportRow[] = Array.isArray(data.items) ? data.items : [];
+      setRawItems(list);
     } finally {
       setLoading(false);
     }
@@ -327,13 +461,18 @@ export default function ReportsPage() {
     setName("");
     setBadgeNo("");
     setGender("");
+    setDepartment("");
+    setSangat("");
+    setMode("");
+    setReqDB("");
+    setReqBD("");
     setJathaFrom("");
     setJathaTo("");
     setTravelFrom("");
     setTravelTo("");
   }
 
-  // ✅ Summary counts after each search result + payment sum (based on FILTERED items)
+  // ✅ Summary counts + payment sum (based on FILTERED items)
   const summary = React.useMemo(() => {
     let male = 0;
     let female = 0;
@@ -360,6 +499,8 @@ export default function ReportsPage() {
       jathaDate: formatDDMonYYYY(r.jathaDate),
       travelStartDate: formatDDMonYYYY(r.travelStartDate),
       travelEndDate: formatDDMonYYYY(r.travelEndDate),
+      createdAt: formatDDMonYYYY(r.createdAt),
+      updatedAt: formatDDMonYYYY(r.updatedAt),
     }));
   }
 
@@ -382,16 +523,12 @@ export default function ReportsPage() {
       const data = await res.json().catch(() => ({}));
       const all: ReportRow[] = Array.isArray(data.items) ? data.items : [];
 
-      // NOTE: export all ignores client-side gender filter (as expected for "All")
       const allWithLabels = rowsForExport(all);
-
       await exportToExcel(allWithLabels, `${tab}_reports_all_${new Date().toISOString().slice(0, 10)}.xlsx`);
     } finally {
       setExporting(null);
     }
   }
-
-  const showTravelCols = tab !== "bhati";
 
   // -------- PRINT TICKETS (6 per A4 page, multi-page) --------
   function buildTicketsHtml(rows: ReportRow[]) {
@@ -406,11 +543,13 @@ export default function ReportsPage() {
           const name = escapeHtml(r.customerName || "-");
           const badge = escapeHtml(r.badgeNo || "-");
           const mobile = escapeHtml(r.mobile || "-");
-          const gender = escapeHtml(r.gender || "-");
-          const age = escapeHtml(r.age ?? "-");
-          const father = escapeHtml(r.fatherOrHusbandName || "-");
+          const dept = escapeHtml(r.department || "-");
+          const sangat = escapeHtml(r.sangat || "-");
           const mode = escapeHtml(r.mode || "-");
+
           const jd = escapeHtml(formatDDMonYYYY(r.jathaDate) || "-");
+          const start = escapeHtml(formatDDMonYYYY(r.travelStartDate) || "-");
+          const end = escapeHtml(formatDDMonYYYY(r.travelEndDate) || "-");
 
           const tDB = escapeHtml(renderTicket(r.ticketDelhiBeas));
           const tBD = escapeHtml(renderTicket(r.ticketBeasDelhi));
@@ -423,11 +562,16 @@ export default function ReportsPage() {
               </div>
 
               <div class="row"><span class="label">Name:</span><span class="value">${name}</span></div>
-            
               <div class="row"><span class="label">Mobile:</span><span class="value">${mobile}</span></div>
               <div class="row"><span class="label">Badge:</span><span class="value">${badge}</span></div>
-            
+              <div class="row"><span class="label">Dept:</span><span class="value">${dept}</span></div>
+              <div class="row"><span class="label">Sangat:</span><span class="value">${sangat}</span></div>
+              <div class="row"><span class="label">Mode:</span><span class="value">${mode}</span></div>
+
+              <div class="sep"></div>
+
               <div class="row"><span class="label">Jatha:</span><span class="value">${jd}</span></div>
+              <div class="row"><span class="label">Travel:</span><span class="value">${start} → ${end}</span></div>
 
               <div class="sep"></div>
 
@@ -444,7 +588,6 @@ export default function ReportsPage() {
                 </div>
               </div>
 
-              <!-- ✅ Small contact line -->
               <div class="contact">
                 Contact:<br> Gurjeet Kaur - 9999934357  <br> Pulkit Sethi - 9871331688
               </div>
@@ -516,8 +659,8 @@ export default function ReportsPage() {
           .row {
             display:flex;
             gap: 8px;
-            margin: 1.5mm 0;
-            font-size: 11pt;
+            margin: 1.2mm 0;
+            font-size: 10.8pt;
             line-height: 1.15;
           }
           .label { width: 34%; font-weight: 800; }
@@ -532,7 +675,6 @@ export default function ReportsPage() {
           .coltitle { font-size: 10.5pt; font-weight: 800; margin-bottom: 1mm; }
           .tickettext { font-size: 10pt; font-weight: 650; line-height: 1.2; word-break: break-word; }
 
-          /* ✅ Small contact */
           .contact{
             margin-top:auto;
             padding-top: 2mm;
@@ -635,7 +777,7 @@ export default function ReportsPage() {
         {/* Filters */}
         <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-6">
           <div>
-            <div className="app-label">Search (Name/Badge/Mobile/Aadhaar)</div>
+            <div className="app-label">Quick Search (All Columns)</div>
             <input className={inputCls()} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Type anything..." />
           </div>
 
@@ -650,6 +792,30 @@ export default function ReportsPage() {
           </div>
 
           <div>
+            <div className="app-label">Department</div>
+            <input className={inputCls()} value={department} onChange={(e) => setDepartment(e.target.value)} placeholder="e.g. Security" />
+          </div>
+
+          <div>
+            <div className="app-label">Sangat</div>
+            <select className={inputCls()} value={sangat} onChange={(e) => setSangat(e.target.value as any)}>
+              <option value="">All</option>
+              <option value="Yes">Yes</option>
+              <option value="No">No</option>
+            </select>
+          </div>
+
+          <div>
+            <div className="app-label">Mode</div>
+            <select className={inputCls()} value={mode} onChange={(e) => setMode(e.target.value)}>
+              <option value="">All</option>
+              <option value="Train">Train</option>
+              <option value="Bus">Bus</option>
+              <option value="Self">Self</option>
+            </select>
+          </div>
+
+          <div>
             <div className="app-label">Gender</div>
             <select className={inputCls()} value={gender} onChange={(e) => setGender(e.target.value as any)}>
               <option value="">All</option>
@@ -657,9 +823,25 @@ export default function ReportsPage() {
               <option value="Female">Female</option>
               <option value="Other">Other</option>
             </select>
-            <div className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
-              (Works for values: M/F/Male/Female)
-            </div>
+            <div className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">(Works for values: M/F/Male/Female)</div>
+          </div>
+
+          <div>
+            <div className="app-label">REQ D-B</div>
+            <select className={inputCls()} value={reqDB} onChange={(e) => setReqDB(e.target.value as any)}>
+              <option value="">All</option>
+              <option value="Yes">Yes</option>
+              <option value="No">No</option>
+            </select>
+          </div>
+
+          <div>
+            <div className="app-label">REQ B-D</div>
+            <select className={inputCls()} value={reqBD} onChange={(e) => setReqBD(e.target.value as any)}>
+              <option value="">All</option>
+              <option value="Yes">Yes</option>
+              <option value="No">No</option>
+            </select>
           </div>
 
           <div>
@@ -673,12 +855,12 @@ export default function ReportsPage() {
           </div>
 
           <div>
-            <div className="app-label">Travel From {tab === "bhati" ? "(uses Jatha Date)" : ""}</div>
+            <div className="app-label">Travel From</div>
             <input type="date" className={inputCls()} value={travelFrom} onChange={(e) => setTravelFrom(e.target.value)} />
           </div>
 
           <div>
-            <div className="app-label">Travel To {tab === "bhati" ? "(uses Jatha Date)" : ""}</div>
+            <div className="app-label">Travel To</div>
             <input type="date" className={inputCls()} value={travelTo} onChange={(e) => setTravelTo(e.target.value)} />
           </div>
         </div>
@@ -688,11 +870,11 @@ export default function ReportsPage() {
             Clear Filters
           </button>
           <button type="button" className="app-btn app-btn-primary h-10 px-4" onClick={load}>
-            Search
+            Refresh From Server
           </button>
         </div>
 
-        {/* ✅ SUMMARY (Counts + Payment Sum) */}
+        {/* SUMMARY */}
         <div className="mt-4 flex flex-wrap items-center gap-3 rounded-2xl border border-black/5 bg-zinc-50 px-4 py-3 text-sm dark:border-white/10 dark:bg-black/30">
           <div>
             <span className="font-semibold">Total:</span> {summary.total}
@@ -713,45 +895,48 @@ export default function ReportsPage() {
 
         {/* Table */}
         <div className="w-full overflow-x-auto mt-4">
-          <table className="min-w-[1900px] table-fixed border-collapse text-xs">
+          <table className="min-w-[2400px] table-fixed border-collapse text-xs">
             <thead className="thead">
               <tr>
-                {/* ORDER as requested */}
                 <th className="th w-14 px-2 py-2">S.No</th>
                 <th className="th w-48 px-2 py-2">Name</th>
+                <th className="th w-40 px-2 py-2">Department</th>
+                <th className="th w-20 px-2 py-2">Sangat</th>
                 <th className="th w-48 px-2 py-2">Father/Husband</th>
                 <th className="th w-24 px-2 py-2">Gender</th>
                 <th className="th w-16 px-2 py-2">Age</th>
                 <th className="th w-32 px-2 py-2">Mobile</th>
+                <th className="th w-36 px-2 py-2">Aadhaar</th>
                 <th className="th w-72 px-2 py-2">Address</th>
                 <th className="th w-28 px-2 py-2">Badge</th>
-                <th className="th w-20 px-2 py-2">Mode</th>
 
-                {/* rest */}
+                <th className="th w-20 px-2 py-2">Mode</th>
                 <th className="th w-20 px-2 py-2">REQ D-B</th>
                 <th className="th w-20 px-2 py-2">REQ B-D</th>
                 <th className="th w-[520px] px-2 py-2">Ticket D-B</th>
                 <th className="th w-[520px] px-2 py-2">Ticket B-D</th>
+
                 <th className="th w-32 px-2 py-2">Payment</th>
                 <th className="th w-28 px-2 py-2">Jatha Date</th>
-
-                {showTravelCols && <th className="th w-28 px-2 py-2">Start</th>}
-                {showTravelCols && <th className="th w-28 px-2 py-2">End</th>}
+                <th className="th w-28 px-2 py-2">Start</th>
+                <th className="th w-28 px-2 py-2">End</th>
 
                 <th className="th w-64 px-2 py-2">Notes</th>
+                <th className="th w-32 px-2 py-2">Created</th>
+                <th className="th w-32 px-2 py-2">Updated</th>
               </tr>
             </thead>
 
             <tbody className="divide-y divide-black/5 dark:divide-white/10">
               {loading ? (
                 <tr>
-                  <td className="td px-2 py-2 text-zinc-600 dark:text-zinc-400" colSpan={showTravelCols ? 18 : 16}>
+                  <td className="td px-2 py-2 text-zinc-600 dark:text-zinc-400" colSpan={23}>
                     Loading...
                   </td>
                 </tr>
               ) : items.length === 0 ? (
                 <tr>
-                  <td className="td px-2 py-2 text-zinc-600 dark:text-zinc-400" colSpan={showTravelCols ? 18 : 16}>
+                  <td className="td px-2 py-2 text-zinc-600 dark:text-zinc-400" colSpan={23}>
                     No records found.
                   </td>
                 </tr>
@@ -760,32 +945,31 @@ export default function ReportsPage() {
                   <tr key={r._id} className={["row", i % 2 === 0 ? "row-alt" : "row-alt2"].join(" ")}>
                     <td className="td px-2 py-2">{i + 1}</td>
                     <td className="td px-2 py-2 font-medium whitespace-normal break-words">{r.customerName || "-"}</td>
+                    <td className="td px-2 py-2 whitespace-normal break-words">{r.department || "-"}</td>
+                    <td className="td px-2 py-2">{r.sangat || "-"}</td>
                     <td className="td px-2 py-2 whitespace-normal break-words">{r.fatherOrHusbandName || "-"}</td>
                     <td className="td px-2 py-2">{r.gender || "-"}</td>
                     <td className="td px-2 py-2">{r.age ?? "-"}</td>
                     <td className="td px-2 py-2">{r.mobile || "-"}</td>
+                    <td className="td px-2 py-2">{r.adhaarNumber || "-"}</td>
                     <td className="td px-2 py-2 whitespace-normal break-words">{r.address || "-"}</td>
                     <td className="td px-2 py-2">{r.badgeNo || "-"}</td>
-                    <td className="td px-2 py-2">{r.mode || "-"}</td>
 
+                    <td className="td px-2 py-2">{r.mode || "-"}</td>
                     <td className="td px-2 py-2">{r.bookingReqDelhiBeas || "-"}</td>
                     <td className="td px-2 py-2">{r.bookingReqBeasDelhi || "-"}</td>
 
-                    {/* ✅ now shows full label if ticket id exists */}
                     <td className="td px-2 py-2 whitespace-normal break-words">{renderTicket(r.ticketDelhiBeas)}</td>
                     <td className="td px-2 py-2 whitespace-normal break-words">{renderTicket(r.ticketBeasDelhi)}</td>
 
                     <td className="td px-2 py-2">{r.payment || "-"}</td>
                     <td className="td px-2 py-2 whitespace-nowrap">{formatDDMonYYYY(toYMD(r.jathaDate)) || "-"}</td>
-
-                    {showTravelCols && (
-                      <td className="td px-2 py-2 whitespace-nowrap">{formatDDMonYYYY(toYMD(r.travelStartDate)) || "-"}</td>
-                    )}
-                    {showTravelCols && (
-                      <td className="td px-2 py-2 whitespace-nowrap">{formatDDMonYYYY(toYMD(r.travelEndDate)) || "-"}</td>
-                    )}
+                    <td className="td px-2 py-2 whitespace-nowrap">{formatDDMonYYYY(toYMD(r.travelStartDate)) || "-"}</td>
+                    <td className="td px-2 py-2 whitespace-nowrap">{formatDDMonYYYY(toYMD(r.travelEndDate)) || "-"}</td>
 
                     <td className="td px-2 py-2 whitespace-normal break-words">{r.notes || "-"}</td>
+                    <td className="td px-2 py-2 whitespace-nowrap">{formatDDMonYYYY(toYMD(r.createdAt)) || "-"}</td>
+                    <td className="td px-2 py-2 whitespace-nowrap">{formatDDMonYYYY(toYMD(r.updatedAt)) || "-"}</td>
                   </tr>
                 ))
               )}

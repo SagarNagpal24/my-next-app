@@ -4,6 +4,28 @@ import * as XLSX from "xlsx";
 
 const COLLECTION = "customers";
 
+type Department =
+  | ""
+  | "Security"
+  | "FR"
+  | "Pandal"
+  | "SHK"
+  | "Canteen"
+  | "BAV"
+  | "Traffic"
+  | "Sangat";
+
+const DEPARTMENT_OPTIONS: Exclude<Department, "">[] = [
+  "Security",
+  "FR",
+  "Pandal",
+  "SHK",
+  "Canteen",
+  "BAV",
+  "Traffic",
+  "Sangat",
+];
+
 function digitsOnly(v: any) {
   return String(v ?? "").replace(/\D/g, "");
 }
@@ -64,6 +86,9 @@ function validateRow(clean: any, rowNumber: number) {
   const blacklisted = String(clean.blacklisted || "No").trim();
   const ageVal = clean.age;
 
+  // ✅ NEW: department (optional)
+  const department = String(clean.department || "").trim();
+
   // ✅ Mandatory fields
   if (!name) errors.push({ row: rowNumber, field: "Name", message: "Name is required." });
   if (!father) errors.push({ row: rowNumber, field: "Father/Husband Name", message: "Father/Husband Name is required." });
@@ -98,6 +123,15 @@ function validateRow(clean: any, rowNumber: number) {
     errors.push({ row: rowNumber, field: "Blacklisted", message: "Blacklisted must be Yes or No." });
   }
 
+  // ✅ Department allowed values (optional)
+  if (department && !DEPARTMENT_OPTIONS.includes(department as any)) {
+    errors.push({
+      row: rowNumber,
+      field: "Department",
+      message: `Department must be one of: ${DEPARTMENT_OPTIONS.join(", ")}.`,
+    });
+  }
+
   return errors;
 }
 
@@ -129,12 +163,15 @@ export async function POST(req: Request) {
       const rowNumber = idx + 2; // header row is 1
 
       // ✅ header-safe picks (includes common variants)
-      let aadhaarPicked = digitsOnly(pick(r, ["Adhaar Number", "Aadhaar Number", "Aadhaar", "Aadhar", "Aadhar Number"])).slice(0, 12);
+      let aadhaarPicked = digitsOnly(
+        pick(r, ["Adhaar Number", "Aadhaar Number", "Aadhaar", "Aadhar", "Aadhar Number"])
+      ).slice(0, 12);
+
       let blacklistedPicked = String(
         pick(r, ["Blacklisted", "Black Listed", "Blacklist", "Black list", "Blacklisted (Yes/No)"])
       ).trim();
 
-      // ✅ DEFENSIVE FIX (prevents your screenshot issue):
+      // ✅ DEFENSIVE FIX (prevents shifted columns issue):
       // If blacklisted column mistakenly contains Aadhaar (12 digits) and Aadhaar column is empty
       const blkDigits = digitsOnly(blacklistedPicked);
       if (!aadhaarPicked && blkDigits.length === 12) {
@@ -148,17 +185,29 @@ export async function POST(req: Request) {
         aadhaarPicked = "";
       }
 
+      // ✅ NEW: Department pick (many header variants)
+      const departmentPicked = String(
+        pick(r, ["Department", "Dept", "Dept.", "Team", "Seva", "Duty"])
+      ).trim();
+
       const clean = {
         name: String(pick(r, ["Name"])).trim(),
         badgeNo: String(pick(r, ["Badge No", "Badge"])).trim(),
         fatherOrHusbandName: String(
-          pick(r, ["Father’s / Husband’s Name", "Father/Husband Name", "Father Husband Name", "Father Name", "Husband Name"])
+          pick(r, [
+            "Father’s / Husband’s Name",
+            "Father/Husband Name",
+            "Father Husband Name",
+            "Father Name",
+            "Husband Name",
+          ])
         ).trim(),
         gender: String(pick(r, ["Gender"])).trim(),
         age: pick(r, ["Age"]),
         address: String(pick(r, ["Address"])).trim(),
         mobile: digitsOnly(pick(r, ["Mobile", "Phone"])),
         adhaarNumber: aadhaarPicked,
+        department: departmentPicked, // ✅ NEW
         blacklisted: (blacklistedPicked || "No") as "Yes" | "No" | string,
         emergencyNumber: digitsOnly(pick(r, ["Emergency Number", "Emergency"])),
         medicalDateRaw: pick(r, ["Medical Date"]),
@@ -166,7 +215,7 @@ export async function POST(req: Request) {
       };
 
       const errs = validateRow(
-        { ...clean, adhaarNumber: clean.adhaarNumber, age: clean.age },
+        { ...clean, adhaarNumber: clean.adhaarNumber, age: clean.age, department: clean.department },
         rowNumber
       );
 
@@ -189,6 +238,7 @@ export async function POST(req: Request) {
         address: clean.address,
         mobile: clean.mobile,
         adhaarNumber: clean.adhaarNumber || "",
+        department: clean.department || "", // ✅ NEW
         blacklisted: clean.blacklisted || "No",
         emergencyNumber: clean.emergencyNumber || "",
         medicalDate: md ? md : null,

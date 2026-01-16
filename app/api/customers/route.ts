@@ -3,6 +3,9 @@ import { getDb } from "../../lib/mongodb";
 
 const COLLECTION = "customers";
 
+// ✅ NEW: Department dropdown values (same as UI)
+const DEPARTMENTS = ["Security", "FR", "Pandal", "SHK", "Canteen", "BAV", "Traffic","HRT","Baal-Satsang","Coupon","MNT","Office","Sewa-Collection","Water","Sewa-Samiti", "Sangat"] as const;
+
 function toNum(v: any) {
   if (v === undefined || v === null || v === "") return undefined;
   const n = Number(v);
@@ -13,19 +16,27 @@ function digitsOnly(v: any) {
   return String(v ?? "").replace(/\D/g, "");
 }
 
+function normDept(v: any) {
+  const s = String(v ?? "").trim();
+  if (!s) return "";
+  // accept exact match only (keeps data clean)
+  return DEPARTMENTS.includes(s as any) ? s : "";
+}
+
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
 
     const q = (searchParams.get("q") || "").trim();
     const gender = (searchParams.get("gender") || "").trim();
-    const blacklisted = (searchParams.get("blacklisted") || "").trim(); // ✅ NEW
+    const blacklisted = (searchParams.get("blacklisted") || "").trim();
+    const department = (searchParams.get("department") || "").trim(); // ✅ NEW
     const ageMin = toNum(searchParams.get("ageMin"));
     const ageMax = toNum(searchParams.get("ageMax"));
     const medFrom = (searchParams.get("medFrom") || "").trim();
     const medTo = (searchParams.get("medTo") || "").trim();
 
-    // ✅ NEW: limit support (needed for Export All)
+    // ✅ limit support (needed for Export All)
     const limitRaw = toNum(searchParams.get("limit"));
     const limit = Math.min(Math.max(limitRaw ?? 200, 1), 10000);
 
@@ -38,13 +49,15 @@ export async function GET(req: Request) {
         { mobile: { $regex: q, $options: "i" } },
         { adhaarNumber: { $regex: q, $options: "i" } },
         { badgeNo: { $regex: q, $options: "i" } },
+        { department: { $regex: q, $options: "i" } }, // ✅ helpful search
       ];
     }
 
     if (gender) filter.gender = gender;
-
-    // ✅ NEW: blacklisted filter
     if (blacklisted) filter.blacklisted = blacklisted;
+
+    // ✅ NEW: department filter (exact match)
+    if (department) filter.department = department;
 
     if (ageMin !== undefined || ageMax !== undefined) {
       filter.age = {};
@@ -67,7 +80,7 @@ export async function GET(req: Request) {
       _id: x._id?.toString?.() ?? String(x._id),
     }));
 
-    return NextResponse.json({ items: safeItems });
+    return NextResponse.json({ items: safeItems, departments: DEPARTMENTS });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || "Server error" }, { status: 500 });
   }
@@ -86,6 +99,9 @@ export async function POST(req: Request) {
     const address = String(body.address || "").trim();
     const mobile = digitsOnly(body.mobile || "");
     const blacklisted = String(body.blacklisted || "No").trim();
+
+    // ✅ NEW: department (optional but validated if provided)
+    const department = normDept(body.department || "");
 
     const age = body.age === "" || body.age === null || body.age === undefined ? null : Number(body.age);
 
@@ -120,6 +136,15 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Blacklisted must be Yes or No" }, { status: 400 });
     }
 
+    // ✅ Department allowed values (if provided)
+    const rawDept = String(body.department || "").trim();
+    if (rawDept && !department) {
+      return NextResponse.json(
+        { error: `Department must be one of: ${DEPARTMENTS.join(", ")}` },
+        { status: 400 }
+      );
+    }
+
     const medicalDate = body.medicalDate ? new Date(String(body.medicalDate)) : null;
     if (body.medicalDate && (medicalDate === null || Number.isNaN(medicalDate.getTime()))) {
       return NextResponse.json({ error: "Invalid medical date" }, { status: 400 });
@@ -134,6 +159,7 @@ export async function POST(req: Request) {
       address,
       mobile,
       adhaarNumber: adhaarNumber || "",
+      department: department || "", // ✅ NEW
       blacklisted: blacklisted || "No",
       emergencyNumber: digitsOnly(body.emergencyNumber || ""),
       medicalDate,

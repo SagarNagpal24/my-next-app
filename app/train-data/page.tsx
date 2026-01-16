@@ -618,7 +618,7 @@ export default function TrainDataPage() {
               </div>
 
               <div class="row"><span class="label">Name:</span><span class="value">${escapeHtml(p.name)}</span></div>
-              <div class="row"><span class="label">Age/Gender:</span><span class="value">${escapeHtml(p.age ?? "-")} / ${escapeHtml(p.gender || "-")}</span></div>
+              
               <div class="row"><span class="label">Seat:</span><span class="value">${escapeHtml(p.seatNumber || "-")}</span></div>
               <div class="row"><span class="label">PNR:</span><span class="value">${escapeHtml(p.pnrNumber || "-")}</span></div>
               <div class="row"><span class="label">Train:</span><span class="value">${escapeHtml(p.trainName || "-")}</span></div>

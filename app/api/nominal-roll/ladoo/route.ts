@@ -6,11 +6,8 @@ const COLLECTION = "nominalRollLadoo";
 /** Safe YYYY-MM-DD output for Date or string */
 function toYMD(v: any) {
   if (!v) return "";
-  // already "YYYY-MM-DD..." string
   if (typeof v === "string") return v.slice(0, 10);
-  // Date object
   if (v instanceof Date) return v.toISOString().slice(0, 10);
-  // Mongo might give something else
   try {
     const d = new Date(v);
     if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10);
@@ -21,10 +18,9 @@ function toYMD(v: any) {
 // Ensure indexes exist (idempotent) — BUT do not crash GET if duplicates exist
 async function ensureIndexes(db: any) {
   // customer duplicate protection
-  await db.collection(COLLECTION).createIndex(
-    { customerId: 1, jathaDateId: 1 },
-    { unique: true, name: "uniq_customer_jathadate" }
-  );
+  await db
+    .collection(COLLECTION)
+    .createIndex({ customerId: 1, jathaDateId: 1 }, { unique: true, name: "uniq_customer_jathadate" });
 
   // ticket locking (unique only when non-empty string)
   await db.collection(COLLECTION).createIndex(
@@ -54,9 +50,7 @@ export async function GET() {
     try {
       await ensureIndexes(db);
     } catch (e: any) {
-      // If you want, you can console.error this:
       console.error("ensureIndexes failed (GET) - likely duplicates exist:", e?.message || e);
-      // Continue anyway so data loads
     }
 
     const items = await db.collection(COLLECTION).find({}).sort({ createdAt: -1 }).limit(1000).toArray();
@@ -64,6 +58,10 @@ export async function GET() {
     const safe = items.map((x: any) => ({
       ...x,
       _id: x._id.toString(),
+
+      // ✅ safe strings
+      department: String(x.department || "").trim(),
+      sangat: String(x.sangat || "").trim(), // ✅ NEW
 
       // ✅ safe formatting whether stored as Date or string
       jathaDate: toYMD(x.jathaDate),
@@ -107,6 +105,10 @@ export async function POST(req: Request) {
     const mobile = String(body.mobile || "").trim();
     const adhaarNumber = String(body.adhaarNumber || "").trim();
 
+    // ✅ department + sangat (editable)
+    const department = String(body.department || "").trim();
+    const sangat = String(body.sangat || "").trim(); // ✅ NEW (Yes/No or "")
+
     // user fields
     const mode = String(body.mode || "").trim();
 
@@ -119,7 +121,7 @@ export async function POST(req: Request) {
     const payment = String(body.payment || "").trim();
 
     const jathaDateId = String(body.jathaDateId || "").trim();
-    const jathaDate = String(body.jathaDate || "").trim();
+    const jathaDate = String(body.jathaDate || "").trim(); // kept (start date)
 
     const travelStartDate = String(body.travelStartDate || "").trim();
     const travelEndDate = String(body.travelEndDate || "").trim();
@@ -132,6 +134,12 @@ export async function POST(req: Request) {
     if (!jathaDate) return NextResponse.json({ error: "Jatha date value missing" }, { status: 400 });
 
     if (!mode) return NextResponse.json({ error: "Mode is required" }, { status: 400 });
+
+    // ✅ Sangat validation (optional — if you want required, uncomment)
+    // if (!sangat) return NextResponse.json({ error: "Sangat is required" }, { status: 400 });
+    if (sangat && !["Yes", "No"].includes(sangat)) {
+      return NextResponse.json({ error: "Sangat must be Yes or No" }, { status: 400 });
+    }
 
     // ✅ If mode != Train => force-disable booking/tickets
     if (mode !== "Train") {
@@ -161,6 +169,10 @@ export async function POST(req: Request) {
       address,
       mobile,
       adhaarNumber,
+
+      // ✅ NEW
+      department,
+      sangat,
 
       mode,
 

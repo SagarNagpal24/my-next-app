@@ -5,7 +5,8 @@ import { getDb } from "../../../../lib/mongodb";
 const COLLECTION = "nominalRollLadoo";
 
 function extractObjectId(raw: string) {
-  const match = String(raw || "").match(/[a-fA-F0-9]{24}/);
+  const decoded = decodeURIComponent(String(raw || "")).trim();
+  const match = decoded.match(/[a-fA-F0-9]{24}/);
   return match?.[0] || null;
 }
 
@@ -83,6 +84,9 @@ export async function PUT(req: Request, ctx: Ctx) {
 
     const body = await req.json();
 
+    const department = asString(body.department);
+    const sangat = asString(body.sangat); // ✅ NEW
+
     const mode = asString(body.mode);
 
     let bookingReqDelhiBeas = asString(body.bookingReqDelhiBeas);
@@ -104,6 +108,11 @@ export async function PUT(req: Request, ctx: Ctx) {
     if (!jathaDate) return NextResponse.json({ error: "Jatha date value missing" }, { status: 400 });
 
     if (!mode) return NextResponse.json({ error: "Mode is required" }, { status: 400 });
+
+    // ✅ Sangat validation (optional, but keep clean)
+    if (sangat && !["Yes", "No"].includes(sangat)) {
+      return NextResponse.json({ error: "Sangat must be Yes or No" }, { status: 400 });
+    }
 
     // ✅ If mode != Train => force-disable booking/tickets
     if (mode !== "Train") {
@@ -132,6 +141,9 @@ export async function PUT(req: Request, ctx: Ctx) {
     }
 
     const update = {
+      department,
+      sangat, // ✅ NEW
+
       mode,
 
       bookingReqDelhiBeas,
@@ -215,7 +227,6 @@ export async function DELETE(_: Request, ctx: Ctx) {
 
     if (result.deletedCount === 0) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-    // ✅ deleting frees the ticket automatically
     return NextResponse.json({ ok: true });
   } catch (e: any) {
     console.error("DELETE /nominal-roll/ladoo/[id] error:", e);

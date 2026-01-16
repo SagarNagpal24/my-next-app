@@ -4,6 +4,28 @@ import { getDb } from "../../../lib/mongodb"; // keep your current working relat
 
 const COLLECTION = "customers";
 
+type Department =
+  | ""
+  | "Security"
+  | "FR"
+  | "Pandal"
+  | "SHK"
+  | "Canteen"
+  | "BAV"
+  | "Traffic"
+  | "Sangat";
+
+const DEPARTMENT_OPTIONS: Exclude<Department, "">[] = [
+  "Security",
+  "FR",
+  "Pandal",
+  "SHK",
+  "Canteen",
+  "BAV",
+  "Traffic",
+  "Sangat",
+];
+
 function digitsOnly(v: any) {
   return String(v ?? "").replace(/\D/g, "");
 }
@@ -39,6 +61,9 @@ export async function PUT(req: Request, ctx: { params: Promise<{ id: string }> }
     const mobile = digitsOnly(body.mobile || "");
     const blacklisted = String(body.blacklisted || "No").trim();
 
+    // ✅ NEW: Department
+    const department = String(body.department || "").trim();
+
     const age = body.age === "" || body.age === null || body.age === undefined ? null : Number(body.age);
 
     // ✅ REQUIRED fields
@@ -72,6 +97,14 @@ export async function PUT(req: Request, ctx: { params: Promise<{ id: string }> }
       return NextResponse.json({ error: "Blacklisted must be Yes or No" }, { status: 400 });
     }
 
+    // ✅ Department validation (optional)
+    if (department && !DEPARTMENT_OPTIONS.includes(department as any)) {
+      return NextResponse.json(
+        { error: `Department must be one of: ${DEPARTMENT_OPTIONS.join(", ")}` },
+        { status: 400 }
+      );
+    }
+
     const mdRaw = String(body.medicalDate || "").trim();
     const medicalDate = mdRaw ? new Date(mdRaw) : null;
     if (mdRaw && Number.isNaN(medicalDate!.getTime())) {
@@ -87,6 +120,7 @@ export async function PUT(req: Request, ctx: { params: Promise<{ id: string }> }
       address,
       mobile,
       adhaarNumber: adhaarNumber || "",
+      department: department || "", // ✅ NEW
       blacklisted: blacklisted || "No",
       emergencyNumber: digitsOnly(body.emergencyNumber || ""),
       medicalDate,

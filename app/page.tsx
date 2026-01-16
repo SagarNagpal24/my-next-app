@@ -5,6 +5,30 @@ import React from "react";
 type Gender = "M" | "F" | "Other" | "";
 type Blacklisted = "Yes" | "No" | "";
 
+// ✅ NEW
+type Department =
+  | ""
+    | "Sangat"
+  | "Security"
+  | "FR"
+  | "Pandal"
+  | "SHK"
+  | "Canteen"
+  | "BAV"
+  | "Traffic"
+  ;
+
+const DEPARTMENT_OPTIONS: Exclude<Department, "">[] = [
+  "Security",
+  "FR",
+  "Pandal",
+  "SHK",
+  "Canteen",
+  "BAV",
+  "Traffic",
+  "Sangat",
+];
+
 type FormState = {
   name: string;
 
@@ -17,6 +41,9 @@ type FormState = {
 
   address: string; // required
   mobile: string; // required digits
+
+  // ✅ NEW
+  department: Department;
 
   blacklisted: Blacklisted; // new
 
@@ -37,8 +64,14 @@ function Field({
   return (
     <label className="block">
       <div className="mb-1 flex items-center justify-between gap-2">
-        <span className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">{label}</span>
-        {error && <span className="text-xs font-medium text-red-600 dark:text-red-400">{error}</span>}
+        <span className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">
+          {label}
+        </span>
+        {error && (
+          <span className="text-xs font-medium text-red-600 dark:text-red-400">
+            {error}
+          </span>
+        )}
       </div>
       {children}
     </label>
@@ -62,6 +95,9 @@ export default function Home() {
     address: "",
     mobile: "",
 
+    // ✅ NEW (default empty; user must select)
+    department: "",
+
     blacklisted: "No",
 
     emergencyNumber: "",
@@ -71,7 +107,10 @@ export default function Home() {
 
   const [errors, setErrors] = React.useState<Record<string, string>>({});
   const [saving, setSaving] = React.useState(false);
-  const [status, setStatus] = React.useState<{ type: "idle" | "ok" | "err"; msg: string }>({
+  const [status, setStatus] = React.useState<{
+    type: "idle" | "ok" | "err";
+    msg: string;
+  }>({
     type: "idle",
     msg: "",
   });
@@ -90,7 +129,8 @@ export default function Home() {
 
     // ✅ Required fields
     if (!form.name.trim()) e.name = "Name is required.";
-    if (!form.fatherOrHusbandName.trim()) e.fatherOrHusbandName = "Father/Husband Name is required.";
+    if (!form.fatherOrHusbandName.trim())
+      e.fatherOrHusbandName = "Father/Husband Name is required.";
     if (!form.gender) e.gender = "Gender is required.";
     if (!form.address.trim()) e.address = "Address is required.";
 
@@ -116,14 +156,26 @@ export default function Home() {
     }
 
     // ✅ Aadhaar length if provided
-    if (aadhaar && aadhaar.length !== 12) e.adhaarNumber = "Aadhaar must be exactly 12 digits (if provided).";
+    if (aadhaar && aadhaar.length !== 12)
+      e.adhaarNumber = "Aadhaar must be exactly 12 digits (if provided).";
 
-    // ✅ Optional phone validations (digits only, no +91 required)
+    // ✅ Optional phone validations
     const emergencyDigits = digitsOnly(form.emergencyNumber);
-    if (emergencyDigits && emergencyDigits.length < 7) e.emergencyNumber = "Emergency number looks too short.";
+    if (emergencyDigits && emergencyDigits.length < 7)
+      e.emergencyNumber = "Emergency number looks too short.";
 
     // ✅ Blacklisted validation
-    if (form.blacklisted && !["Yes", "No"].includes(form.blacklisted)) e.blacklisted = "Blacklisted must be Yes or No.";
+    if (form.blacklisted && !["Yes", "No"].includes(form.blacklisted))
+      e.blacklisted = "Blacklisted must be Yes or No.";
+
+    // ✅ NEW: Department required + allowed
+    if (!form.department) e.department = "Department is required.";
+    if (
+      form.department &&
+      !DEPARTMENT_OPTIONS.includes(form.department as any)
+    ) {
+      e.department = "Invalid Department.";
+    }
 
     setErrors(e);
     return Object.keys(e).length === 0;
@@ -149,6 +201,10 @@ export default function Home() {
         address: form.address.trim(),
         mobile: digitsOnly(form.mobile),
         adhaarNumber: digitsOnly(form.adhaarNumber).slice(0, 12),
+
+        // ✅ NEW
+        department: form.department,
+
         blacklisted: form.blacklisted || "No",
         emergencyNumber: digitsOnly(form.emergencyNumber),
         medicalDate: form.medicalDate ? form.medicalDate : null,
@@ -182,6 +238,9 @@ export default function Home() {
         address: "",
         mobile: "",
 
+        // ✅ NEW reset
+        department: "",
+
         blacklisted: "No",
 
         emergencyNumber: "",
@@ -205,10 +264,12 @@ export default function Home() {
             <p className="app-subtitle">Enter details and save the record.</p>
           </div>
 
-          {/* ✅ Removed: Required Name / Aadhaar 12 digits chips */}
           <div className="flex flex-wrap items-center gap-2">
-            <span className="app-chip">Required: Age, Gender, Mobile, Father/Husband, Address</span>
+            <span className="app-chip">
+              Required: Age, Gender, Mobile, Father/Husband, Address
+            </span>
             <span className="app-chip">Badge or Aadhaar required</span>
+            <span className="app-chip">Department required</span>
           </div>
         </div>
 
@@ -230,13 +291,17 @@ export default function Home() {
           <div className="rounded-2xl border border-black/5 p-4 dark:border-white/10 sm:p-5">
             <div className="mb-4">
               <div className="text-sm font-semibold">Basic Details</div>
-              <div className="text-xs text-zinc-600 dark:text-zinc-400">Identity and family info</div>
+              <div className="text-xs text-zinc-600 dark:text-zinc-400">
+                Identity and family info
+              </div>
             </div>
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <Field label="Name *" error={errors.name}>
                 <input
-                  className={`app-input ${errors.name ? "border-red-400 focus:border-red-500" : ""}`}
+                  className={`app-input ${
+                    errors.name ? "border-red-400 focus:border-red-500" : ""
+                  }`}
                   value={form.name}
                   onChange={(e) => setField("name", e.target.value)}
                   placeholder="Full name"
@@ -246,7 +311,9 @@ export default function Home() {
 
               <Field label="Badge No" error={errors.badgeNo}>
                 <input
-                  className={`app-input ${errors.badgeNo ? "border-red-400 focus:border-red-500" : ""}`}
+                  className={`app-input ${
+                    errors.badgeNo ? "border-red-400 focus:border-red-500" : ""
+                  }`}
                   value={form.badgeNo}
                   onChange={(e) => setField("badgeNo", e.target.value)}
                   placeholder="Badge No"
@@ -255,19 +322,34 @@ export default function Home() {
 
               <Field label="Aadhaar" error={errors.adhaarNumber}>
                 <input
-                  className={`app-input ${errors.adhaarNumber ? "border-red-400 focus:border-red-500" : ""}`}
+                  className={`app-input ${
+                    errors.adhaarNumber
+                      ? "border-red-400 focus:border-red-500"
+                      : ""
+                  }`}
                   value={form.adhaarNumber}
-                  onChange={(e) => setField("adhaarNumber", digitsOnly(e.target.value).slice(0, 12))}
+                  onChange={(e) =>
+                    setField("adhaarNumber", digitsOnly(e.target.value).slice(0, 12))
+                  }
                   inputMode="numeric"
                   placeholder="Aadhaar"
                 />
               </Field>
 
-              <Field label="Father’s / Husband’s Name *" error={errors.fatherOrHusbandName}>
+              <Field
+                label="Father’s / Husband’s Name *"
+                error={errors.fatherOrHusbandName}
+              >
                 <input
-                  className={`app-input ${errors.fatherOrHusbandName ? "border-red-400 focus:border-red-500" : ""}`}
+                  className={`app-input ${
+                    errors.fatherOrHusbandName
+                      ? "border-red-400 focus:border-red-500"
+                      : ""
+                  }`}
                   value={form.fatherOrHusbandName}
-                  onChange={(e) => setField("fatherOrHusbandName", e.target.value)}
+                  onChange={(e) =>
+                    setField("fatherOrHusbandName", e.target.value)
+                  }
                   placeholder="Father/Husband Name"
                   required
                 />
@@ -275,7 +357,9 @@ export default function Home() {
 
               <Field label="Gender *" error={errors.gender}>
                 <select
-                  className={`app-input ${errors.gender ? "border-red-400 focus:border-red-500" : ""}`}
+                  className={`app-input ${
+                    errors.gender ? "border-red-400 focus:border-red-500" : ""
+                  }`}
                   value={form.gender}
                   onChange={(e) => setField("gender", e.target.value as Gender)}
                   required
@@ -289,7 +373,9 @@ export default function Home() {
 
               <Field label="Age *" error={errors.age}>
                 <input
-                  className={`app-input ${errors.age ? "border-red-400 focus:border-red-500" : ""}`}
+                  className={`app-input ${
+                    errors.age ? "border-red-400 focus:border-red-500" : ""
+                  }`}
                   value={form.age}
                   onChange={(e) => setField("age", digitsOnly(e.target.value))}
                   inputMode="numeric"
@@ -298,11 +384,40 @@ export default function Home() {
                 />
               </Field>
 
+              {/* ✅ NEW Department */}
+              <Field label="Department *" error={errors.department}>
+                <select
+                  className={`app-input ${
+                    errors.department
+                      ? "border-red-400 focus:border-red-500"
+                      : ""
+                  }`}
+                  value={form.department}
+                  onChange={(e) =>
+                    setField("department", e.target.value as Department)
+                  }
+                  required
+                >
+                  <option value="">Select</option>
+                  {DEPARTMENT_OPTIONS.map((d) => (
+                    <option key={d} value={d}>
+                      {d}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+
               <Field label="Blacklisted" error={errors.blacklisted}>
                 <select
-                  className={`app-input ${errors.blacklisted ? "border-red-400 focus:border-red-500" : ""}`}
+                  className={`app-input ${
+                    errors.blacklisted
+                      ? "border-red-400 focus:border-red-500"
+                      : ""
+                  }`}
                   value={form.blacklisted}
-                  onChange={(e) => setField("blacklisted", e.target.value as Blacklisted)}
+                  onChange={(e) =>
+                    setField("blacklisted", e.target.value as Blacklisted)
+                  }
                 >
                   <option value="No">No</option>
                   <option value="Yes">Yes</option>
@@ -310,26 +425,35 @@ export default function Home() {
               </Field>
 
               <Field label="Medical Date">
-                <input type="date" className="app-input" value={form.medicalDate} onChange={(e) => setField("medicalDate", e.target.value)} />
+                <input
+                  type="date"
+                  className="app-input"
+                  value={form.medicalDate}
+                  onChange={(e) => setField("medicalDate", e.target.value)}
+                />
               </Field>
             </div>
 
-            {/* ✅ small helper note */}
             <div className="mt-3 text-xs text-zinc-600 dark:text-zinc-400">
-              Note: Fill <span className="font-semibold">either</span> Badge No or Aadhaar (one is mandatory).
+              Note: Fill <span className="font-semibold">either</span> Badge No
+              or Aadhaar (one is mandatory).
             </div>
           </div>
 
           <div className="mt-5 rounded-2xl border border-black/5 p-4 dark:border-white/10 sm:p-5">
             <div className="mb-4">
               <div className="text-sm font-semibold">Contact</div>
-              <div className="text-xs text-zinc-600 dark:text-zinc-400">Phone numbers</div>
+              <div className="text-xs text-zinc-600 dark:text-zinc-400">
+                Phone numbers
+              </div>
             </div>
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <Field label="Mobile *" error={errors.mobile}>
                 <input
-                  className={`app-input ${errors.mobile ? "border-red-400 focus:border-red-500" : ""}`}
+                  className={`app-input ${
+                    errors.mobile ? "border-red-400 focus:border-red-500" : ""
+                  }`}
                   value={form.mobile}
                   onChange={(e) => setField("mobile", digitsOnly(e.target.value))}
                   inputMode="numeric"
@@ -340,9 +464,15 @@ export default function Home() {
 
               <Field label="Emergency Number" error={errors.emergencyNumber}>
                 <input
-                  className={`app-input ${errors.emergencyNumber ? "border-red-400 focus:border-red-500" : ""}`}
+                  className={`app-input ${
+                    errors.emergencyNumber
+                      ? "border-red-400 focus:border-red-500"
+                      : ""
+                  }`}
                   value={form.emergencyNumber}
-                  onChange={(e) => setField("emergencyNumber", digitsOnly(e.target.value))}
+                  onChange={(e) =>
+                    setField("emergencyNumber", digitsOnly(e.target.value))
+                  }
                   inputMode="numeric"
                   placeholder="Emergency Number"
                 />
@@ -350,7 +480,9 @@ export default function Home() {
 
               <Field label="Address *" error={errors.address}>
                 <input
-                  className={`app-input ${errors.address ? "border-red-400 focus:border-red-500" : ""}`}
+                  className={`app-input ${
+                    errors.address ? "border-red-400 focus:border-red-500" : ""
+                  }`}
                   value={form.address}
                   onChange={(e) => setField("address", e.target.value)}
                   placeholder="Address"
@@ -363,13 +495,20 @@ export default function Home() {
           <div className="mt-5 rounded-2xl border border-black/5 p-4 dark:border-white/10 sm:p-5">
             <div className="mb-4">
               <div className="text-sm font-semibold">Additional Information</div>
-              <div className="text-xs text-zinc-600 dark:text-zinc-400">Notes</div>
+              <div className="text-xs text-zinc-600 dark:text-zinc-400">
+                Notes
+              </div>
             </div>
 
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
               <div className="lg:col-span-3">
                 <Field label="Notes">
-                  <textarea className="app-textarea" rows={4} value={form.notes} onChange={(e) => setField("notes", e.target.value)} />
+                  <textarea
+                    className="app-textarea"
+                    rows={4}
+                    value={form.notes}
+                    onChange={(e) => setField("notes", e.target.value)}
+                  />
                 </Field>
               </div>
             </div>
@@ -388,6 +527,7 @@ export default function Home() {
                   age: "",
                   address: "",
                   mobile: "",
+                  department: "", // ✅ NEW reset
                   blacklisted: "No",
                   emergencyNumber: "",
                   medicalDate: "",

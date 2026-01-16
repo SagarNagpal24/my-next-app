@@ -5,6 +5,28 @@ import React from "react";
 type Gender = "M" | "F" | "Other" | "";
 type Blacklisted = "Yes" | "No" | "";
 
+type Department =
+  | ""
+  | "Security"
+  | "FR"
+  | "Pandal"
+  | "SHK"
+  | "Canteen"
+  | "BAV"
+  | "Traffic"
+  | "Sangat";
+
+const DEPARTMENT_OPTIONS: Exclude<Department, "">[] = [
+  "Security",
+  "FR",
+  "Pandal",
+  "SHK",
+  "Canteen",
+  "BAV",
+  "Traffic",
+  "Sangat",
+];
+
 type Customer = {
   _id: string;
   name: string;
@@ -16,6 +38,8 @@ type Customer = {
   address?: string;
   mobile?: string;
   adhaarNumber?: string;
+
+  department?: Department | string; // ✅ NEW
 
   blacklisted?: Blacklisted | string;
 
@@ -94,6 +118,11 @@ function validateCustomerInput(c: Customer) {
 
   if (aadhaar && aadhaar.length !== 12) return { ok: false, msg: "Aadhaar must be 12 digits (if provided)." };
 
+  // ✅ Department (optional, but validate if present)
+  if (c.department && c.department !== "" && !DEPARTMENT_OPTIONS.includes(c.department as any)) {
+    return { ok: false, msg: "Invalid Department." };
+  }
+
   return { ok: true as const, msg: "" };
 }
 
@@ -104,7 +133,8 @@ export default function CustomersPage() {
   // search / filters
   const [q, setQ] = React.useState("");
   const [gender, setGender] = React.useState<Gender>("");
-  const [blacklisted, setBlacklisted] = React.useState<Blacklisted>(""); // ✅ NEW
+  const [department, setDepartment] = React.useState<Department>(""); // ✅ NEW filter
+  const [blacklisted, setBlacklisted] = React.useState<Blacklisted>("");
   const [ageMin, setAgeMin] = React.useState("");
   const [ageMax, setAgeMax] = React.useState("");
   const [medFrom, setMedFrom] = React.useState("");
@@ -135,6 +165,7 @@ export default function CustomersPage() {
     { label: "Father/Husband", width: "w-36" },
     { label: "Gender", width: "w-16" },
     { label: "Age", width: "w-12" },
+    { label: "Department", width: "w-24" }, // ✅ NEW column
     { label: "Address", width: "w-48" },
     { label: "Mobile", width: "w-28" },
     { label: "Blacklisted", width: "w-20" },
@@ -150,7 +181,8 @@ export default function CustomersPage() {
       const params = new URLSearchParams();
       if (q.trim()) params.set("q", q.trim());
       if (gender) params.set("gender", gender);
-      if (blacklisted) params.set("blacklisted", blacklisted); // ✅ NEW
+      if (department) params.set("department", department); // ✅ NEW
+      if (blacklisted) params.set("blacklisted", blacklisted);
       if (ageMin) params.set("ageMin", ageMin);
       if (ageMax) params.set("ageMax", ageMax);
       if (medFrom) params.set("medFrom", medFrom);
@@ -181,6 +213,7 @@ export default function CustomersPage() {
   function clearFilters() {
     setQ("");
     setGender("");
+    setDepartment(""); // ✅ NEW
     setBlacklisted("");
     setAgeMin("");
     setAgeMax("");
@@ -236,6 +269,7 @@ export default function CustomersPage() {
         emergencyNumber: rest.emergencyNumber ? digitsOnly(String(rest.emergencyNumber)) : "",
         medicalDate: rest.medicalDate ? String(rest.medicalDate).slice(0, 10) : null,
         blacklisted: (rest.blacklisted as any) || "No",
+        department: (rest.department as any) || "", // ✅ NEW
       };
 
       const res = await fetch(`/api/customers/${realId}`, {
@@ -269,6 +303,7 @@ export default function CustomersPage() {
       "Father/Husband",
       "Gender",
       "Age",
+      "Department", // ✅ NEW
       "Address",
       "Mobile",
       "Blacklisted",
@@ -287,6 +322,7 @@ export default function CustomersPage() {
         c.fatherOrHusbandName || "",
         c.gender || "",
         c.age ?? "",
+        (c.department as any) || "", // ✅ NEW
         c.address || "",
         c.mobile || "",
         (c.blacklisted as any) || "No",
@@ -464,7 +500,7 @@ export default function CustomersPage() {
         </div>
 
         {/* Filters */}
-        <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
+        <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
           {/* Search with suggestions */}
           <div className="relative" ref={sugBoxRef}>
             <div className="app-label">Search</div>
@@ -477,7 +513,7 @@ export default function CustomersPage() {
               }}
               onFocus={() => suggestions.length && setSugOpen(true)}
               onKeyDown={onSearchKeyDown}
-              placeholder="Name / Mobile / Aadhaar / Badge"
+              placeholder="Name / Mobile / Aadhaar / Badge / Dept"
             />
 
             {sugOpen && suggestions.length > 0 && (
@@ -507,6 +543,19 @@ export default function CustomersPage() {
               <option value="M">M</option>
               <option value="F">F</option>
               <option value="Other">Other</option>
+            </select>
+          </div>
+
+          {/* ✅ NEW Department filter */}
+          <div>
+            <div className="app-label">Department</div>
+            <select className="app-input app-input-sm" value={department} onChange={(e) => setDepartment(e.target.value as Department)}>
+              <option value="">All</option>
+              {DEPARTMENT_OPTIONS.map((d) => (
+                <option key={d} value={d}>
+                  {d}
+                </option>
+              ))}
             </select>
           </div>
 
@@ -599,7 +648,7 @@ export default function CustomersPage() {
 
         {/* Table */}
         <div className="w-full overflow-x-auto mt-4">
-          <table className="min-w-[1600px] table-fixed border-collapse text-xs">
+          <table className="min-w-[1750px] table-fixed border-collapse text-xs">
             <thead className="thead">
               <tr>
                 {columns.map((c) => (
@@ -627,7 +676,6 @@ export default function CustomersPage() {
                 pageItems.map((c, i) => {
                   const serial = (page - 1) * pageSize + i + 1;
 
-                  // ✅ FIX: TD order must match header order
                   return (
                     <tr key={c._id} className={["row", i % 2 === 0 ? "row-alt" : "row-alt2"].join(" ")}>
                       {/* S.No */}
@@ -639,6 +687,7 @@ export default function CustomersPage() {
                               ...c,
                               medicalDate: toDateInputValue(c.medicalDate),
                               blacklisted: (c.blacklisted as any) || "No",
+                              department: (c.department as any) || "",
                             })
                           }
                           className="rounded-lg px-2 py-1 font-semibold hover:bg-zinc-100 dark:hover:bg-zinc-900/40"
@@ -665,6 +714,9 @@ export default function CustomersPage() {
 
                       {/* Age */}
                       <td className="td whitespace-normal break-words px-2 py-2">{c.age ?? "-"}</td>
+
+                      {/* ✅ Department */}
+                      <td className="td whitespace-normal break-words px-2 py-2">{(c.department as any) || "-"}</td>
 
                       {/* Address */}
                       <td className="td whitespace-normal break-words px-2 py-2">{c.address || "-"}</td>
@@ -693,6 +745,7 @@ export default function CustomersPage() {
                                 ...c,
                                 medicalDate: toDateInputValue(c.medicalDate),
                                 blacklisted: (c.blacklisted as any) || "No",
+                                department: (c.department as any) || "",
                               })
                             }
                             className="app-btn app-btn-secondary h-8 px-2 text-[11px]"
@@ -729,24 +782,10 @@ export default function CustomersPage() {
             </div>
 
             <form onSubmit={onSaveEdit} className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {/* Name */}
-              <input
-                className="app-input app-input-sm"
-                value={editing.name}
-                onChange={(e) => setEditing({ ...editing, name: e.target.value })}
-                placeholder="Name"
-                required
-              />
+              <input className="app-input app-input-sm" value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} placeholder="Name" required />
 
-              {/* Badge */}
-              <input
-                className="app-input app-input-sm"
-                value={editing.badgeNo || ""}
-                onChange={(e) => setEditing({ ...editing, badgeNo: e.target.value })}
-                placeholder="Badge No"
-              />
+              <input className="app-input app-input-sm" value={editing.badgeNo || ""} onChange={(e) => setEditing({ ...editing, badgeNo: e.target.value })} placeholder="Badge No" />
 
-              {/* Aadhaar */}
               <input
                 className="app-input app-input-sm"
                 value={editing.adhaarNumber || ""}
@@ -755,7 +794,6 @@ export default function CustomersPage() {
                 inputMode="numeric"
               />
 
-              {/* Father/Husband */}
               <input
                 className="app-input app-input-sm"
                 value={editing.fatherOrHusbandName || ""}
@@ -764,20 +802,13 @@ export default function CustomersPage() {
                 required
               />
 
-              {/* Gender */}
-              <select
-                className="app-input app-input-sm"
-                value={(editing.gender as any) || ""}
-                onChange={(e) => setEditing({ ...editing, gender: e.target.value as any })}
-                required
-              >
+              <select className="app-input app-input-sm" value={(editing.gender as any) || ""} onChange={(e) => setEditing({ ...editing, gender: e.target.value as any })} required>
                 <option value="">Gender</option>
                 <option value="M">M</option>
                 <option value="F">F</option>
                 <option value="Other">Other</option>
               </select>
 
-              {/* Age */}
               <input
                 className="app-input app-input-sm"
                 value={String(editing.age ?? "")}
@@ -787,7 +818,20 @@ export default function CustomersPage() {
                 required
               />
 
-              {/* Mobile */}
+              {/* ✅ NEW Department in edit */}
+              <select
+                className="app-input app-input-sm"
+                value={(editing.department as any) || ""}
+                onChange={(e) => setEditing({ ...editing, department: e.target.value as any })}
+              >
+                <option value="">Department</option>
+                {DEPARTMENT_OPTIONS.map((d) => (
+                  <option key={d} value={d}>
+                    {d}
+                  </option>
+                ))}
+              </select>
+
               <input
                 className="app-input app-input-sm"
                 value={editing.mobile || ""}
@@ -797,7 +841,6 @@ export default function CustomersPage() {
                 required
               />
 
-              {/* Blacklisted */}
               <select
                 className="app-input app-input-sm"
                 value={(editing.blacklisted as any) || "No"}
@@ -807,7 +850,6 @@ export default function CustomersPage() {
                 <option value="Yes">Blacklisted: Yes</option>
               </select>
 
-              {/* Emergency */}
               <input
                 className="app-input app-input-sm"
                 value={editing.emergencyNumber || ""}
@@ -816,15 +858,8 @@ export default function CustomersPage() {
                 inputMode="numeric"
               />
 
-              {/* Medical Date */}
-              <input
-                type="date"
-                className="app-input app-input-sm"
-                value={(editing.medicalDate as any) || ""}
-                onChange={(e) => setEditing({ ...editing, medicalDate: e.target.value })}
-              />
+              <input type="date" className="app-input app-input-sm" value={(editing.medicalDate as any) || ""} onChange={(e) => setEditing({ ...editing, medicalDate: e.target.value })} />
 
-              {/* Address */}
               <input
                 className="app-input app-input-sm sm:col-span-2 lg:col-span-3"
                 value={editing.address || ""}
@@ -833,7 +868,6 @@ export default function CustomersPage() {
                 required
               />
 
-              {/* Notes */}
               <textarea
                 className="app-textarea sm:col-span-2 lg:col-span-3"
                 rows={4}
