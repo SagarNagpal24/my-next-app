@@ -154,15 +154,38 @@ function iso10(v: any) {
   return String(v || "").slice(0, 10);
 }
 
+function ordinal(n: number) {
+  if (n > 3 && n < 21) return "th";
+  switch (n % 10) {
+    case 1:
+      return "st";
+    case 2:
+      return "nd";
+    case 3:
+      return "rd";
+    default:
+      return "th";
+  }
+}
+
+function formatPrettyDate(ymd?: string) {
+  const d = iso10(ymd);
+  if (!d) return "-";
+  const dt = new Date(d + "T00:00:00");
+  const day = dt.getDate();
+  const mon = dt.toLocaleString("en-IN", { month: "short" });
+  const yr = dt.getFullYear();
+  return `${day}${ordinal(day)} ${mon} ${yr}`;
+}
+
 function fmtRangeLabel(startYMD: string, endYMD: string) {
   const start = iso10(startYMD);
   const end = iso10(endYMD);
 
   if (!start && !end) return "";
-  if (start && !end) return start;
-  if (!start && end) return end;
+  if (start && !end) return formatPrettyDate(start);
+  if (!start && end) return formatPrettyDate(end);
 
-  // e.g. "2 Feb - 9 Feb 2026"
   const ds = new Date(start + "T00:00:00");
   const de = new Date(end + "T00:00:00");
   const sDay = ds.getDate();
@@ -171,13 +194,12 @@ function fmtRangeLabel(startYMD: string, endYMD: string) {
   const eMon = de.toLocaleString("en-IN", { month: "short" });
   const eYr = de.getFullYear();
 
-  // If same month/year: "2 - 9 Feb 2026"
   if (ds.getFullYear() === de.getFullYear() && ds.getMonth() === de.getMonth()) {
-    return `${sDay} - ${eDay} ${eMon} ${eYr}`;
+    return `${sDay}${ordinal(sDay)} - ${eDay}${ordinal(eDay)} ${eMon} ${eYr}`;
   }
 
-  // Otherwise: "2 Feb - 9 Mar 2026"
-  return `${sDay} ${sMon} - ${eDay} ${eMon} ${eYr}`;
+  // Otherwise: "2nd Feb - 9th Mar 2026"
+  return `${sDay}${ordinal(sDay)} ${sMon} - ${eDay}${ordinal(eDay)} ${eMon} ${eYr}`;
 }
 
 // ✅ label includes Age/Sex + Fare
@@ -210,8 +232,213 @@ function makeTicketLabel(t: TrainTicketRow) {
   return parts.join(" • ");
 }
 
+// ✅ NEW: ticket quick search matcher (works for 40-5000 tickets)
+function ticketMatches(t: TrainTicketRow, q: string) {
+  const s = q.trim().toLowerCase();
+  if (!s) return true;
+  const hay = [
+    t.travelDate,
+    t.name,
+    t.gender,
+    String(t.age ?? ""),
+    t.seatNumber,
+    t.pnrNumber,
+    t.trainName,
+    t.trainTime,
+    t.boardingStation,
+    t.route,
+    String(t.fare ?? ""),
+    makeTicketLabel(t),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  return hay.includes(s);
+}
+
+function cleanQ(q: string) {
+  return String(q || "").trim();
+}
+
+function tokenize(q: string) {
+  return cleanQ(q)
+    .split(/[\s,;|/]+/g)
+    .map((x) => x.trim())
+    .filter(Boolean);
+}
+
+function looksLikeStationToken(qLower: string) {
+  const s = qLower.replace(/\s+/g, " ").trim();
+  return s.includes("newdelhi") || s.includes("new delhi") || s.includes("olddelhi") || s.includes("old delhi") || s.includes("ndls") || s.includes("dli");
+}
+
+function normalizeNameForMatch(name: string) {
+  return String(name || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// ✅ SMART Quick Assign:
+// Priority order requested by you:
+// 1) same travel date as Travel Start Date (strongest)
+// 2) same name as customer (next)
+// 3) same route + boarding station (route is inherent by list; boarding station prioritized using search tokens)
+// Also: exact seat/PNR match still wins.
+function findSmartTicketId(params: {
+  list: TrainTicketRow[];
+  searchText: string;
+  travelStartDate: string;
+  customerName: string;
+  expectedRoute?: RouteType | "";
+  // Optional: in case you want return-date consideration later
+  travelEndDate?: string;
+}): string {
+  const { list, searchText, travelStartDate, customerName, expectedRoute, travelEndDate } = params;
+  const q = cleanQ(searchText);
+  const qLower = q.toLowerCase();
+  const tokens = tokenize(q).map((x) => x.toLowerCase());
+  const start = iso10(travelStartDate);
+  const end = iso10(travelEndDate || "");
+
+  if (!list.length) return "";
+
+  // 0) exact seat match by full query
+  if (qLower) {
+    const exactSeat = list.find((t) => String(t.seatNumber || "").trim().toLowerCase() === qLower);
+    if (exactSeat?._id) return exactSeat._id;
+
+    // 0b) exact PNR match by full query
+    const exactPnr = list.find((t) => String(t.pnrNumber || "").trim().toLowerCase() === qLower);
+    if (exactPnr?._id) return exactPnr._id;
+
+    // 0c) token exact seat/pnr match
+    for (const tok of tokens) {
+      const seatTok = list.find((t) => String(t.seatNumber || "").trim().toLowerCase() === tok);
+      if (seatTok?._id) return seatTok._id;
+      const pnrTok = list.find((t) => String(t.pnrNumber || "").trim().toLowerCase() === tok);
+      if (pnrTok?._id) return pnrTok._id;
+    }
+  }
+
+  const custNorm = normalizeNameForMatch(customerName);
+  const custWords = custNorm.split(" ").filter(Boolean);
+
+  // station preference inferred from search box (since we don't store boarding station in nominal roll)
+  const stationPreferred =
+    qLower.includes("new delhi") || qLower.includes("newdelhi") || qLower.includes("ndls")
+      ? "new delhi"
+      : qLower.includes("old delhi") || qLower.includes("olddelhi") || qLower.includes("dli")
+      ? "old delhi"
+      : "";
+
+  // Score each candidate
+  let bestId = "";
+  let bestScore = -1;
+
+  for (const t of list) {
+    let score = 0;
+
+    // 1) Travel date match with Travel Start Date (highest)
+    const tDate = iso10(t.travelDate);
+    if (start && tDate && tDate === start) score += 120;
+
+    // (extra) If start not matching but end matches, small bonus (helps return-side cases)
+    if (end && tDate && tDate === end) score += 40;
+
+    // 2) Name match with customer (next)
+    const tNameNorm = normalizeNameForMatch(String(t.name || ""));
+    if (custNorm && tNameNorm) {
+      // strong: full normalized contains
+      if (tNameNorm === custNorm) score += 80;
+      else {
+        // partial: many words match
+        let hit = 0;
+        for (const w of custWords) if (w.length >= 3 && tNameNorm.includes(w)) hit++;
+        if (hit >= 2) score += 55;
+        else if (hit === 1) score += 30;
+      }
+    }
+
+    // 3) Route + boarding station
+    const tRoute = normalizeRoute(t.route);
+    if (expectedRoute && tRoute && tRoute === expectedRoute) score += 25;
+
+    const b = String(t.boardingStation || "").trim().toLowerCase();
+    if (stationPreferred && b) {
+      if (b.replace(/\s+/g, " ").includes(stationPreferred)) score += 30;
+    } else if (looksLikeStationToken(qLower) && b) {
+      // If they typed any station-ish token but didn't clearly specify, still reward contains
+      if (ticketMatches(t, q)) score += 10;
+    }
+
+    // Bonus: if user typed something and ticket matches it
+    if (qLower && ticketMatches(t, q)) score += 12;
+
+    // Minor: seat/PNR contains any token
+    if (tokens.length) {
+      const seat = String(t.seatNumber || "").toLowerCase();
+      const pnr = String(t.pnrNumber || "").toLowerCase();
+      const train = String(t.trainName || "").toLowerCase();
+      let tokHits = 0;
+      for (const tok of tokens) {
+        if (tok.length < 2) continue;
+        if (seat && seat.includes(tok)) tokHits += 2;
+        if (pnr && pnr.includes(tok)) tokHits += 2;
+        if (train && train.includes(tok)) tokHits += 1;
+      }
+      score += Math.min(10, tokHits);
+    }
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestId = t._id;
+    }
+  }
+
+  // If user typed something and bestScore is too low, require at least some match
+  if (qLower) {
+    const best = list.find((x) => x._id === bestId);
+    if (!best) return "";
+    const passes = ticketMatches(best, q) || String(best.seatNumber || "").toLowerCase() === qLower || String(best.pnrNumber || "").toLowerCase() === qLower;
+    if (!passes) return "";
+  }
+
+  return bestId || "";
+}
+
+function csvEscape(v: any) {
+  const s = String(v ?? "");
+  if (s.includes('"') || s.includes(",") || s.includes("\n") || s.includes("\r")) {
+    return `"${s.replace(/"/g, '""')}"`;
+  }
+  return s;
+}
+
+function downloadCSV(filename: string, rows: Record<string, any>[]) {
+  if (!rows.length) return;
+
+  const headers = Object.keys(rows[0]);
+  const lines = [
+    headers.map(csvEscape).join(","),
+    ...rows.map((r) => headers.map((h) => csvEscape(r[h])).join(",")),
+  ];
+
+  const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename.endsWith(".csv") ? filename : `${filename}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 export default function LadooNominalRollPage() {
-  const [tab, setTab] = React.useState<"ladoo" | "unassigned">("ladoo");
+  const [tab, setTab] = React.useState<"ladoo" | "unassigned" | "pending">("ladoo");
 
   // ✅ Department filter for search suggestions
   const [deptFilter, setDeptFilter] = React.useState<string>("");
@@ -250,6 +477,10 @@ export default function LadooNominalRollPage() {
   const [ticketDelhiBeas, setTicketDelhiBeas] = React.useState("");
   const [ticketBeasDelhi, setTicketBeasDelhi] = React.useState("");
 
+  // ✅ Ticket search fields (Create)
+  const [ticketSearchDB, setTicketSearchDB] = React.useState("");
+  const [ticketSearchBD, setTicketSearchBD] = React.useState("");
+
   const [payment, setPayment] = React.useState("");
   const [travelStartDate, setTravelStartDate] = React.useState("");
   const [travelEndDate, setTravelEndDate] = React.useState("");
@@ -264,6 +495,10 @@ export default function LadooNominalRollPage() {
   const [loading, setLoading] = React.useState(true);
   const [editing, setEditing] = React.useState<NominalLadooRow | null>(null);
   const [saving, setSaving] = React.useState(false);
+
+  // ✅ Ticket search fields (Edit)
+  const [editTicketSearchDB, setEditTicketSearchDB] = React.useState("");
+  const [editTicketSearchBD, setEditTicketSearchBD] = React.useState("");
 
   // ✅ Table filter/search states
   const [tableQ, setTableQ] = React.useState("");
@@ -295,6 +530,12 @@ export default function LadooNominalRollPage() {
   React.useEffect(() => {
     if (tab !== "ladoo") setEditing(null);
   }, [tab]);
+
+  // ✅ reset edit ticket search when opening edit modal
+  React.useEffect(() => {
+    setEditTicketSearchDB("");
+    setEditTicketSearchBD("");
+  }, [editing?._id]);
 
   // ✅ Auto-suggest while typing (debounced) + department filtering + exclude blacklisted
   React.useEffect(() => {
@@ -408,6 +649,41 @@ export default function LadooNominalRollPage() {
     })) as any[];
   }, [trainBeasDli, usedBeasDelhiTicketIds, editing?.ticketBeasDelhi]);
 
+  const editSelectableDliBeas = React.useMemo(() => (editTrainDliBeas as any[]).filter((t) => !t.__disabled), [editTrainDliBeas]);
+  const editSelectableBeasDli = React.useMemo(() => (editTrainBeasDli as any[]).filter((t) => !t.__disabled), [editTrainBeasDli]);
+
+  // ✅ filtered lists for easier mapping (Create) + cap
+  const unassignedTrainDliBeasFiltered = React.useMemo(() => {
+    const list = unassignedTrainDliBeas.filter((t) => ticketMatches(t, ticketSearchDB));
+    return list.slice(0, 400);
+  }, [unassignedTrainDliBeas, ticketSearchDB]);
+
+  const unassignedTrainBeasDliFiltered = React.useMemo(() => {
+    const list = unassignedTrainBeasDli.filter((t) => ticketMatches(t, ticketSearchBD));
+    return list.slice(0, 400);
+  }, [unassignedTrainBeasDli, ticketSearchBD]);
+
+  const assignedTrainDliBeasFiltered = React.useMemo(() => {
+    const list = assignedTrainDliBeas.filter((t) => ticketMatches(t, ticketSearchDB));
+    return list.slice(0, 200);
+  }, [assignedTrainDliBeas, ticketSearchDB]);
+
+  const assignedTrainBeasDliFiltered = React.useMemo(() => {
+    const list = assignedTrainBeasDli.filter((t) => ticketMatches(t, ticketSearchBD));
+    return list.slice(0, 200);
+  }, [assignedTrainBeasDli, ticketSearchBD]);
+
+  // ✅ filtered lists for easier mapping (Edit) + cap
+  const editTrainDliBeasFiltered = React.useMemo(() => {
+    const list = editTrainDliBeas.filter((t: any) => ticketMatches(t, editTicketSearchDB));
+    return list.slice(0, 600);
+  }, [editTrainDliBeas, editTicketSearchDB]);
+
+  const editTrainBeasDliFiltered = React.useMemo(() => {
+    const list = editTrainBeasDli.filter((t: any) => ticketMatches(t, editTicketSearchBD));
+    return list.slice(0, 600);
+  }, [editTrainBeasDli, editTicketSearchBD]);
+
   // Ticket map + labels
   const ticketById = React.useMemo(() => {
     const m = new Map<string, TrainTicketRow>();
@@ -459,6 +735,8 @@ export default function LadooNominalRollPage() {
       setBookingBeasDelhi("");
       setTicketDelhiBeas("");
       setTicketBeasDelhi("");
+      setTicketSearchDB("");
+      setTicketSearchBD("");
     }
   }, [isTrainMode]);
 
@@ -711,6 +989,9 @@ export default function LadooNominalRollPage() {
     setTicketDelhiBeas("");
     setTicketBeasDelhi("");
 
+    setTicketSearchDB("");
+    setTicketSearchBD("");
+
     setPayment("");
     setTravelStartDate("");
     setTravelEndDate("");
@@ -725,21 +1006,19 @@ export default function LadooNominalRollPage() {
     if (!selectedIds.length) return "Jatha date is required (select at least 1).";
     if (!mode) return "Mode is required.";
 
-    // ⚠️ Multi save + Train tickets can conflict with unique ticket constraints
+    // ✅ Multi save + Train tickets can conflict with unique ticket constraints
+    // ✅ Booking can be Yes and tickets can be assigned later (allowed).
     if (selectedIds.length > 1 && mode === "Train") {
       const anyTicket = !!String(ticketDelhiBeas || "").trim() || !!String(ticketBeasDelhi || "").trim();
-      const anyBookingYes = bookingDelhiBeas === "Yes" || bookingBeasDelhi === "Yes";
-      if (anyBookingYes || anyTicket) {
-        return "For multiple Jatha dates at once, Train ticket assignment is not allowed (tickets are unique). Please use single Jatha date for Train bookings, or choose Bus/Self, or set both bookings = No and keep tickets empty.";
+      if (anyTicket) {
+        return "For multiple Jatha dates at once, Train ticket assignment is not allowed (tickets are unique). Please keep tickets empty and assign later via Edit.";
       }
     }
 
     if (mode === "Train") {
       if (!bookingDelhiBeas) return "Booking REQ (Delhi–Beas) is required.";
       if (!bookingBeasDelhi) return "Booking REQ (Beas–Delhi) is required.";
-
-      if (bookingDelhiBeas === "Yes" && !ticketDelhiBeas) return "Select Ticket (Delhi–Beas) because booking is Yes.";
-      if (bookingBeasDelhi === "Yes" && !ticketBeasDelhi) return "Select Ticket (Beas–Delhi) because booking is Yes.";
+      // ✅ tickets not mandatory
     }
 
     if (!payment.trim()) return "Payment is required.";
@@ -759,17 +1038,16 @@ export default function LadooNominalRollPage() {
     const okDates = confirmIfEndBeforeStart(travelStartDate, travelEndDate);
     if (!okDates) return;
 
-    // ✅ mismatch check (Delhi–Beas only)
+    // ✅ mismatch check only if ticket selected (Delhi–Beas)
     const okMismatch = confirmIfDelhiBeasDateMismatch({
       travelStartDate,
       ticketId: ticketDelhiBeas,
-      allow: mode === "Train" && bookingDelhiBeas === "Yes",
+      allow: mode === "Train" && bookingDelhiBeas === "Yes" && !!String(ticketDelhiBeas || "").trim(),
     });
     if (!okMismatch) return;
 
     setSaving(true);
     try {
-      // ✅ create in all selected jatha dates (1..N)
       for (const oneId of selectedIds) {
         const jd = jathaDates.find((x) => x._id === oneId);
         const jStart = jd ? getJathaStart(jd) : "";
@@ -793,8 +1071,9 @@ export default function LadooNominalRollPage() {
           bookingReqDelhiBeas: mode === "Train" ? bookingDelhiBeas : "",
           bookingReqBeasDelhi: mode === "Train" ? bookingBeasDelhi : "",
 
-          ticketDelhiBeas: mode === "Train" && bookingDelhiBeas === "Yes" ? ticketDelhiBeas : "",
-          ticketBeasDelhi: mode === "Train" && bookingBeasDelhi === "Yes" ? ticketBeasDelhi : "",
+          // ✅ ticket optional even if booking Yes
+          ticketDelhiBeas: mode === "Train" && bookingDelhiBeas === "Yes" ? String(ticketDelhiBeas || "").trim() : "",
+          ticketBeasDelhi: mode === "Train" && bookingBeasDelhi === "Yes" ? String(ticketBeasDelhi || "").trim() : "",
 
           payment: payment.trim(),
 
@@ -814,7 +1093,6 @@ export default function LadooNominalRollPage() {
 
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
-          // if multi-save, stop at first failure and show which jatha failed
           const label = jathaLabelById.get(oneId) || jStart || oneId;
           alert(`Create failed for Jatha (${label}) [${res.status}]. ${data?.error || "Error"}`);
           return;
@@ -853,11 +1131,7 @@ export default function LadooNominalRollPage() {
     if (String(editing.mode) === "Train") {
       if (!editing.bookingReqDelhiBeas) return alert("Booking REQ (Delhi–Beas) is required.");
       if (!editing.bookingReqBeasDelhi) return alert("Booking REQ (Beas–Delhi) is required.");
-
-      if (editing.bookingReqDelhiBeas === "Yes" && !String(editing.ticketDelhiBeas || "").trim())
-        return alert("Select Ticket (Delhi–Beas) because booking is Yes.");
-      if (editing.bookingReqBeasDelhi === "Yes" && !String(editing.ticketBeasDelhi || "").trim())
-        return alert("Select Ticket (Beas–Delhi) because booking is Yes.");
+      // ✅ tickets not mandatory
     }
 
     if (!editing.payment.trim()) return alert("Payment is required.");
@@ -867,10 +1141,11 @@ export default function LadooNominalRollPage() {
     const okDates = confirmIfEndBeforeStart(editing.travelStartDate, editing.travelEndDate);
     if (!okDates) return;
 
+    // ✅ mismatch check only if ticket selected (Delhi–Beas)
     const okMismatch = confirmIfDelhiBeasDateMismatch({
       travelStartDate: editing.travelStartDate,
       ticketId: String(editing.ticketDelhiBeas || ""),
-      allow: String(editing.mode) === "Train" && editing.bookingReqDelhiBeas === "Yes",
+      allow: String(editing.mode) === "Train" && editing.bookingReqDelhiBeas === "Yes" && !!String(editing.ticketDelhiBeas || "").trim(),
     });
     if (!okMismatch) return;
 
@@ -892,6 +1167,7 @@ export default function LadooNominalRollPage() {
           bookingReqDelhiBeas: String(editing.mode) === "Train" ? editing.bookingReqDelhiBeas : "",
           bookingReqBeasDelhi: String(editing.mode) === "Train" ? editing.bookingReqBeasDelhi : "",
 
+          // ✅ ticket optional even if booking Yes
           ticketDelhiBeas:
             String(editing.mode) === "Train" && editing.bookingReqDelhiBeas === "Yes"
               ? String(editing.ticketDelhiBeas || "").trim()
@@ -925,6 +1201,197 @@ export default function LadooNominalRollPage() {
     }
   }
 
+  // ✅ Pending ticket booking list
+  const pendingTicketItems = React.useMemo(() => {
+    return items.filter((r) => {
+      if (String(r.mode) !== "Train") return false;
+
+      const needDB = String(r.bookingReqDelhiBeas || "") === "Yes" && !String(r.ticketDelhiBeas || "").trim();
+      const needBD = String(r.bookingReqBeasDelhi || "") === "Yes" && !String(r.ticketBeasDelhi || "").trim();
+      return needDB || needBD;
+    });
+  }, [items]);
+
+
+  // ==============================
+  // ✅ Pending inline assign + bulk
+  // ==============================
+  type PendingRowState = { qDB: string; qBD: string; pickDB: string; pickBD: string; saving?: boolean };
+
+  const [pendingState, setPendingState] = React.useState<Record<string, PendingRowState>>({});
+  const [pendingSelectedIds, setPendingSelectedIds] = React.useState<Set<string>>(new Set());
+  const [pendingBulkBusy, setPendingBulkBusy] = React.useState(false);
+
+  function getPendingState(id: string): PendingRowState {
+    return pendingState[id] || { qDB: "", qBD: "", pickDB: "", pickBD: "" };
+  }
+
+  function patchPendingState(id: string, patch: Partial<PendingRowState>) {
+    setPendingState((prev) => ({ ...prev, [id]: { ...getPendingState(id), ...patch } }));
+  }
+
+  const pendingSummary = React.useMemo(() => {
+    let fare = 0;
+    let paid = 0;
+    let pending = 0;
+    let fareKnownCount = 0;
+
+    for (const r of pendingTicketItems) {
+      const f = getFareForRow(r);
+      const p = getPaidForRow(r) ?? 0;
+      paid += p;
+      if (typeof f === "number") {
+        fare += f;
+        fareKnownCount++;
+        const pe = Math.max(0, f - p);
+        pending += pe;
+      }
+    }
+
+    return {
+      count: pendingTicketItems.length,
+      fareKnownCount,
+      fare,
+      paid,
+      pending,
+    };
+  }, [pendingTicketItems, ticketById]);
+
+  async function savePendingRowTickets(row: NominalLadooRow, nextDB: string, nextBD: string) {
+    const rowId = String(row._id || "").trim();
+    if (!rowId) return;
+
+    // Only update if something is provided
+    const needDB = String(row.bookingReqDelhiBeas || "") === "Yes" && !String(row.ticketDelhiBeas || "").trim();
+    const needBD = String(row.bookingReqBeasDelhi || "") === "Yes" && !String(row.ticketBeasDelhi || "").trim();
+
+    const db = needDB ? String(nextDB || "").trim() : String(row.ticketDelhiBeas || "").trim();
+    const bd = needBD ? String(nextBD || "").trim() : String(row.ticketBeasDelhi || "").trim();
+
+    if (needDB && !db && needBD && !bd) {
+      alert("Pick at least one ticket (Delhi–Beas and/or Beas–Delhi) before saving.");
+      return;
+    }
+
+    // Mismatch check for Delhi–Beas only if selected
+    const okMismatch = confirmIfDelhiBeasDateMismatch({
+      travelStartDate: row.travelStartDate,
+      ticketId: db,
+      allow: String(row.mode) === "Train" && row.bookingReqDelhiBeas === "Yes" && !!db,
+    });
+    if (!okMismatch) return;
+
+    patchPendingState(rowId, { saving: true });
+    try {
+      const realId = encodeURIComponent(rowId);
+      const jd = jathaDates.find((x) => x._id === row.jathaDateId);
+      const jStart = jd ? getJathaStart(jd) : "";
+
+      const res = await fetch(`/api/nominal-roll/ladoo/${realId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          department: String(row.department || "").trim(),
+          sangat: String(row.sangat || "").trim(),
+
+          mode: row.mode,
+
+          bookingReqDelhiBeas: String(row.mode) === "Train" ? row.bookingReqDelhiBeas : "",
+          bookingReqBeasDelhi: String(row.mode) === "Train" ? row.bookingReqBeasDelhi : "",
+
+          ticketDelhiBeas: String(row.mode) === "Train" && row.bookingReqDelhiBeas === "Yes" ? db : "",
+          ticketBeasDelhi: String(row.mode) === "Train" && row.bookingReqBeasDelhi === "Yes" ? bd : "",
+
+          payment: String(row.payment || "").trim(),
+
+          jathaDateId: row.jathaDateId,
+          jathaDate: jStart || "",
+
+          travelStartDate: iso10(row.travelStartDate),
+          travelEndDate: iso10(row.travelEndDate),
+          notes: String(row.notes || "").trim(),
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(`Save failed (${res.status}). ${data?.error || "Error"}`);
+        return;
+      }
+
+      // Clear picks for this row (so UI resets)
+      patchPendingState(rowId, { pickDB: "", pickBD: "" });
+      await loadNominal();
+    } finally {
+      patchPendingState(rowId, { saving: false });
+    }
+  }
+
+  function bulkSmartAssign(rows: NominalLadooRow[]) {
+    for (const r of rows) {
+      const id = String(r._id || "").trim();
+      if (!id) continue;
+
+      const st = getPendingState(id);
+
+      const needDB = String(r.bookingReqDelhiBeas || "") === "Yes" && !String(r.ticketDelhiBeas || "").trim();
+      const needBD = String(r.bookingReqBeasDelhi || "") === "Yes" && !String(r.ticketBeasDelhi || "").trim();
+
+      const qDB = st.qDB || `${r.customerName || ""} ${iso10(r.travelStartDate)}`.trim();
+      const qBD = st.qBD || `${r.customerName || ""} ${iso10(r.travelStartDate)}`.trim();
+
+      let pickDB = st.pickDB;
+      let pickBD = st.pickBD;
+
+      if (needDB && !pickDB) {
+        pickDB = findSmartTicketId({
+          list: unassignedTrainDliBeas,
+          searchText: qDB,
+          travelStartDate: r.travelStartDate,
+          travelEndDate: r.travelEndDate,
+          customerName: r.customerName || "",
+          expectedRoute: "DLI-BEAS",
+        });
+      }
+
+      if (needBD && !pickBD) {
+        pickBD = findSmartTicketId({
+          list: unassignedTrainBeasDli,
+          searchText: qBD,
+          travelStartDate: r.travelStartDate,
+          travelEndDate: r.travelEndDate,
+          customerName: r.customerName || "",
+          expectedRoute: "BEAS-DLI",
+        });
+      }
+
+      patchPendingState(id, { qDB, qBD, pickDB, pickBD });
+    }
+  }
+
+  async function bulkSaveSelected(rows: NominalLadooRow[]) {
+    setPendingBulkBusy(true);
+    try {
+      for (const r of rows) {
+        const id = String(r._id || "").trim();
+        if (!id) continue;
+        const st = getPendingState(id);
+
+        const needDB = String(r.bookingReqDelhiBeas || "") === "Yes" && !String(r.ticketDelhiBeas || "").trim();
+        const needBD = String(r.bookingReqBeasDelhi || "") === "Yes" && !String(r.ticketBeasDelhi || "").trim();
+
+        const nextDB = needDB ? String(st.pickDB || "").trim() : "";
+        const nextBD = needBD ? String(st.pickBD || "").trim() : "";
+
+        // skip rows with nothing selected
+        if ((needDB && !nextDB) && (needBD && !nextBD)) continue;
+
+        await savePendingRowTickets(r, nextDB, nextBD);
+      }
+    } finally {
+      setPendingBulkBusy(false);
+    }
+  }
   // ✅ Table filtering
   const filteredItems = React.useMemo(() => {
     const q = tableQ.trim().toLowerCase();
@@ -985,6 +1452,7 @@ export default function LadooNominalRollPage() {
         >
           Ladoo
         </button>
+
         <button
           type="button"
           className={["app-btn h-9 px-4", tab === "unassigned" ? "app-btn-primary" : "app-btn-secondary"].join(" ")}
@@ -992,7 +1460,320 @@ export default function LadooNominalRollPage() {
         >
           Unassigned Tickets
         </button>
+
+        <button
+          type="button"
+          className={["app-btn h-9 px-4", tab === "pending" ? "app-btn-primary" : "app-btn-secondary"].join(" ")}
+          onClick={() => setTab("pending")}
+        >
+          Pending Ticket Booking ({pendingTicketItems.length})
+        </button>
       </div>
+
+      {/* ✅ Pending tab */}
+      {tab === "pending" && (
+        <div className="mt-6 rounded-2xl border border-black/5 p-4 dark:border-white/10">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <div className="text-lg font-semibold">Pending Ticket Booking</div>
+              <div className="text-sm text-zinc-600 dark:text-zinc-400">
+                Inline assign + bulk assign for entries where Booking REQ = Yes but Ticket is not assigned yet (Delhi–Beas and/or Beas–Delhi).
+              </div>
+
+              <div className="mt-2 text-sm text-zinc-700 dark:text-zinc-300">
+                <span className="font-semibold">Summary:</span> Rows: <span className="font-semibold">{pendingSummary.count}</span> • Fare Known Rows: <span className="font-semibold">{pendingSummary.fareKnownCount}</span> • Total Fare (known): <span className="font-semibold">{pendingSummary.fare}</span> • Paid: <span className="font-semibold">{pendingSummary.paid}</span> • Pending (known): <span className="font-semibold">{pendingSummary.pending}</span>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                className="app-btn app-btn-secondary h-9 px-3 text-xs"
+                onClick={() => {
+                  const rows = pendingTicketItems.map((r, i) => {
+                    const needDB = String(r.bookingReqDelhiBeas || "") === "Yes" && !String(r.ticketDelhiBeas || "").trim();
+                    const needBD = String(r.bookingReqBeasDelhi || "") === "Yes" && !String(r.ticketBeasDelhi || "").trim();
+                    const pendingSide = [needDB ? "Delhi–Beas" : "", needBD ? "Beas–Delhi" : ""].filter(Boolean).join(" + ");
+
+                    const fare = getFareForRow(r);
+                    const paid = getPaidForRow(r);
+                    const pending = getPendingForRow(r);
+
+                    return {
+                      "S.No": i + 1,
+                      Name: r.customerName || "",
+                      Mobile: r.mobile || "",
+                      Aadhaar: r.adhaarNumber || "",
+                      Badge: r.badgeNo || "",
+                      Department: r.department || "",
+                      "Jatha Date": formatJathaLabelFromRow(r),
+                      "Travel Start": formatPrettyDate(r.travelStartDate),
+                      "Travel End": formatPrettyDate(r.travelEndDate),
+                      "REQ D-B": r.bookingReqDelhiBeas || "",
+                      "Ticket D-B": renderTicketValue(r.ticketDelhiBeas),
+                      "REQ B-D": r.bookingReqBeasDelhi || "",
+                      "Ticket B-D": renderTicketValue(r.ticketBeasDelhi),
+                      Fare: fare === null ? "" : fare,
+                      Paid: paid === null ? "" : paid,
+                      Pending: pending === null ? "" : pending,
+                      "Pending Side": pendingSide,
+                      Notes: r.notes || "",
+                    };
+                  });
+
+                  if (!rows.length) return alert("No pending records to export.");
+                  const stamp = new Date().toISOString().slice(0, 10);
+                  downloadCSV(`pending-ticket-booking-${stamp}.csv`, rows);
+                }}
+              >
+                Export to Excel (CSV)
+              </button>
+
+              <button type="button" className="app-btn app-btn-secondary h-9 px-3 text-xs" onClick={loadNominal} disabled={loading}>
+                {loading ? "Refreshing..." : "Refresh List"}
+              </button>
+            </div>
+          </div>
+
+          {/* Bulk actions */}
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-black/5 bg-zinc-50 px-3 py-2 text-sm dark:border-white/10 dark:bg-black/30">
+            <div>
+              Selected: <span className="font-semibold">{pendingSelectedIds.size}</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                className="app-btn app-btn-secondary h-9 px-3 text-xs"
+                onClick={() => setPendingSelectedIds(new Set(pendingTicketItems.map((x) => String(x._id))))}
+                disabled={pendingTicketItems.length === 0}
+              >
+                Select All
+              </button>
+              <button type="button" className="app-btn app-btn-secondary h-9 px-3 text-xs" onClick={() => setPendingSelectedIds(new Set())}>
+                Clear
+              </button>
+              <button
+                type="button"
+                className="app-btn app-btn-primary h-9 px-3 text-xs"
+                onClick={() => {
+                  const rows = pendingTicketItems.filter((x) => pendingSelectedIds.has(String(x._id)));
+                  if (!rows.length) return alert("Select rows first.");
+                  bulkSmartAssign(rows);
+                }}
+                disabled={loadingTickets || pendingSelectedIds.size === 0}
+              >
+                Bulk Smart Assign
+              </button>
+              <button
+                type="button"
+                className="app-btn app-btn-primary h-9 px-3 text-xs"
+                onClick={async () => {
+                  const rows = pendingTicketItems.filter((x) => pendingSelectedIds.has(String(x._id)));
+                  if (!rows.length) return alert("Select rows first.");
+                  await bulkSaveSelected(rows);
+                }}
+                disabled={loadingTickets || pendingSelectedIds.size === 0 || pendingBulkBusy}
+              >
+                {pendingBulkBusy ? "Saving..." : "Bulk Save Selected"}
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-4 overflow-auto rounded-xl border border-black/5 dark:border-white/10">
+            <table className="table">
+              <thead className="thead">
+                <tr>
+                  {[
+                    "Sel",
+                    "S.No",
+                    "Name",
+                    "Jatha Date",
+                    "Start",
+                    "End",
+                    "Need D-B",
+                    "Assign D-B (inline)",
+                    "Need B-D",
+                    "Assign B-D (inline)",
+                    "Save",
+                  ].map((h) => (
+                    <th key={h} className="th">
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+
+              <tbody className="divide-y divide-black/5 dark:divide-white/10">
+                {pendingTicketItems.length === 0 ? (
+                  <tr>
+                    <td className="td text-zinc-600 dark:text-zinc-400" colSpan={11}>
+                      No pending ticket bookings 🎉
+                    </td>
+                  </tr>
+                ) : (
+                  pendingTicketItems.map((r, idx) => {
+                    const id = String(r._id || "").trim();
+                    const st = getPendingState(id);
+
+                    const needDB = String(r.bookingReqDelhiBeas || "") === "Yes" && !String(r.ticketDelhiBeas || "").trim();
+                    const needBD = String(r.bookingReqBeasDelhi || "") === "Yes" && !String(r.ticketBeasDelhi || "").trim();
+
+                    const candDB = unassignedTrainDliBeas.filter((t) => ticketMatches(t, st.qDB)).slice(0, 200);
+                    const candBD = unassignedTrainBeasDli.filter((t) => ticketMatches(t, st.qBD)).slice(0, 200);
+
+                    return (
+                      <tr key={r._id} className={[["row", idx % 2 === 0 ? "row-alt" : "row-alt2"].join(" ")].join(" ")}>
+                        <td className="td">
+                          <input
+                            type="checkbox"
+                            checked={pendingSelectedIds.has(id)}
+                            onChange={(e) => {
+                              const on = e.target.checked;
+                              setPendingSelectedIds((prev) => {
+                                const n = new Set(prev);
+                                if (on) n.add(id);
+                                else n.delete(id);
+                                return n;
+                              });
+                            }}
+                          />
+                        </td>
+                        <td className="td">{idx + 1}</td>
+                        <td className="td font-medium">
+                          <div>{r.customerName || "-"}</div>
+                          <div className="text-xs text-zinc-600 dark:text-zinc-400">{r.mobile || "-"} • {r.department || "-"}</div>
+                        </td>
+                        <td className="td">{formatJathaLabelFromRow(r)}</td>
+                        <td className="td">{formatPrettyDate(r.travelStartDate)}</td>
+                        <td className="td">{formatPrettyDate(r.travelEndDate)}</td>
+
+                        <td className="td">{needDB ? "Yes" : "No"}</td>
+                        <td className="td">
+                          {!needDB ? (
+                            <span className="text-xs text-zinc-600 dark:text-zinc-400">Already assigned</span>
+                          ) : (
+                            <div className="flex flex-col gap-2">
+                              <div className="flex items-center gap-2">
+                                <input
+                                  className={inputCls()}
+                                  value={st.qDB}
+                                  onChange={(e) => patchPendingState(id, { qDB: e.target.value })}
+                                  placeholder="Seat/PNR/Train/Date/New Delhi..."
+                                  disabled={!!st.saving || loadingTickets}
+                                />
+                                <button
+                                  type="button"
+                                  className="app-btn app-btn-secondary h-9 px-3 text-xs"
+                                  onClick={() => {
+                                    const q = st.qDB || `${r.customerName || ""} ${iso10(r.travelStartDate)}`.trim();
+                                    const pick = findSmartTicketId({
+                                      list: unassignedTrainDliBeas,
+                                      searchText: q,
+                                      travelStartDate: r.travelStartDate,
+                                      travelEndDate: r.travelEndDate,
+                                      customerName: r.customerName || "",
+                                      expectedRoute: "DLI-BEAS",
+                                    });
+                                    if (!pick) return alert("No good Delhi–Beas match found. Try Seat/PNR/Train/Date/New Delhi/Old Delhi.");
+                                    patchPendingState(id, { qDB: q, pickDB: pick });
+                                  }}
+                                  disabled={!!st.saving || loadingTickets}
+                                >
+                                  Suggest
+                                </button>
+                              </div>
+
+                              <select
+                                className={inputCls()}
+                                value={st.pickDB}
+                                onChange={(e) => patchPendingState(id, { pickDB: e.target.value })}
+                                disabled={!!st.saving || loadingTickets}
+                              >
+                                <option value="">Select ticket</option>
+                                {candDB.map((t) => (
+                                  <option key={t._id} value={t._id}>
+                                    {makeTicketLabel(t)}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
+                        </td>
+
+                        <td className="td">{needBD ? "Yes" : "No"}</td>
+                        <td className="td">
+                          {!needBD ? (
+                            <span className="text-xs text-zinc-600 dark:text-zinc-400">Already assigned</span>
+                          ) : (
+                            <div className="flex flex-col gap-2">
+                              <div className="flex items-center gap-2">
+                                <input
+                                  className={inputCls()}
+                                  value={st.qBD}
+                                  onChange={(e) => patchPendingState(id, { qBD: e.target.value })}
+                                  placeholder="Seat/PNR/Train/Date/New Delhi..."
+                                  disabled={!!st.saving || loadingTickets}
+                                />
+                                <button
+                                  type="button"
+                                  className="app-btn app-btn-secondary h-9 px-3 text-xs"
+                                  onClick={() => {
+                                    const q = st.qBD || `${r.customerName || ""} ${iso10(r.travelStartDate)}`.trim();
+                                    const pick = findSmartTicketId({
+                                      list: unassignedTrainBeasDli,
+                                      searchText: q,
+                                      travelStartDate: r.travelStartDate,
+                                      travelEndDate: r.travelEndDate,
+                                      customerName: r.customerName || "",
+                                      expectedRoute: "BEAS-DLI",
+                                    });
+                                    if (!pick) return alert("No good Beas–Delhi match found. Try Seat/PNR/Train/Date/New Delhi/Old Delhi.");
+                                    patchPendingState(id, { qBD: q, pickBD: pick });
+                                  }}
+                                  disabled={!!st.saving || loadingTickets}
+                                >
+                                  Suggest
+                                </button>
+                              </div>
+
+                              <select
+                                className={inputCls()}
+                                value={st.pickBD}
+                                onChange={(e) => patchPendingState(id, { pickBD: e.target.value })}
+                                disabled={!!st.saving || loadingTickets}
+                              >
+                                <option value="">Select ticket</option>
+                                {candBD.map((t) => (
+                                  <option key={t._id} value={t._id}>
+                                    {makeTicketLabel(t)}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
+                        </td>
+
+                        <td className="td">
+                          <button
+                            type="button"
+                            className="app-btn app-btn-primary h-9 px-3 text-xs"
+                            onClick={async () => {
+                              await savePendingRowTickets(r, st.pickDB, st.pickBD);
+                            }}
+                            disabled={!!st.saving || loadingTickets}
+                          >
+                            {st.saving ? "Saving..." : "Save"}
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Unassigned tab */}
       {tab === "unassigned" && (
@@ -1003,12 +1784,7 @@ export default function LadooNominalRollPage() {
               <div className="text-sm text-zinc-600 dark:text-zinc-400">Tickets not assigned to any nominal roll entry.</div>
             </div>
 
-            <button
-              type="button"
-              className="app-btn app-btn-secondary h-9 px-3 text-xs"
-              onClick={loadTrainTickets}
-              disabled={loadingTickets}
-            >
+            <button type="button" className="app-btn app-btn-secondary h-9 px-3 text-xs" onClick={loadTrainTickets} disabled={loadingTickets}>
               {loadingTickets ? "Refreshing..." : "Refresh Tickets"}
             </button>
           </div>
@@ -1051,7 +1827,6 @@ export default function LadooNominalRollPage() {
       {tab === "ladoo" && (
         <>
           <form onSubmit={onCreate} className="mt-6 rounded-2xl border border-black/5 p-4 dark:border-white/10 sm:p-5">
-            {/* ✅ Professional layout: single responsive grid */}
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
               {/* Left: Search + Dept filter + Selected */}
               <div className="lg:col-span-5">
@@ -1110,9 +1885,7 @@ export default function LadooNominalRollPage() {
 
                     <div className="max-h-56 overflow-auto">
                       {results.length === 0 ? (
-                        <div className="px-3 py-2 text-sm text-zinc-600 dark:text-zinc-400">
-                          {searching ? "Searching..." : "No matches."}
-                        </div>
+                        <div className="px-3 py-2 text-sm text-zinc-600 dark:text-zinc-400">{searching ? "Searching..." : "No matches."}</div>
                       ) : (
                         results.map((c) => (
                           <button
@@ -1130,8 +1903,7 @@ export default function LadooNominalRollPage() {
                           >
                             <div className="font-semibold">{c.name}</div>
                             <div className="text-xs text-zinc-600 dark:text-zinc-400">
-                              Mobile: {c.mobile || "-"} • Aadhaar: {c.adhaarNumber || "-"} • Badge: {c.badgeNo || "-"} • Dept:{" "}
-                              {c.department || "-"}
+                              Mobile: {c.mobile || "-"} • Aadhaar: {c.adhaarNumber || "-"} • Badge: {c.badgeNo || "-"} • Dept: {c.department || "-"}
                             </div>
                           </button>
                         ))
@@ -1286,7 +2058,6 @@ export default function LadooNominalRollPage() {
                     <input className={inputCls()} value={payment} onChange={(e) => setPayment(e.target.value)} placeholder="e.g., 500 / Paid 500" />
                   </div>
 
-                  {/* ✅ Start/End dates aligned with others */}
                   <div>
                     <div className="app-label">Travel Start Date *</div>
                     <input
@@ -1336,8 +2107,55 @@ export default function LadooNominalRollPage() {
 
                       <div className="sm:col-span-2 lg:col-span-3">
                         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                          {/* Delhi–Beas */}
                           <div>
-                            <div className="app-label">Ticket (Delhi–Beas)</div>
+                            <div className="flex items-center justify-between">
+                              <div className="app-label">Ticket (Delhi–Beas) (Optional)</div>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  className="text-xs font-semibold text-zinc-600 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-white"
+                                  onClick={() => {
+                                    const id = findSmartTicketId({
+                                      list: unassignedTrainDliBeas,
+                                      searchText: ticketSearchDB,
+                                      travelStartDate,
+                                      travelEndDate,
+                                      customerName: selectedCustomer?.name || "",
+                                      expectedRoute: "DLI-BEAS",
+                                    });
+                                    if (!id) {
+                                      return alert(
+                                        "No good unassigned Delhi–Beas match found.\n\nTry typing Seat / PNR / Train / Date / New Delhi / Old Delhi in the ticket search box."
+                                      );
+                                    }
+                                    setTicketDelhiBeas(id);
+                                  }}
+                                  disabled={!allowDelhiBeasTicket || loadingTickets}
+                                  title="Smart quick assign: prefers same Start Date, same Name, and boarding station tokens"
+                                >
+                                  Quick Assign
+                                </button>
+
+                                <button
+                                  type="button"
+                                  className="text-xs font-semibold text-zinc-600 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-white"
+                                  onClick={() => setTicketSearchDB("")}
+                                  disabled={!ticketSearchDB}
+                                >
+                                  Clear Search
+                                </button>
+                              </div>
+                            </div>
+
+                            <input
+                              className={inputCls()}
+                              value={ticketSearchDB}
+                              onChange={(e) => setTicketSearchDB(e.target.value)}
+                              placeholder="Search by seat / PNR / train / date / New Delhi / Old Delhi..."
+                              disabled={!allowDelhiBeasTicket || loadingTickets}
+                            />
+
                             <select
                               className={inputCls()}
                               value={ticketDelhiBeas}
@@ -1345,12 +2163,12 @@ export default function LadooNominalRollPage() {
                               disabled={!allowDelhiBeasTicket || loadingTickets}
                             >
                               <option value="">
-                                {bookingDelhiBeas !== "Yes" ? "Booking = No" : loadingTickets ? "Loading..." : "Select ticket"}
+                                {bookingDelhiBeas !== "Yes" ? "Booking = No" : loadingTickets ? "Loading..." : "Select ticket (or leave empty)"}
                               </option>
 
-                              {allowDelhiBeasTicket && unassignedTrainDliBeas.length > 0 && (
-                                <optgroup label="Unassigned Tickets">
-                                  {unassignedTrainDliBeas.map((t) => (
+                              {allowDelhiBeasTicket && unassignedTrainDliBeasFiltered.length > 0 && (
+                                <optgroup label={`Unassigned Tickets (showing ${unassignedTrainDliBeasFiltered.length})`}>
+                                  {unassignedTrainDliBeasFiltered.map((t) => (
                                     <option key={t._id} value={t._id}>
                                       {makeTicketLabel(t)}
                                     </option>
@@ -1358,9 +2176,9 @@ export default function LadooNominalRollPage() {
                                 </optgroup>
                               )}
 
-                              {allowDelhiBeasTicket && assignedTrainDliBeas.length > 0 && (
-                                <optgroup label="Assigned Tickets (Not Selectable)">
-                                  {assignedTrainDliBeas.map((t) => (
+                              {allowDelhiBeasTicket && assignedTrainDliBeasFiltered.length > 0 && (
+                                <optgroup label={`Assigned Tickets (Not Selectable) (showing ${assignedTrainDliBeasFiltered.length})`}>
+                                  {assignedTrainDliBeasFiltered.map((t) => (
                                     <option key={t._id} value={t._id} disabled>
                                       {makeTicketLabel(t)} • Assigned to: {ticketAssignedToNameMap.get(t._id) || "Someone"}
                                     </option>
@@ -1370,8 +2188,55 @@ export default function LadooNominalRollPage() {
                             </select>
                           </div>
 
+                          {/* Beas–Delhi */}
                           <div>
-                            <div className="app-label">Ticket (Beas–Delhi)</div>
+                            <div className="flex items-center justify-between">
+                              <div className="app-label">Ticket (Beas–Delhi) (Optional)</div>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  className="text-xs font-semibold text-zinc-600 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-white"
+                                  onClick={() => {
+                                    const id = findSmartTicketId({
+                                      list: unassignedTrainBeasDli,
+                                      searchText: ticketSearchBD,
+                                      travelStartDate,
+                                      travelEndDate,
+                                      customerName: selectedCustomer?.name || "",
+                                      expectedRoute: "BEAS-DLI",
+                                    });
+                                    if (!id) {
+                                      return alert(
+                                        "No good unassigned Beas–Delhi match found.\n\nTry typing Seat / PNR / Train / Date / New Delhi / Old Delhi in the ticket search box."
+                                      );
+                                    }
+                                    setTicketBeasDelhi(id);
+                                  }}
+                                  disabled={!allowBeasDelhiTicket || loadingTickets}
+                                  title="Smart quick assign: prefers same Start Date, same Name, and boarding station tokens"
+                                >
+                                  Quick Assign
+                                </button>
+
+                                <button
+                                  type="button"
+                                  className="text-xs font-semibold text-zinc-600 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-white"
+                                  onClick={() => setTicketSearchBD("")}
+                                  disabled={!ticketSearchBD}
+                                >
+                                  Clear Search
+                                </button>
+                              </div>
+                            </div>
+
+                            <input
+                              className={inputCls()}
+                              value={ticketSearchBD}
+                              onChange={(e) => setTicketSearchBD(e.target.value)}
+                              placeholder="Search by seat / PNR / train / date / New Delhi / Old Delhi..."
+                              disabled={!allowBeasDelhiTicket || loadingTickets}
+                            />
+
                             <select
                               className={inputCls()}
                               value={ticketBeasDelhi}
@@ -1379,12 +2244,12 @@ export default function LadooNominalRollPage() {
                               disabled={!allowBeasDelhiTicket || loadingTickets}
                             >
                               <option value="">
-                                {bookingBeasDelhi !== "Yes" ? "Booking = No" : loadingTickets ? "Loading..." : "Select ticket"}
+                                {bookingBeasDelhi !== "Yes" ? "Booking = No" : loadingTickets ? "Loading..." : "Select ticket (or leave empty)"}
                               </option>
 
-                              {allowBeasDelhiTicket && unassignedTrainBeasDli.length > 0 && (
-                                <optgroup label="Unassigned Tickets">
-                                  {unassignedTrainBeasDli.map((t) => (
+                              {allowBeasDelhiTicket && unassignedTrainBeasDliFiltered.length > 0 && (
+                                <optgroup label={`Unassigned Tickets (showing ${unassignedTrainBeasDliFiltered.length})`}>
+                                  {unassignedTrainBeasDliFiltered.map((t) => (
                                     <option key={t._id} value={t._id}>
                                       {makeTicketLabel(t)}
                                     </option>
@@ -1392,9 +2257,9 @@ export default function LadooNominalRollPage() {
                                 </optgroup>
                               )}
 
-                              {allowBeasDelhiTicket && assignedTrainBeasDli.length > 0 && (
-                                <optgroup label="Assigned Tickets (Not Selectable)">
-                                  {assignedTrainBeasDli.map((t) => (
+                              {allowBeasDelhiTicket && assignedTrainBeasDliFiltered.length > 0 && (
+                                <optgroup label={`Assigned Tickets (Not Selectable) (showing ${assignedTrainBeasDliFiltered.length})`}>
+                                  {assignedTrainBeasDliFiltered.map((t) => (
                                     <option key={t._id} value={t._id} disabled>
                                       {makeTicketLabel(t)} • Assigned to: {ticketAssignedToNameMap.get(t._id) || "Someone"}
                                     </option>
@@ -1405,12 +2270,7 @@ export default function LadooNominalRollPage() {
                           </div>
 
                           <div className="sm:col-span-2 flex items-center justify-end">
-                            <button
-                              type="button"
-                              className="app-btn app-btn-secondary h-9 px-3 text-xs"
-                              onClick={loadTrainTickets}
-                              disabled={loadingTickets}
-                            >
+                            <button type="button" className="app-btn app-btn-secondary h-9 px-3 text-xs" onClick={loadTrainTickets} disabled={loadingTickets}>
                               {loadingTickets ? "Refreshing..." : "Refresh Tickets"}
                             </button>
                           </div>
@@ -1442,12 +2302,7 @@ export default function LadooNominalRollPage() {
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-6">
               <div className="lg:col-span-2">
                 <div className="app-label">Search in table</div>
-                <input
-                  className={inputCls()}
-                  value={tableQ}
-                  onChange={(e) => setTableQ(e.target.value)}
-                  placeholder="Type name / mobile / aadhaar / ticket / dept..."
-                />
+                <input className={inputCls()} value={tableQ} onChange={(e) => setTableQ(e.target.value)} placeholder="Type name / mobile / aadhaar / ticket / dept..." />
               </div>
 
               <div>
@@ -1600,11 +2455,10 @@ export default function LadooNominalRollPage() {
                         <td className="td">{paid === null ? "-" : paid}</td>
                         <td className="td font-semibold">{pending === null ? "-" : pending}</td>
 
-                        {/* ✅ show same label as dropdown */}
                         <td className="td">{formatJathaLabelFromRow(r)}</td>
 
-                        <td className="td">{r.travelStartDate || "-"}</td>
-                        <td className="td">{r.travelEndDate || "-"}</td>
+                        <td className="td">{formatPrettyDate(r.travelStartDate)}</td>
+                        <td className="td">{formatPrettyDate(r.travelEndDate)}</td>
                         <td className="td">{r.notes || "-"}</td>
 
                         <td className="td">
@@ -1756,8 +2610,51 @@ export default function LadooNominalRollPage() {
 
                       <div className="lg:col-span-3 sm:col-span-2">
                         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                          {/* Edit Delhi–Beas */}
                           <div>
-                            <div className="app-label">Ticket (Delhi–Beas)</div>
+                            <div className="flex items-center justify-between">
+                              <div className="app-label">Ticket (Delhi–Beas) (Optional)</div>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  className="text-xs font-semibold text-zinc-600 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-white"
+                                  onClick={() => {
+                                    const id = findSmartTicketId({
+                                      list: editSelectableDliBeas as any,
+                                      searchText: editTicketSearchDB,
+                                      travelStartDate: editing.travelStartDate,
+                                      travelEndDate: editing.travelEndDate,
+                                      customerName: editing.customerName || "",
+                                      expectedRoute: "DLI-BEAS",
+                                    });
+                                    if (!id) return alert("No good selectable Delhi–Beas match found. Try Seat/PNR/Train/Date/New Delhi/Old Delhi in the search box.");
+                                    setEditing({ ...editing, ticketDelhiBeas: id });
+                                  }}
+                                  disabled={!allowEditDelhiBeasTicket || loadingTickets}
+                                  title="Smart quick assign: prefers same Start Date, same Name, and boarding station tokens"
+                                >
+                                  Quick Assign
+                                </button>
+
+                                <button
+                                  type="button"
+                                  className="text-xs font-semibold text-zinc-600 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-white"
+                                  onClick={() => setEditTicketSearchDB("")}
+                                  disabled={!editTicketSearchDB}
+                                >
+                                  Clear Search
+                                </button>
+                              </div>
+                            </div>
+
+                            <input
+                              className={inputCls()}
+                              value={editTicketSearchDB}
+                              onChange={(e) => setEditTicketSearchDB(e.target.value)}
+                              placeholder="Search by seat / PNR / train / date / New Delhi / Old Delhi..."
+                              disabled={!allowEditDelhiBeasTicket || loadingTickets}
+                            />
+
                             <select
                               className={inputCls()}
                               value={String(editing.ticketDelhiBeas || "")}
@@ -1765,10 +2662,10 @@ export default function LadooNominalRollPage() {
                               disabled={!allowEditDelhiBeasTicket || loadingTickets}
                             >
                               <option value="">
-                                {editing.bookingReqDelhiBeas !== "Yes" ? "Booking = No" : loadingTickets ? "Loading..." : "Select ticket"}
+                                {editing.bookingReqDelhiBeas !== "Yes" ? "Booking = No" : loadingTickets ? "Loading..." : "Select ticket (or leave empty)"}
                               </option>
                               {allowEditDelhiBeasTicket &&
-                                editTrainDliBeas.map((t: any) => (
+                                editTrainDliBeasFiltered.map((t: any) => (
                                   <option key={t._id} value={t._id} disabled={!!t.__disabled}>
                                     {makeTicketLabel(t)}
                                     {t.__disabled ? ` • Assigned to: ${ticketAssignedToNameMap.get(t._id) || "Someone"}` : ""}
@@ -1777,8 +2674,51 @@ export default function LadooNominalRollPage() {
                             </select>
                           </div>
 
+                          {/* Edit Beas–Delhi */}
                           <div>
-                            <div className="app-label">Ticket (Beas–Delhi)</div>
+                            <div className="flex items-center justify-between">
+                              <div className="app-label">Ticket (Beas–Delhi) (Optional)</div>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  className="text-xs font-semibold text-zinc-600 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-white"
+                                  onClick={() => {
+                                    const id = findSmartTicketId({
+                                      list: editSelectableBeasDli as any,
+                                      searchText: editTicketSearchBD,
+                                      travelStartDate: editing.travelStartDate,
+                                      travelEndDate: editing.travelEndDate,
+                                      customerName: editing.customerName || "",
+                                      expectedRoute: "BEAS-DLI",
+                                    });
+                                    if (!id) return alert("No good selectable Beas–Delhi match found. Try Seat/PNR/Train/Date/New Delhi/Old Delhi in the search box.");
+                                    setEditing({ ...editing, ticketBeasDelhi: id });
+                                  }}
+                                  disabled={!allowEditBeasDelhiTicket || loadingTickets}
+                                  title="Smart quick assign: prefers same Start Date, same Name, and boarding station tokens"
+                                >
+                                  Quick Assign
+                                </button>
+
+                                <button
+                                  type="button"
+                                  className="text-xs font-semibold text-zinc-600 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-white"
+                                  onClick={() => setEditTicketSearchBD("")}
+                                  disabled={!editTicketSearchBD}
+                                >
+                                  Clear Search
+                                </button>
+                              </div>
+                            </div>
+
+                            <input
+                              className={inputCls()}
+                              value={editTicketSearchBD}
+                              onChange={(e) => setEditTicketSearchBD(e.target.value)}
+                              placeholder="Search by seat / PNR / train / date / New Delhi / Old Delhi..."
+                              disabled={!allowEditBeasDelhiTicket || loadingTickets}
+                            />
+
                             <select
                               className={inputCls()}
                               value={String(editing.ticketBeasDelhi || "")}
@@ -1786,10 +2726,10 @@ export default function LadooNominalRollPage() {
                               disabled={!allowEditBeasDelhiTicket || loadingTickets}
                             >
                               <option value="">
-                                {editing.bookingReqBeasDelhi !== "Yes" ? "Booking = No" : loadingTickets ? "Loading..." : "Select ticket"}
+                                {editing.bookingReqBeasDelhi !== "Yes" ? "Booking = No" : loadingTickets ? "Loading..." : "Select ticket (or leave empty)"}
                               </option>
                               {allowEditBeasDelhiTicket &&
-                                editTrainBeasDli.map((t: any) => (
+                                editTrainBeasDliFiltered.map((t: any) => (
                                   <option key={t._id} value={t._id} disabled={!!t.__disabled}>
                                     {makeTicketLabel(t)}
                                     {t.__disabled ? ` • Assigned to: ${ticketAssignedToNameMap.get(t._id) || "Someone"}` : ""}
