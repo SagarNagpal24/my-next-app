@@ -1,10 +1,11 @@
-"use client";
+ "use client";
 
 import React from "react";
 
 type Gender = "M" | "F" | "Other" | "";
 type Blacklisted = "Yes" | "No" | "";
 
+// ✅ UPDATED Department options (added all you listed)
 type Department =
   | ""
   | "Security"
@@ -14,6 +15,14 @@ type Department =
   | "Canteen"
   | "BAV"
   | "Traffic"
+  | "HRT"
+  | "Baal-Satsang"
+  | "Coupon"
+  | "MNT"
+  | "Office"
+  | "Sewa-Collection"
+  | "Water"
+  | "Sewa-Samiti"
   | "Sangat";
 
 const DEPARTMENT_OPTIONS: Exclude<Department, "">[] = [
@@ -24,8 +33,24 @@ const DEPARTMENT_OPTIONS: Exclude<Department, "">[] = [
   "Canteen",
   "BAV",
   "Traffic",
+  "HRT",
+  "Baal-Satsang",
+  "Coupon",
+  "MNT",
+  "Office",
+  "Sewa-Collection",
+  "Water",
+  "Sewa-Samiti",
   "Sangat",
 ];
+
+// ✅ Image payload (compressed)
+type ImgData = {
+  dataUrl: string; // base64 compressed image data URL
+  filename?: string;
+  mime: string;
+  size: number; // bytes (approx)
+} | null;
 
 type Customer = {
   _id: string;
@@ -39,13 +64,19 @@ type Customer = {
   mobile?: string;
   adhaarNumber?: string;
 
-  department?: Department | string; // ✅ NEW
+  department?: Department | string;
 
   blacklisted?: Blacklisted | string;
 
   emergencyNumber?: string;
-  medicalDate?: string | null; // serialized ISO string OR "YYYY-MM-DD"
+  medicalDate?: string | null;
   notes?: string;
+
+  // ✅ image fields from backend
+  passportPhoto?: ImgData;
+  aadhaarFrontPhoto?: ImgData;
+  aadhaarBackPhoto?: ImgData;
+  medicalPhoto?: ImgData;
 };
 
 function fmtDate(d?: string | null) {
@@ -93,6 +124,92 @@ function digitsOnly(s: string) {
   return (s || "").replace(/\D/g, "");
 }
 
+// --- UI helpers for images ---
+function formatBytes(bytes?: number) {
+  if (!bytes && bytes !== 0) return "";
+  const units = ["B", "KB", "MB"];
+  let v = bytes;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) {
+    v = v / 1024;
+    i++;
+  }
+  return `${v.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
+}
+
+function safeImgSrc(img?: ImgData) {
+  if (!img?.dataUrl) return "";
+  return img.dataUrl;
+}
+
+/**
+ * Compress image file in-browser using canvas.
+ * - Resizes to maxW/maxH (keeps aspect ratio)
+ * - Encodes to JPEG/WebP for smaller size
+ */
+async function fileToCompressedImgData(
+  file: File,
+  opts?: { maxW?: number; maxH?: number; quality?: number }
+): Promise<ImgData> {
+  const maxW = opts?.maxW ?? 900;
+  const maxH = opts?.maxH ?? 900;
+  const quality = opts?.quality ?? 0.75;
+
+  // Read file into Image
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(String(fr.result || ""));
+    fr.onerror = () => reject(new Error("Failed to read image"));
+    fr.readAsDataURL(file);
+  });
+
+  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const im = new Image();
+    im.onload = () => resolve(im);
+    im.onerror = () => reject(new Error("Invalid image file"));
+    im.src = dataUrl;
+  });
+
+  const iw = img.naturalWidth || img.width;
+  const ih = img.naturalHeight || img.height;
+
+  // Compute new size (contain)
+  let w = iw;
+  let h = ih;
+  const wr = maxW / w;
+  const hr = maxH / h;
+  const r = Math.min(1, wr, hr);
+  w = Math.max(1, Math.round(w * r));
+  h = Math.max(1, Math.round(h * r));
+
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Canvas not supported");
+
+  ctx.drawImage(img, 0, 0, w, h);
+
+  // Prefer webp if browser supports, else jpeg
+  const mimeCandidate = "image/webp";
+  const testWebp = canvas.toDataURL(mimeCandidate).startsWith("data:image/webp");
+  const outMime = testWebp ? "image/webp" : "image/jpeg";
+
+  const outDataUrl = canvas.toDataURL(outMime, quality);
+
+  // Approx byte size from base64
+  const base64 = outDataUrl.split(",")[1] || "";
+  const approxBytes = Math.floor((base64.length * 3) / 4);
+
+  return {
+    dataUrl: outDataUrl,
+    filename: file.name,
+    mime: outMime,
+    size: approxBytes,
+  };
+}
+
 function validateCustomerInput(c: Customer) {
   const name = (c.name || "").trim();
   const badge = (c.badgeNo || "").trim();
@@ -106,17 +223,28 @@ function validateCustomerInput(c: Customer) {
   if (!name) return { ok: false, msg: "Name is required." };
 
   // ✅ One of Badge or Aadhaar must be filled
-  if (!badge && !aadhaar) return { ok: false, msg: "Please fill either Badge No or Aadhaar (one is mandatory)." };
+  if (!badge && !aadhaar) {
+    return {
+      ok: false,
+      msg: "Please fill either Badge No or Aadhaar (one is mandatory).",
+    };
+  }
 
   // ✅ Mandatory fields
   if (!fh) return { ok: false, msg: "Father/Husband Name is mandatory." };
   if (!addr) return { ok: false, msg: "Address is mandatory." };
   if (!gender) return { ok: false, msg: "Gender is mandatory." };
-  if (age === null || age === undefined || Number.isNaN(Number(age))) return { ok: false, msg: "Age is mandatory." };
+  if (age === null || age === undefined || Number.isNaN(Number(age)))
+    return { ok: false, msg: "Age is mandatory." };
   if (Number(age) <= 0) return { ok: false, msg: "Age must be a valid number." };
+
   if (!mob) return { ok: false, msg: "Mobile is mandatory." };
 
-  if (aadhaar && aadhaar.length !== 12) return { ok: false, msg: "Aadhaar must be 12 digits (if provided)." };
+  // ✅ NEW: 10 digit rule
+  if (mob && mob.length !== 10) return { ok: false, msg: "Mobile must be exactly 10 digits." };
+
+  if (aadhaar && aadhaar.length !== 12)
+    return { ok: false, msg: "Aadhaar must be 12 digits (if provided)." };
 
   // ✅ Department (optional, but validate if present)
   if (c.department && c.department !== "" && !DEPARTMENT_OPTIONS.includes(c.department as any)) {
@@ -133,7 +261,7 @@ export default function CustomersPage() {
   // search / filters
   const [q, setQ] = React.useState("");
   const [gender, setGender] = React.useState<Gender>("");
-  const [department, setDepartment] = React.useState<Department>(""); // ✅ NEW filter
+  const [department, setDepartment] = React.useState<Department>("");
   const [blacklisted, setBlacklisted] = React.useState<Blacklisted>("");
   const [ageMin, setAgeMin] = React.useState("");
   const [ageMax, setAgeMax] = React.useState("");
@@ -157,6 +285,17 @@ export default function CustomersPage() {
   // export
   const [exporting, setExporting] = React.useState<"filtered" | "all" | null>(null);
 
+  // ✅ image preview modal
+  const [imgPreview, setImgPreview] = React.useState<{ title: string; src: string } | null>(null);
+
+  // ✅ upload state inside edit modal
+  const [imgUploading, setImgUploading] = React.useState<{
+    passport?: boolean;
+    aadhaarFront?: boolean;
+    aadhaarBack?: boolean;
+    medical?: boolean;
+  }>({});
+
   const columns = [
     { label: "S.No", width: "w-12" },
     { label: "Name", width: "w-32" },
@@ -165,12 +304,19 @@ export default function CustomersPage() {
     { label: "Father/Husband", width: "w-36" },
     { label: "Gender", width: "w-16" },
     { label: "Age", width: "w-12" },
-    { label: "Department", width: "w-24" }, // ✅ NEW column
+    { label: "Department", width: "w-24" },
     { label: "Address", width: "w-48" },
     { label: "Mobile", width: "w-28" },
     { label: "Blacklisted", width: "w-20" },
     { label: "Emergency", width: "w-28" },
     { label: "Medical Date", width: "w-24" },
+
+    // ✅ image columns
+    { label: "Passport", width: "w-24" },
+    { label: "Aadhaar Front", width: "w-28" },
+    { label: "Aadhaar Back", width: "w-28" },
+    { label: "Medical Photo", width: "w-28" },
+
     { label: "Notes", width: "w-40" },
     { label: "Actions", width: "w-28" },
   ];
@@ -181,7 +327,7 @@ export default function CustomersPage() {
       const params = new URLSearchParams();
       if (q.trim()) params.set("q", q.trim());
       if (gender) params.set("gender", gender);
-      if (department) params.set("department", department); // ✅ NEW
+      if (department) params.set("department", department);
       if (blacklisted) params.set("blacklisted", blacklisted);
       if (ageMin) params.set("ageMin", ageMin);
       if (ageMax) params.set("ageMax", ageMax);
@@ -213,7 +359,7 @@ export default function CustomersPage() {
   function clearFilters() {
     setQ("");
     setGender("");
-    setDepartment(""); // ✅ NEW
+    setDepartment("");
     setBlacklisted("");
     setAgeMin("");
     setAgeMax("");
@@ -265,11 +411,17 @@ export default function CustomersPage() {
       const payload = {
         ...rest,
         adhaarNumber: rest.adhaarNumber ? digitsOnly(String(rest.adhaarNumber)).slice(0, 12) : "",
-        mobile: rest.mobile ? digitsOnly(String(rest.mobile)) : "",
+        mobile: rest.mobile ? digitsOnly(String(rest.mobile)).slice(0, 10) : "",
         emergencyNumber: rest.emergencyNumber ? digitsOnly(String(rest.emergencyNumber)) : "",
         medicalDate: rest.medicalDate ? String(rest.medicalDate).slice(0, 10) : null,
         blacklisted: (rest.blacklisted as any) || "No",
-        department: (rest.department as any) || "", // ✅ NEW
+        department: (rest.department as any) || "",
+
+        // ✅ images can be edited now
+        passportPhoto: rest.passportPhoto || null,
+        aadhaarFrontPhoto: rest.aadhaarFrontPhoto || null,
+        aadhaarBackPhoto: rest.aadhaarBackPhoto || null,
+        medicalPhoto: rest.medicalPhoto || null,
       };
 
       const res = await fetch(`/api/customers/${realId}`, {
@@ -303,12 +455,19 @@ export default function CustomersPage() {
       "Father/Husband",
       "Gender",
       "Age",
-      "Department", // ✅ NEW
+      "Department",
       "Address",
       "Mobile",
       "Blacklisted",
       "Emergency",
       "Medical Date",
+
+      // ✅ export as Yes/No flags
+      "Passport Photo",
+      "Aadhaar Front Photo",
+      "Aadhaar Back Photo",
+      "Medical Photo",
+
       "Notes",
     ];
 
@@ -322,12 +481,18 @@ export default function CustomersPage() {
         c.fatherOrHusbandName || "",
         c.gender || "",
         c.age ?? "",
-        (c.department as any) || "", // ✅ NEW
+        (c.department as any) || "",
         c.address || "",
         c.mobile || "",
         (c.blacklisted as any) || "No",
         c.emergencyNumber || "",
         fmtExcelDate(c.medicalDate),
+
+        c.passportPhoto?.dataUrl ? "Yes" : "No",
+        c.aadhaarFrontPhoto?.dataUrl ? "Yes" : "No",
+        c.aadhaarBackPhoto?.dataUrl ? "Yes" : "No",
+        c.medicalPhoto?.dataUrl ? "Yes" : "No",
+
         c.notes || "",
       ]);
     });
@@ -341,7 +506,10 @@ export default function CustomersPage() {
   async function onExportFiltered() {
     try {
       setExporting("filtered");
-      await exportCustomersToExcel(items, `customers_filtered_${new Date().toISOString().slice(0, 10)}.xlsx`);
+      await exportCustomersToExcel(
+        items,
+        `customers_filtered_${new Date().toISOString().slice(0, 10)}.xlsx`
+      );
     } catch (e: any) {
       alert(e?.message || "Export failed");
     } finally {
@@ -359,7 +527,10 @@ export default function CustomersPage() {
         .map((x: any) => ({ ...x, _id: normalizeId(x._id) }))
         .filter((x: any) => /^[a-fA-F0-9]{24}$/.test(x._id));
 
-      await exportCustomersToExcel(safe, `customers_all_${new Date().toISOString().slice(0, 10)}.xlsx`);
+      await exportCustomersToExcel(
+        safe,
+        `customers_all_${new Date().toISOString().slice(0, 10)}.xlsx`
+      );
     } catch (e: any) {
       alert(e?.message || "Export failed");
     } finally {
@@ -381,7 +552,8 @@ export default function CustomersPage() {
 
   function getPageButtons() {
     const maxButtons = 7;
-    if (totalPages <= maxButtons) return Array.from({ length: totalPages }, (_, i) => i + 1);
+    if (totalPages <= maxButtons)
+      return Array.from({ length: totalPages }, (_, i) => i + 1);
 
     const left = Math.max(1, page - 2);
     const right = Math.min(totalPages, page + 2);
@@ -406,7 +578,10 @@ export default function CustomersPage() {
 
     const t = window.setTimeout(async () => {
       try {
-        const res = await fetch(`/api/customers/suggest?q=${encodeURIComponent(term)}`, { cache: "no-store" });
+        const res = await fetch(
+          `/api/customers/suggest?q=${encodeURIComponent(term)}`,
+          { cache: "no-store" }
+        );
         const data = await res.json().catch(() => ({}));
         const list = Array.isArray(data.suggestions) ? data.suggestions : [];
         setSuggestions(list);
@@ -453,12 +628,85 @@ export default function CustomersPage() {
       setHighlightIndex((i) => Math.max(i - 1, 0));
     } else if (e.key === "Enter") {
       e.preventDefault();
-      const chosen = highlightIndex >= 0 ? suggestions[highlightIndex] : suggestions[0];
+      const chosen =
+        highlightIndex >= 0 ? suggestions[highlightIndex] : suggestions[0];
       pickSuggestion(chosen);
     } else if (e.key === "Escape") {
       setSugOpen(false);
       setHighlightIndex(-1);
     }
+  }
+
+  function ImgCell({ title, img }: { title: string; img?: ImgData }) {
+    const src = safeImgSrc(img);
+    if (!src) return <span className="text-zinc-500">-</span>;
+
+    return (
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setImgPreview({ title, src })}
+          className="h-8 w-8 overflow-hidden rounded-lg border border-black/10 bg-white dark:border-white/10 dark:bg-zinc-950"
+          title="Click to preview"
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={src} alt={title} className="h-full w-full object-cover" />
+        </button>
+        <span className="text-[11px] text-zinc-600 dark:text-zinc-400">
+          {formatBytes(img?.size)}
+        </span>
+      </div>
+    );
+  }
+
+  async function onPickEditImage(
+    kind: "passport" | "aadhaarFront" | "aadhaarBack" | "medical",
+    file: File | null
+  ) {
+    if (!editing) return;
+    if (!file) return;
+
+    // basic file type guard
+    if (!file.type.startsWith("image/")) {
+      alert("Please select an image file.");
+      return;
+    }
+
+    setImgUploading((s) => ({ ...s, [kind]: true }));
+    try {
+      const imgData = await fileToCompressedImgData(file, {
+        maxW: 900,
+        maxH: 900,
+        quality: 0.75,
+      });
+
+      setEditing((prev) => {
+        if (!prev) return prev;
+        const patch: Partial<Customer> = {};
+        if (kind === "passport") patch.passportPhoto = imgData;
+        if (kind === "aadhaarFront") patch.aadhaarFrontPhoto = imgData;
+        if (kind === "aadhaarBack") patch.aadhaarBackPhoto = imgData;
+        if (kind === "medical") patch.medicalPhoto = imgData;
+        return { ...prev, ...patch };
+      });
+    } catch (e: any) {
+      alert(e?.message || "Failed to process image.");
+    } finally {
+      setImgUploading((s) => ({ ...s, [kind]: false }));
+    }
+  }
+
+  function clearEditImage(kind: "passport" | "aadhaarFront" | "aadhaarBack" | "medical") {
+    if (!editing) return;
+    setEditing((prev) => {
+      if (!prev) return prev;
+      const patch: Partial<Customer> = {};
+      if (kind === "passport") patch.passportPhoto = null;
+      if (kind === "aadhaarFront") patch.aadhaarFrontPhoto = null;
+      if (kind === "aadhaarBack") patch.aadhaarBackPhoto = null;
+      if (kind === "medical") patch.medicalPhoto = null;
+      return { ...prev, ...patch };
+    });
   }
 
   return (
@@ -493,7 +741,11 @@ export default function CustomersPage() {
               {exporting === "filtered" ? "Exporting..." : "Export Filtered"}
             </button>
 
-            <button onClick={onExportAll} disabled={exporting !== null} className="app-btn app-btn-secondary h-10 px-4">
+            <button
+              onClick={onExportAll}
+              disabled={exporting !== null}
+              className="app-btn app-btn-secondary h-10 px-4"
+            >
               {exporting === "all" ? "Exporting..." : "Export All"}
             </button>
           </div>
@@ -525,7 +777,9 @@ export default function CustomersPage() {
                     onClick={() => pickSuggestion(s)}
                     className={[
                       "block w-full px-3 py-2 text-left text-sm",
-                      idx === highlightIndex ? "bg-zinc-100 dark:bg-zinc-900/40" : "hover:bg-zinc-50 dark:hover:bg-zinc-900/30",
+                      idx === highlightIndex
+                        ? "bg-zinc-100 dark:bg-zinc-900/40"
+                        : "hover:bg-zinc-50 dark:hover:bg-zinc-900/30",
                     ].join(" ")}
                     title="Click to search"
                   >
@@ -538,7 +792,11 @@ export default function CustomersPage() {
 
           <div>
             <div className="app-label">Gender</div>
-            <select className="app-input app-input-sm" value={gender} onChange={(e) => setGender(e.target.value as Gender)}>
+            <select
+              className="app-input app-input-sm"
+              value={gender}
+              onChange={(e) => setGender(e.target.value as Gender)}
+            >
               <option value="">All</option>
               <option value="M">M</option>
               <option value="F">F</option>
@@ -546,10 +804,14 @@ export default function CustomersPage() {
             </select>
           </div>
 
-          {/* ✅ NEW Department filter */}
+          {/* Department filter */}
           <div>
             <div className="app-label">Department</div>
-            <select className="app-input app-input-sm" value={department} onChange={(e) => setDepartment(e.target.value as Department)}>
+            <select
+              className="app-input app-input-sm"
+              value={department}
+              onChange={(e) => setDepartment(e.target.value as Department)}
+            >
               <option value="">All</option>
               {DEPARTMENT_OPTIONS.map((d) => (
                 <option key={d} value={d}>
@@ -561,7 +823,11 @@ export default function CustomersPage() {
 
           <div>
             <div className="app-label">Blacklisted</div>
-            <select className="app-input app-input-sm" value={blacklisted} onChange={(e) => setBlacklisted(e.target.value as Blacklisted)}>
+            <select
+              className="app-input app-input-sm"
+              value={blacklisted}
+              onChange={(e) => setBlacklisted(e.target.value as Blacklisted)}
+            >
               <option value="">All</option>
               <option value="No">No</option>
               <option value="Yes">Yes</option>
@@ -570,30 +836,54 @@ export default function CustomersPage() {
 
           <div>
             <div className="app-label">Age Min</div>
-            <input className="app-input app-input-sm" value={ageMin} onChange={(e) => setAgeMin(e.target.value)} inputMode="numeric" />
+            <input
+              className="app-input app-input-sm"
+              value={ageMin}
+              onChange={(e) => setAgeMin(e.target.value)}
+              inputMode="numeric"
+            />
           </div>
 
           <div>
             <div className="app-label">Age Max</div>
-            <input className="app-input app-input-sm" value={ageMax} onChange={(e) => setAgeMax(e.target.value)} inputMode="numeric" />
+            <input
+              className="app-input app-input-sm"
+              value={ageMax}
+              onChange={(e) => setAgeMax(e.target.value)}
+              inputMode="numeric"
+            />
           </div>
 
           <div>
             <div className="app-label">Medical From</div>
-            <input type="date" className="app-input app-input-sm" value={medFrom} onChange={(e) => setMedFrom(e.target.value)} />
+            <input
+              type="date"
+              className="app-input app-input-sm"
+              value={medFrom}
+              onChange={(e) => setMedFrom(e.target.value)}
+            />
           </div>
 
           <div>
             <div className="app-label">Medical To</div>
-            <input type="date" className="app-input app-input-sm" value={medTo} onChange={(e) => setMedTo(e.target.value)} />
+            <input
+              type="date"
+              className="app-input app-input-sm"
+              value={medTo}
+              onChange={(e) => setMedTo(e.target.value)}
+            />
           </div>
         </div>
 
         {/* Pagination bar */}
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
           <div className="text-sm text-zinc-600 dark:text-zinc-400">
-            Showing <span className="font-semibold">{total === 0 ? 0 : startIndex + 1}</span>–<span className="font-semibold">{Math.min(endIndex, total)}</span> of{" "}
-            <span className="font-semibold">{total}</span>
+            Showing{" "}
+            <span className="font-semibold">
+              {total === 0 ? 0 : startIndex + 1}
+            </span>
+            –<span className="font-semibold">{Math.min(endIndex, total)}</span>{" "}
+            of <span className="font-semibold">{total}</span>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -613,7 +903,11 @@ export default function CustomersPage() {
               ))}
             </select>
 
-            <button className="app-btn app-btn-secondary h-9 px-3 text-xs" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1}>
+            <button
+              className="app-btn app-btn-secondary h-9 px-3 text-xs"
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page <= 1}
+            >
               Prev
             </button>
 
@@ -640,7 +934,11 @@ export default function CustomersPage() {
               })}
             </div>
 
-            <button className="app-btn app-btn-secondary h-9 px-3 text-xs" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page >= totalPages}>
+            <button
+              className="app-btn app-btn-secondary h-9 px-3 text-xs"
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page >= totalPages}
+            >
               Next
             </button>
           </div>
@@ -648,11 +946,14 @@ export default function CustomersPage() {
 
         {/* Table */}
         <div className="w-full overflow-x-auto mt-4">
-          <table className="min-w-[1750px] table-fixed border-collapse text-xs">
+          <table className="min-w-[2200px] table-fixed border-collapse text-xs">
             <thead className="thead">
               <tr>
                 {columns.map((c) => (
-                  <th key={c.label} className={`th ${c.width} whitespace-normal break-words px-2 py-2`}>
+                  <th
+                    key={c.label}
+                    className={`th ${c.width} whitespace-normal break-words px-2 py-2`}
+                  >
                     {c.label}
                   </th>
                 ))}
@@ -662,13 +963,19 @@ export default function CustomersPage() {
             <tbody className="divide-y divide-black/5 dark:divide-white/10">
               {loading ? (
                 <tr>
-                  <td className="td text-zinc-600 dark:text-zinc-400 whitespace-normal break-words px-2 py-2" colSpan={columns.length}>
+                  <td
+                    className="td text-zinc-600 dark:text-zinc-400 whitespace-normal break-words px-2 py-2"
+                    colSpan={columns.length}
+                  >
                     Loading...
                   </td>
                 </tr>
               ) : pageItems.length === 0 ? (
                 <tr>
-                  <td className="td text-zinc-600 dark:text-zinc-400 whitespace-normal break-words px-2 py-2" colSpan={columns.length}>
+                  <td
+                    className="td text-zinc-600 dark:text-zinc-400 whitespace-normal break-words px-2 py-2"
+                    colSpan={columns.length}
+                  >
                     No records found.
                   </td>
                 </tr>
@@ -677,7 +984,13 @@ export default function CustomersPage() {
                   const serial = (page - 1) * pageSize + i + 1;
 
                   return (
-                    <tr key={c._id} className={["row", i % 2 === 0 ? "row-alt" : "row-alt2"].join(" ")}>
+                    <tr
+                      key={c._id}
+                      className={[
+                        "row",
+                        i % 2 === 0 ? "row-alt" : "row-alt2",
+                      ].join(" ")}
+                    >
                       {/* S.No */}
                       <td className="td whitespace-nowrap px-2 py-2 text-center">
                         <button
@@ -698,43 +1011,98 @@ export default function CustomersPage() {
                       </td>
 
                       {/* Name */}
-                      <td className="td whitespace-normal break-words px-2 py-2 font-medium">{c.name || "-"}</td>
+                      <td className="td whitespace-normal break-words px-2 py-2 font-medium">
+                        {c.name || "-"}
+                      </td>
 
                       {/* Badge No */}
-                      <td className="td whitespace-normal break-words px-2 py-2">{c.badgeNo || "-"}</td>
+                      <td className="td whitespace-normal break-words px-2 py-2">
+                        {c.badgeNo || "-"}
+                      </td>
 
                       {/* Aadhaar */}
-                      <td className="td whitespace-normal break-all px-2 py-2">{c.adhaarNumber || "-"}</td>
+                      <td className="td whitespace-normal break-all px-2 py-2">
+                        {c.adhaarNumber || "-"}
+                      </td>
 
                       {/* Father/Husband */}
-                      <td className="td whitespace-normal break-words px-2 py-2">{c.fatherOrHusbandName || "-"}</td>
+                      <td className="td whitespace-normal break-words px-2 py-2">
+                        {c.fatherOrHusbandName || "-"}
+                      </td>
 
                       {/* Gender */}
-                      <td className="td whitespace-normal break-words px-2 py-2">{(c.gender as any) || "-"}</td>
+                      <td className="td whitespace-normal break-words px-2 py-2">
+                        {(c.gender as any) || "-"}
+                      </td>
 
                       {/* Age */}
-                      <td className="td whitespace-normal break-words px-2 py-2">{c.age ?? "-"}</td>
+                      <td className="td whitespace-normal break-words px-2 py-2">
+                        {c.age ?? "-"}
+                      </td>
 
-                      {/* ✅ Department */}
-                      <td className="td whitespace-normal break-words px-2 py-2">{(c.department as any) || "-"}</td>
+                      {/* Department */}
+                      <td className="td whitespace-normal break-words px-2 py-2">
+                        {(c.department as any) || "-"}
+                      </td>
 
                       {/* Address */}
-                      <td className="td whitespace-normal break-words px-2 py-2">{c.address || "-"}</td>
+                      <td className="td whitespace-normal break-words px-2 py-2">
+                        {c.address || "-"}
+                      </td>
 
                       {/* Mobile */}
-                      <td className="td whitespace-normal break-all px-2 py-2">{c.mobile || "-"}</td>
+                      <td className="td whitespace-normal break-all px-2 py-2">
+                        {c.mobile || "-"}
+                      </td>
 
                       {/* Blacklisted */}
-                      <td className="td whitespace-normal break-words px-2 py-2">{(c.blacklisted as any) || "No"}</td>
+                      <td className="td whitespace-normal break-words px-2 py-2">
+                        {(c.blacklisted as any) || "No"}
+                      </td>
 
                       {/* Emergency */}
-                      <td className="td whitespace-normal break-all px-2 py-2">{c.emergencyNumber || "-"}</td>
+                      <td className="td whitespace-normal break-all px-2 py-2">
+                        {c.emergencyNumber || "-"}
+                      </td>
 
                       {/* Medical Date */}
-                      <td className="td whitespace-normal break-words px-2 py-2">{fmtDate(c.medicalDate)}</td>
+                      <td className="td whitespace-normal break-words px-2 py-2">
+                        {fmtDate(c.medicalDate)}
+                      </td>
+
+                      {/* Images */}
+                      <td className="td whitespace-normal break-words px-2 py-2">
+                        <ImgCell
+                          title={`${c.name || "Passport"} - Passport`}
+                          img={c.passportPhoto}
+                        />
+                      </td>
+
+                      <td className="td whitespace-normal break-words px-2 py-2">
+                        <ImgCell
+                          title={`${c.name || "Aadhaar Front"} - Aadhaar Front`}
+                          img={c.aadhaarFrontPhoto}
+                        />
+                      </td>
+
+                      <td className="td whitespace-normal break-words px-2 py-2">
+                        <ImgCell
+                          title={`${c.name || "Aadhaar Back"} - Aadhaar Back`}
+                          img={c.aadhaarBackPhoto}
+                        />
+                      </td>
+
+                      <td className="td whitespace-normal break-words px-2 py-2">
+                        <ImgCell
+                          title={`${c.name || "Medical"} - Medical`}
+                          img={c.medicalPhoto}
+                        />
+                      </td>
 
                       {/* Notes */}
-                      <td className="td whitespace-normal break-words px-2 py-2">{c.notes || "-"}</td>
+                      <td className="td whitespace-normal break-words px-2 py-2">
+                        {c.notes || "-"}
+                      </td>
 
                       {/* Actions */}
                       <td className="td whitespace-nowrap px-2 py-2">
@@ -770,26 +1138,76 @@ export default function CustomersPage() {
         </div>
       </div>
 
-      {/* Edit Modal */}
-      {editing && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-3xl rounded-2xl bg-white p-6 shadow-lg dark:bg-zinc-950">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold">Edit Customer</h3>
-              <button onClick={() => setEditing(null)} className="rounded-lg px-3 py-1.5 text-sm hover:bg-zinc-100 dark:hover:bg-zinc-900/40">
+      {/* ✅ Image Preview Modal */}
+      {imgPreview && (
+        <div className="fixed inset-0 z-[60] bg-black/60 p-4 overflow-y-auto">
+          <div className="mx-auto w-full max-w-3xl rounded-2xl bg-white p-4 shadow-lg dark:bg-zinc-950 my-6">
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-sm font-semibold">{imgPreview.title}</div>
+              <button
+                onClick={() => setImgPreview(null)}
+                className="rounded-lg px-3 py-1.5 text-sm hover:bg-zinc-100 dark:hover:bg-zinc-900/40"
+              >
                 ✕
               </button>
             </div>
 
-            <form onSubmit={onSaveEdit} className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              <input className="app-input app-input-sm" value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} placeholder="Name" required />
+            <div className="mt-3 overflow-hidden rounded-xl border border-black/10 dark:border-white/10">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={imgPreview.src}
+                alt={imgPreview.title}
+                className="h-auto w-full object-contain"
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
-              <input className="app-input app-input-sm" value={editing.badgeNo || ""} onChange={(e) => setEditing({ ...editing, badgeNo: e.target.value })} placeholder="Badge No" />
+      {/* Edit Modal (✅ now includes photo upload) */}
+      {editing && (
+        <div className="fixed inset-0 z-50 bg-black/40 p-4 overflow-y-auto">
+          <div className="mx-auto w-full max-w-3xl rounded-2xl bg-white p-6 shadow-lg dark:bg-zinc-950 my-6">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold">Edit Customer</h3>
+              <button
+                onClick={() => setEditing(null)}
+                className="rounded-lg px-3 py-1.5 text-sm hover:bg-zinc-100 dark:hover:bg-zinc-900/40"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form
+              onSubmit={onSaveEdit}
+              className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3"
+            >
+              <input
+                className="app-input app-input-sm"
+                value={editing.name}
+                onChange={(e) => setEditing({ ...editing, name: e.target.value })}
+                placeholder="Name"
+                required
+              />
+
+              <input
+                className="app-input app-input-sm"
+                value={editing.badgeNo || ""}
+                onChange={(e) =>
+                  setEditing({ ...editing, badgeNo: e.target.value })
+                }
+                placeholder="Badge No"
+              />
 
               <input
                 className="app-input app-input-sm"
                 value={editing.adhaarNumber || ""}
-                onChange={(e) => setEditing({ ...editing, adhaarNumber: digitsOnly(e.target.value).slice(0, 12) })}
+                onChange={(e) =>
+                  setEditing({
+                    ...editing,
+                    adhaarNumber: digitsOnly(e.target.value).slice(0, 12),
+                  })
+                }
                 placeholder="Aadhaar"
                 inputMode="numeric"
               />
@@ -797,12 +1215,24 @@ export default function CustomersPage() {
               <input
                 className="app-input app-input-sm"
                 value={editing.fatherOrHusbandName || ""}
-                onChange={(e) => setEditing({ ...editing, fatherOrHusbandName: e.target.value })}
+                onChange={(e) =>
+                  setEditing({
+                    ...editing,
+                    fatherOrHusbandName: e.target.value,
+                  })
+                }
                 placeholder="Father/Husband Name"
                 required
               />
 
-              <select className="app-input app-input-sm" value={(editing.gender as any) || ""} onChange={(e) => setEditing({ ...editing, gender: e.target.value as any })} required>
+              <select
+                className="app-input app-input-sm"
+                value={(editing.gender as any) || ""}
+                onChange={(e) =>
+                  setEditing({ ...editing, gender: e.target.value as any })
+                }
+                required
+              >
                 <option value="">Gender</option>
                 <option value="M">M</option>
                 <option value="F">F</option>
@@ -812,17 +1242,23 @@ export default function CustomersPage() {
               <input
                 className="app-input app-input-sm"
                 value={String(editing.age ?? "")}
-                onChange={(e) => setEditing({ ...editing, age: e.target.value ? Number(e.target.value) : null })}
+                onChange={(e) =>
+                  setEditing({
+                    ...editing,
+                    age: e.target.value ? Number(e.target.value) : null,
+                  })
+                }
                 placeholder="Age"
                 inputMode="numeric"
                 required
               />
 
-              {/* ✅ NEW Department in edit */}
               <select
                 className="app-input app-input-sm"
                 value={(editing.department as any) || ""}
-                onChange={(e) => setEditing({ ...editing, department: e.target.value as any })}
+                onChange={(e) =>
+                  setEditing({ ...editing, department: e.target.value as any })
+                }
               >
                 <option value="">Department</option>
                 {DEPARTMENT_OPTIONS.map((d) => (
@@ -835,8 +1271,13 @@ export default function CustomersPage() {
               <input
                 className="app-input app-input-sm"
                 value={editing.mobile || ""}
-                onChange={(e) => setEditing({ ...editing, mobile: digitsOnly(e.target.value) })}
-                placeholder="Mobile"
+                onChange={(e) =>
+                  setEditing({
+                    ...editing,
+                    mobile: digitsOnly(e.target.value).slice(0, 10),
+                  })
+                }
+                placeholder="Mobile (10 digits)"
                 inputMode="numeric"
                 required
               />
@@ -844,7 +1285,9 @@ export default function CustomersPage() {
               <select
                 className="app-input app-input-sm"
                 value={(editing.blacklisted as any) || "No"}
-                onChange={(e) => setEditing({ ...editing, blacklisted: e.target.value as any })}
+                onChange={(e) =>
+                  setEditing({ ...editing, blacklisted: e.target.value as any })
+                }
               >
                 <option value="No">Blacklisted: No</option>
                 <option value="Yes">Blacklisted: Yes</option>
@@ -853,17 +1296,31 @@ export default function CustomersPage() {
               <input
                 className="app-input app-input-sm"
                 value={editing.emergencyNumber || ""}
-                onChange={(e) => setEditing({ ...editing, emergencyNumber: digitsOnly(e.target.value) })}
+                onChange={(e) =>
+                  setEditing({
+                    ...editing,
+                    emergencyNumber: digitsOnly(e.target.value),
+                  })
+                }
                 placeholder="Emergency Number"
                 inputMode="numeric"
               />
 
-              <input type="date" className="app-input app-input-sm" value={(editing.medicalDate as any) || ""} onChange={(e) => setEditing({ ...editing, medicalDate: e.target.value })} />
+              <input
+                type="date"
+                className="app-input app-input-sm"
+                value={(editing.medicalDate as any) || ""}
+                onChange={(e) =>
+                  setEditing({ ...editing, medicalDate: e.target.value })
+                }
+              />
 
               <input
                 className="app-input app-input-sm sm:col-span-2 lg:col-span-3"
                 value={editing.address || ""}
-                onChange={(e) => setEditing({ ...editing, address: e.target.value })}
+                onChange={(e) =>
+                  setEditing({ ...editing, address: e.target.value })
+                }
                 placeholder="Address"
                 required
               />
@@ -876,18 +1333,215 @@ export default function CustomersPage() {
                 placeholder="Notes"
               />
 
+              {/* ✅ Photo Upload section */}
+              <div className="sm:col-span-2 lg:col-span-3 mt-2 rounded-2xl border border-black/5 p-4 dark:border-white/10">
+                <div className="text-sm font-semibold mb-3">Photos</div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {/* Passport */}
+                  <div className="rounded-xl border border-black/5 p-3 dark:border-white/10">
+                    <div className="text-xs font-semibold mb-2">Passport Photo</div>
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        className="h-14 w-14 overflow-hidden rounded-xl border border-black/10 bg-white dark:border-white/10 dark:bg-zinc-950"
+                        onClick={() => {
+                          const src = safeImgSrc(editing.passportPhoto);
+                          if (src) setImgPreview({ title: `${editing.name} - Passport`, src });
+                        }}
+                        title="Preview"
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={safeImgSrc(editing.passportPhoto) || "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80'%3E%3Crect width='100%25' height='100%25' fill='%23eee'/%3E%3Ctext x='50%25' y='52%25' dominant-baseline='middle' text-anchor='middle' fill='%23999' font-size='12'%3ENo%20Photo%3C/text%3E%3C/svg%3E"}
+                          alt="Passport"
+                          className="h-full w-full object-cover"
+                        />
+                      </button>
+
+                      <div className="flex-1">
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="block w-full text-xs"
+                          onChange={(e) => onPickEditImage("passport", e.target.files?.[0] || null)}
+                          disabled={!!imgUploading.passport}
+                        />
+                        <div className="mt-1 text-[11px] text-zinc-600 dark:text-zinc-400">
+                          {editing.passportPhoto ? `Selected: ${formatBytes(editing.passportPhoto.size)}` : "No image"}
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => clearEditImage("passport")}
+                        className="h-9 rounded-xl border border-black/10 bg-white px-3 text-xs font-semibold hover:bg-zinc-50 dark:border-white/10 dark:bg-zinc-950 dark:hover:bg-zinc-900/40"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Aadhaar Front */}
+                  <div className="rounded-xl border border-black/5 p-3 dark:border-white/10">
+                    <div className="text-xs font-semibold mb-2">Aadhaar Front</div>
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        className="h-14 w-14 overflow-hidden rounded-xl border border-black/10 bg-white dark:border-white/10 dark:bg-zinc-950"
+                        onClick={() => {
+                          const src = safeImgSrc(editing.aadhaarFrontPhoto);
+                          if (src) setImgPreview({ title: `${editing.name} - Aadhaar Front`, src });
+                        }}
+                        title="Preview"
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={safeImgSrc(editing.aadhaarFrontPhoto) || "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80'%3E%3Crect width='100%25' height='100%25' fill='%23eee'/%3E%3Ctext x='50%25' y='52%25' dominant-baseline='middle' text-anchor='middle' fill='%23999' font-size='12'%3ENo%20Photo%3C/text%3E%3C/svg%3E"}
+                          alt="Aadhaar Front"
+                          className="h-full w-full object-cover"
+                        />
+                      </button>
+
+                      <div className="flex-1">
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="block w-full text-xs"
+                          onChange={(e) => onPickEditImage("aadhaarFront", e.target.files?.[0] || null)}
+                          disabled={!!imgUploading.aadhaarFront}
+                        />
+                        <div className="mt-1 text-[11px] text-zinc-600 dark:text-zinc-400">
+                          {editing.aadhaarFrontPhoto ? `Selected: ${formatBytes(editing.aadhaarFrontPhoto.size)}` : "No image"}
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => clearEditImage("aadhaarFront")}
+                        className="h-9 rounded-xl border border-black/10 bg-white px-3 text-xs font-semibold hover:bg-zinc-50 dark:border-white/10 dark:bg-zinc-950 dark:hover:bg-zinc-900/40"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Aadhaar Back */}
+                  <div className="rounded-xl border border-black/5 p-3 dark:border-white/10">
+                    <div className="text-xs font-semibold mb-2">Aadhaar Back</div>
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        className="h-14 w-14 overflow-hidden rounded-xl border border-black/10 bg-white dark:border-white/10 dark:bg-zinc-950"
+                        onClick={() => {
+                          const src = safeImgSrc(editing.aadhaarBackPhoto);
+                          if (src) setImgPreview({ title: `${editing.name} - Aadhaar Back`, src });
+                        }}
+                        title="Preview"
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={safeImgSrc(editing.aadhaarBackPhoto) || "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80'%3E%3Crect width='100%25' height='100%25' fill='%23eee'/%3E%3Ctext x='50%25' y='52%25' dominant-baseline='middle' text-anchor='middle' fill='%23999' font-size='12'%3ENo%20Photo%3C/text%3E%3C/svg%3E"}
+                          alt="Aadhaar Back"
+                          className="h-full w-full object-cover"
+                        />
+                      </button>
+
+                      <div className="flex-1">
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="block w-full text-xs"
+                          onChange={(e) => onPickEditImage("aadhaarBack", e.target.files?.[0] || null)}
+                          disabled={!!imgUploading.aadhaarBack}
+                        />
+                        <div className="mt-1 text-[11px] text-zinc-600 dark:text-zinc-400">
+                          {editing.aadhaarBackPhoto ? `Selected: ${formatBytes(editing.aadhaarBackPhoto.size)}` : "No image"}
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => clearEditImage("aadhaarBack")}
+                        className="h-9 rounded-xl border border-black/10 bg-white px-3 text-xs font-semibold hover:bg-zinc-50 dark:border-white/10 dark:bg-zinc-950 dark:hover:bg-zinc-900/40"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Medical */}
+                  <div className="rounded-xl border border-black/5 p-3 dark:border-white/10">
+                    <div className="text-xs font-semibold mb-2">Medical Photo</div>
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        className="h-14 w-14 overflow-hidden rounded-xl border border-black/10 bg-white dark:border-white/10 dark:bg-zinc-950"
+                        onClick={() => {
+                          const src = safeImgSrc(editing.medicalPhoto);
+                          if (src) setImgPreview({ title: `${editing.name} - Medical`, src });
+                        }}
+                        title="Preview"
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={safeImgSrc(editing.medicalPhoto) || "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80'%3E%3Crect width='100%25' height='100%25' fill='%23eee'/%3E%3Ctext x='50%25' y='52%25' dominant-baseline='middle' text-anchor='middle' fill='%23999' font-size='12'%3ENo%20Photo%3C/text%3E%3C/svg%3E"}
+                          alt="Medical"
+                          className="h-full w-full object-cover"
+                        />
+                      </button>
+
+                      <div className="flex-1">
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="block w-full text-xs"
+                          onChange={(e) => onPickEditImage("medical", e.target.files?.[0] || null)}
+                          disabled={!!imgUploading.medical}
+                        />
+                        <div className="mt-1 text-[11px] text-zinc-600 dark:text-zinc-400">
+                          {editing.medicalPhoto ? `Selected: ${formatBytes(editing.medicalPhoto.size)}` : "No image"}
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => clearEditImage("medical")}
+                        className="h-9 rounded-xl border border-black/10 bg-white px-3 text-xs font-semibold hover:bg-zinc-50 dark:border-white/10 dark:bg-zinc-950 dark:hover:bg-zinc-900/40"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-2 text-[11px] text-zinc-600 dark:text-zinc-400">
+                  Supported: JPG/JPEG, PNG, WEBP (any <code>image/*</code>). Images are auto-compressed before saving.
+                </div>
+              </div>
+
               <div className="sm:col-span-2 lg:col-span-3 mt-2 flex items-center justify-end gap-2">
-                <button type="button" onClick={() => setEditing(null)} className="app-btn app-btn-secondary h-10 px-4">
+                <button
+                  type="button"
+                  onClick={() => setEditing(null)}
+                  className="app-btn app-btn-secondary h-10 px-4"
+                >
                   Cancel
                 </button>
-                <button type="submit" disabled={saving} className="app-btn app-btn-primary h-10 px-4">
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="app-btn app-btn-primary h-10 px-4"
+                >
                   {saving ? "Saving..." : "Save Changes"}
                 </button>
               </div>
             </form>
 
             <div className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
-              Note: Either <span className="font-semibold">Badge No</span> or <span className="font-semibold">Aadhaar</span> must be filled.
+              Note: Either <span className="font-semibold">Badge No</span> or{" "}
+              <span className="font-semibold">Aadhaar</span> must be filled. Mobile must be{" "}
+              <span className="font-semibold">10 digits</span>.
             </div>
           </div>
         </div>

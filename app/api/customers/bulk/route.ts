@@ -4,6 +4,7 @@ import * as XLSX from "xlsx";
 
 const COLLECTION = "customers";
 
+// ✅ UPDATED: Department list (same as UI + other APIs)
 type Department =
   | ""
   | "Security"
@@ -13,6 +14,14 @@ type Department =
   | "Canteen"
   | "BAV"
   | "Traffic"
+  | "HRT"
+  | "Baal-Satsang"
+  | "Coupon"
+  | "MNT"
+  | "Office"
+  | "Sewa-Collection"
+  | "Water"
+  | "Sewa-Samiti"
   | "Sangat";
 
 const DEPARTMENT_OPTIONS: Exclude<Department, "">[] = [
@@ -23,6 +32,14 @@ const DEPARTMENT_OPTIONS: Exclude<Department, "">[] = [
   "Canteen",
   "BAV",
   "Traffic",
+  "HRT",
+  "Baal-Satsang",
+  "Coupon",
+  "MNT",
+  "Office",
+  "Sewa-Collection",
+  "Water",
+  "Sewa-Samiti",
   "Sangat",
 ];
 
@@ -86,41 +103,86 @@ function validateRow(clean: any, rowNumber: number) {
   const blacklisted = String(clean.blacklisted || "No").trim();
   const ageVal = clean.age;
 
-  // ✅ NEW: department (optional)
   const department = String(clean.department || "").trim();
 
   // ✅ Mandatory fields
-  if (!name) errors.push({ row: rowNumber, field: "Name", message: "Name is required." });
-  if (!father) errors.push({ row: rowNumber, field: "Father/Husband Name", message: "Father/Husband Name is required." });
-  if (!gender) errors.push({ row: rowNumber, field: "Gender", message: "Gender is required." });
-  if (!address) errors.push({ row: rowNumber, field: "Address", message: "Address is required." });
-  if (!mobile) errors.push({ row: rowNumber, field: "Mobile", message: "Mobile is required." });
+  if (!name)
+    errors.push({ row: rowNumber, field: "Name", message: "Name is required." });
+  if (!father)
+    errors.push({
+      row: rowNumber,
+      field: "Father/Husband Name",
+      message: "Father/Husband Name is required.",
+    });
+  if (!gender)
+    errors.push({
+      row: rowNumber,
+      field: "Gender",
+      message: "Gender is required.",
+    });
+  if (!address)
+    errors.push({
+      row: rowNumber,
+      field: "Address",
+      message: "Address is required.",
+    });
+  if (!mobile)
+    errors.push({
+      row: rowNumber,
+      field: "Mobile",
+      message: "Mobile is required.",
+    });
 
   // ✅ Age mandatory + valid
-  if (ageVal === "" || ageVal === null || ageVal === undefined || Number.isNaN(Number(ageVal))) {
+  if (
+    ageVal === "" ||
+    ageVal === null ||
+    ageVal === undefined ||
+    Number.isNaN(Number(ageVal))
+  ) {
     errors.push({ row: rowNumber, field: "Age", message: "Age is required." });
   } else if (Number(ageVal) <= 0) {
-    errors.push({ row: rowNumber, field: "Age", message: "Age must be a valid number." });
+    errors.push({
+      row: rowNumber,
+      field: "Age",
+      message: "Age must be a valid number.",
+    });
   }
 
   // ✅ Badge OR Aadhaar mandatory
   if (!badgeNo && !aadhaar) {
-    errors.push({ row: rowNumber, field: "Badge/Aadhaar", message: "Either Badge No or Aadhaar must be filled." });
+    errors.push({
+      row: rowNumber,
+      field: "Badge/Aadhaar",
+      message: "Either Badge No or Aadhaar must be filled.",
+    });
   }
 
   // ✅ Aadhaar must be 12 digits if present
   if (aadhaar && aadhaar.length !== 12) {
-    errors.push({ row: rowNumber, field: "Aadhaar", message: "Aadhaar must be exactly 12 digits (if provided)." });
+    errors.push({
+      row: rowNumber,
+      field: "Aadhaar",
+      message: "Aadhaar must be exactly 12 digits (if provided).",
+    });
   }
 
   // ✅ Gender allowed values
   if (gender && !["M", "F", "Other"].includes(gender)) {
-    errors.push({ row: rowNumber, field: "Gender", message: "Gender must be M, F, or Other." });
+    errors.push({
+      row: rowNumber,
+      field: "Gender",
+      message: "Gender must be M, F, or Other.",
+    });
   }
 
   // ✅ Blacklisted allowed values
   if (blacklisted && !["Yes", "No"].includes(blacklisted)) {
-    errors.push({ row: rowNumber, field: "Blacklisted", message: "Blacklisted must be Yes or No." });
+    errors.push({
+      row: rowNumber,
+      field: "Blacklisted",
+      message: "Blacklisted must be Yes or No.",
+    });
   }
 
   // ✅ Department allowed values (optional)
@@ -139,22 +201,34 @@ export async function POST(req: Request) {
   try {
     const contentType = req.headers.get("content-type") || "";
     if (!contentType.includes("multipart/form-data")) {
-      return NextResponse.json({ error: "Please upload an Excel file." }, { status: 400 });
+      return NextResponse.json(
+        { error: "Please upload an Excel file." },
+        { status: 400 }
+      );
     }
 
     const form = await req.formData();
     const file = form.get("file") as File | null;
-    if (!file) return NextResponse.json({ error: "File is required." }, { status: 400 });
+    if (!file)
+      return NextResponse.json({ error: "File is required." }, { status: 400 });
 
     const buf = Buffer.from(await file.arrayBuffer());
     const wb = XLSX.read(buf, { type: "buffer" });
     const sheetName = wb.SheetNames?.[0];
-    if (!sheetName) return NextResponse.json({ error: "No sheet found in Excel." }, { status: 400 });
+    if (!sheetName)
+      return NextResponse.json(
+        { error: "No sheet found in Excel." },
+        { status: 400 }
+      );
 
     const ws = wb.Sheets[sheetName];
     const rows: any[] = XLSX.utils.sheet_to_json(ws, { defval: "" });
 
-    if (!rows.length) return NextResponse.json({ error: "Excel file is empty." }, { status: 400 });
+    if (!rows.length)
+      return NextResponse.json(
+        { error: "Excel file is empty." },
+        { status: 400 }
+      );
 
     const toInsert: any[] = [];
     const allErrors: RowErr[] = [];
@@ -171,8 +245,7 @@ export async function POST(req: Request) {
         pick(r, ["Blacklisted", "Black Listed", "Blacklist", "Black list", "Blacklisted (Yes/No)"])
       ).trim();
 
-      // ✅ DEFENSIVE FIX (prevents shifted columns issue):
-      // If blacklisted column mistakenly contains Aadhaar (12 digits) and Aadhaar column is empty
+      // ✅ DEFENSIVE FIX: shifted columns issue
       const blkDigits = digitsOnly(blacklistedPicked);
       if (!aadhaarPicked && blkDigits.length === 12) {
         aadhaarPicked = blkDigits;
@@ -185,7 +258,7 @@ export async function POST(req: Request) {
         aadhaarPicked = "";
       }
 
-      // ✅ NEW: Department pick (many header variants)
+      // ✅ Department pick (many header variants)
       const departmentPicked = String(
         pick(r, ["Department", "Dept", "Dept.", "Team", "Seva", "Duty"])
       ).trim();
@@ -207,21 +280,36 @@ export async function POST(req: Request) {
         address: String(pick(r, ["Address"])).trim(),
         mobile: digitsOnly(pick(r, ["Mobile", "Phone"])),
         adhaarNumber: aadhaarPicked,
-        department: departmentPicked, // ✅ NEW
+        department: departmentPicked,
         blacklisted: (blacklistedPicked || "No") as "Yes" | "No" | string,
         emergencyNumber: digitsOnly(pick(r, ["Emergency Number", "Emergency"])),
         medicalDateRaw: pick(r, ["Medical Date"]),
         notes: String(pick(r, ["Notes"])).trim(),
+
+        // ✅ images are NOT supported in bulk excel (keeps file small)
+        passportPhoto: null,
+        aadhaarFrontPhoto: null,
+        aadhaarBackPhoto: null,
+        medicalPhoto: null,
       };
 
       const errs = validateRow(
-        { ...clean, adhaarNumber: clean.adhaarNumber, age: clean.age, department: clean.department },
+        {
+          ...clean,
+          adhaarNumber: clean.adhaarNumber,
+          age: clean.age,
+          department: clean.department,
+        },
         rowNumber
       );
 
       const md = parseExcelDate(clean.medicalDateRaw);
       if (clean.medicalDateRaw && !md) {
-        errs.push({ row: rowNumber, field: "Medical Date", message: "Invalid Medical Date." });
+        errs.push({
+          row: rowNumber,
+          field: "Medical Date",
+          message: "Invalid Medical Date.",
+        });
       }
 
       if (errs.length) {
@@ -238,11 +326,18 @@ export async function POST(req: Request) {
         address: clean.address,
         mobile: clean.mobile,
         adhaarNumber: clean.adhaarNumber || "",
-        department: clean.department || "", // ✅ NEW
+        department: clean.department || "",
         blacklisted: clean.blacklisted || "No",
         emergencyNumber: clean.emergencyNumber || "",
         medicalDate: md ? md : null,
         notes: clean.notes || "",
+
+        // ✅ images set empty for bulk
+        passportPhoto: null,
+        aadhaarFrontPhoto: null,
+        aadhaarBackPhoto: null,
+        medicalPhoto: null,
+
         createdAt: new Date(),
         updatedAt: new Date(),
       });
@@ -261,11 +356,19 @@ export async function POST(req: Request) {
     }
 
     const db = await getDb();
-    const result = await db.collection(COLLECTION).insertMany(toInsert, { ordered: true });
+    const result = await db
+      .collection(COLLECTION)
+      .insertMany(toInsert, { ordered: true });
 
-    return NextResponse.json({ ok: true, inserted: result.insertedCount }, { status: 201 });
+    return NextResponse.json(
+      { ok: true, inserted: result.insertedCount },
+      { status: 201 }
+    );
   } catch (e: any) {
     console.error("Bulk upload error:", e?.message || e, e);
-    return NextResponse.json({ error: e?.message || "Server error" }, { status: 500 });
+    return NextResponse.json(
+      { error: e?.message || "Server error" },
+      { status: 500 }
+    );
   }
 }

@@ -543,7 +543,7 @@ export default function TrainDataPage() {
       "Train",
       "Route",
       "Train Time",
-      "Boarding Station",
+      "Boarding Station/ Drop",
       "Travel Date",
       "Fare",
     ];
@@ -1023,7 +1023,7 @@ export default function TrainDataPage() {
           </select>
 
           <select className="app-input app-input-sm" value={form.boardingStation} onChange={(e) => setForm({ ...form, boardingStation: e.target.value as any })} required>
-            <option value="">Boarding Station *</option>
+            <option value="">Boarding Station/Drop Station *</option>
             {BOARDING_OPTIONS.map((b) => (
               <option key={b} value={b}>
                 {b}

@@ -58,7 +58,9 @@ export default function BulkUploadPage() {
         setTotalErrors(data?.totalErrors || list.length);
         setStatus({
           type: "err",
-          msg: data?.error || "Upload failed. Fix errors and try again.",
+          msg:
+            data?.error ||
+            "Upload failed. Fix the errors (including 10-digit mobile numbers) and try again.",
         });
         return;
       }
@@ -141,10 +143,17 @@ export default function BulkUploadPage() {
                 </div>
               )}
 
+              {/* ✅ IMPORTANT RULES */}
               <div className="mt-3 text-xs text-zinc-600 space-y-1">
-                <div>Required: Name, Father/Husband, Gender, Age, Address, Mobile</div>
                 <div>
-                  Either <strong>Badge No</strong> or <strong>Aadhaar</strong> required
+                  Required: Name, Father/Husband, Gender, Age, Address, Mobile
+                </div>
+                <div>
+                  <strong>Mobile must be exactly 10 digits</strong>
+                </div>
+                <div>
+                  Either <strong>Badge No</strong> or{" "}
+                  <strong>Aadhaar</strong> required
                 </div>
                 <div>Blacklisted: Yes / No</div>
               </div>
@@ -220,9 +229,9 @@ export default function BulkUploadPage() {
               "Gender (M/F/Other) *",
               "Age *",
               "Address *",
-              "Mobile *",
-              "Blacklisted (Yes/No)",
+              "Mobile (10 digits) *",
               "Department *",
+              "Blacklisted (Yes/No)",
               "Emergency Number",
               "Medical Date",
               "Notes",

@@ -21,14 +21,14 @@ export async function GET(req: Request) {
 
     const db = await getDb();
 
-    // ✅ include department in search + projection
+    // ✅ include department in search
     const filter: any = {
       $or: [
         { name: { $regex: q, $options: "i" } },
         { mobile: { $regex: q, $options: "i" } },
         { adhaarNumber: { $regex: q, $options: "i" } },
         { badgeNo: { $regex: q, $options: "i" } },
-        { department: { $regex: q, $options: "i" } }, // ✅ NEW
+        { department: { $regex: q, $options: "i" } },
       ],
     };
 
@@ -40,13 +40,19 @@ export async function GET(req: Request) {
           mobile: 1,
           adhaarNumber: 1,
           badgeNo: 1,
-          department: 1, // ✅ NEW
+          department: 1,
+
+          // ✅ NEW: also know if photos exist (no need to return base64 here)
+          passportPhoto: 1,
+          aadhaarFrontPhoto: 1,
+          aadhaarBackPhoto: 1,
+          medicalPhoto: 1,
         },
       })
       .limit(10)
       .toArray();
 
-    // ✅ Make readable suggestions (includes Department if present)
+    // ✅ Make readable suggestions (includes Department + photo badges)
     const suggestions = docs
       .map((d: any) => {
         const name = String(d.name || "").trim();
@@ -55,11 +61,24 @@ export async function GET(req: Request) {
         const aadhaar = String(d.adhaarNumber || "").trim();
         const dept = String(d.department || "").trim();
 
+        const hasPassport = !!d.passportPhoto?.dataUrl;
+        const hasAF = !!d.aadhaarFrontPhoto?.dataUrl;
+        const hasAB = !!d.aadhaarBackPhoto?.dataUrl;
+        const hasMed = !!d.medicalPhoto?.dataUrl;
+
+        const photoBits = [
+          hasPassport && "PP",
+          hasAF && "AF",
+          hasAB && "AB",
+          hasMed && "MED",
+        ].filter(Boolean);
+
         const right = [
-          dept && `Dept: ${dept}`, // ✅ NEW
+          dept && `Dept: ${dept}`,
           badge && `Badge: ${badge}`,
           mobile && `Mob: ${mobile}`,
           aadhaar && `Aadhaar: ${aadhaar}`,
+          photoBits.length ? `Photos: ${photoBits.join(",")}` : "",
         ]
           .filter(Boolean)
           .join(" • ");

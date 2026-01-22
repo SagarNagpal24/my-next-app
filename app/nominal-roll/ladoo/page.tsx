@@ -154,6 +154,28 @@ function iso10(v: any) {
   return String(v || "").slice(0, 10);
 }
 
+function ymdMonthKey(ymd: string) {
+  const s = iso10(ymd);
+  if (!s) return 0;
+  const y = Number(s.slice(0, 4));
+  const m = Number(s.slice(5, 7));
+  if (!Number.isFinite(y) || !Number.isFinite(m)) return 0;
+  return y * 100 + m; // YYYYMM
+}
+
+function endOfMonthISO(ymd: string) {
+  const s = iso10(ymd);
+  if (!s) return "";
+  const y = Number(s.slice(0, 4));
+  const m = Number(s.slice(5, 7));
+  if (!Number.isFinite(y) || !Number.isFinite(m)) return "";
+  // JS Date month is 0-indexed; passing m gives next month, day 0 => last day of previous month
+  const last = new Date(y, m, 0);
+  const mm = String(last.getMonth() + 1).padStart(2, "0");
+  const dd = String(last.getDate()).padStart(2, "0");
+  return `${last.getFullYear()}-${mm}-${dd}`;
+}
+
 function ordinal(n: number) {
   if (n > 3 && n < 21) return "th";
   switch (n % 10) {
@@ -462,6 +484,9 @@ export default function LadooNominalRollPage() {
   const [trainBeasDli, setTrainBeasDli] = React.useState<TrainTicketRow[]>([]);
   const [loadingTickets, setLoadingTickets] = React.useState(true);
 
+  // ✅ mismatch toggle (JATHA vs TRAVEL)
+  const [showMismatchOnly, setShowMismatchOnly] = React.useState(false);
+
   // create form
   const [mode, setMode] = React.useState<Mode>("");
   const [department, setDepartment] = React.useState("");
@@ -506,7 +531,17 @@ export default function LadooNominalRollPage() {
   const [tableMode, setTableMode] = React.useState<Mode | "">("");
   const [tableSangat, setTableSangat] = React.useState<YesNo>("");
   const [tableReqDB, setTableReqDB] = React.useState<YesNo>("");
-  const [tableReqBD, setTableReqBD] = React.useState<YesNo>("");
+    const [tableReqBD, setTableReqBD] = React.useState<YesNo>("");
+
+  // ✅ NEW: extra table filters
+  const [tableJathaId, setTableJathaId] = React.useState<string>("");
+  const [tableStartFrom, setTableStartFrom] = React.useState<string>("");
+  const [tableStartTo, setTableStartTo] = React.useState<string>("");
+  const [tableEndFrom, setTableEndFrom] = React.useState<string>("");
+  const [tableEndTo, setTableEndTo] = React.useState<string>("");
+
+  // ✅ NEW: show only upto last Jatha month by default
+  const [showFullData, setShowFullData] = React.useState(false);
 
   const isTrainMode = mode === "Train";
   const isEditTrainMode = String(editing?.mode || "") === "Train";
@@ -703,6 +738,20 @@ export default function LadooNominalRollPage() {
     return ticketLabelMap.get(s) || s;
   }
 
+  // ✅ alias used by added export/print blocks (keep compatibility)
+  function renderTicketLabel(v: any) {
+    return renderTicketValue(String(v || ""));
+  }
+
+  // ✅ fare lookup for ticket id/object (0 if not found)
+  function ticketFare(v: any): number {
+    const id = String(v && typeof v === "object" ? (v._id ?? v.id ?? v.value ?? v.$oid ?? "") : v || "").trim();
+    if (!id) return 0;
+    const fare = toNumberOrNull(ticketById.get(id as any)?.fare);
+    return fare ?? 0;
+  }
+
+
   function getFareForRow(r: NominalLadooRow): number | null {
     if (String(r.mode) !== "Train") return null;
 
@@ -832,6 +881,22 @@ export default function LadooNominalRollPage() {
       m.set(d._id, fmtRangeLabel(js, je));
     }
     return m;
+  }, [jathaDates]);
+
+  // ✅ Default list window: show data only up to the month of the LAST Jatha (by end date)
+  const visibleCutoffISO = React.useMemo(() => {
+    if (!jathaDates.length) return "";
+    let bestKey = 0;
+    let bestEnd = "";
+    for (const d of jathaDates) {
+      const end = getJathaEnd(d);
+      const k = ymdMonthKey(end);
+      if (k > bestKey) {
+        bestKey = k;
+        bestEnd = end;
+      }
+    }
+    return bestEnd ? endOfMonthISO(bestEnd) : "";
   }, [jathaDates]);
 
   function formatJathaLabelFromRow(row: { jathaDateId?: string; jathaDate?: string }) {
@@ -1403,6 +1468,25 @@ export default function LadooNominalRollPage() {
       if (tableReqDB && String(r.bookingReqDelhiBeas || "").trim() !== tableReqDB) return false;
       if (tableReqBD && String(r.bookingReqBeasDelhi || "").trim() !== tableReqBD) return false;
 
+      // ✅ NEW: Jatha date filter
+      if (tableJathaId && String(r.jathaDateId || "").trim() !== tableJathaId) return false;
+
+      // ✅ NEW: date range filters
+      const st = iso10(r.travelStartDate);
+      const en = iso10(r.travelEndDate);
+
+      if (tableStartFrom && st && st < iso10(tableStartFrom)) return false;
+      if (tableStartTo && st && st > iso10(tableStartTo)) return false;
+
+      if (tableEndFrom && en && en < iso10(tableEndFrom)) return false;
+      if (tableEndTo && en && en > iso10(tableEndTo)) return false;
+
+      // ✅ NEW: default visibility window (hide future months)
+      if (!showFullData && visibleCutoffISO) {
+        const jd = iso10(r.jathaDate);
+        if (jd && jd > visibleCutoffISO) return false;
+      }
+
       if (!q) return true;
 
       const hay = [
@@ -1430,7 +1514,141 @@ export default function LadooNominalRollPage() {
 
       return hay.includes(q);
     });
-  }, [items, tableQ, tableDept, tableMode, tableSangat, tableReqDB, tableReqBD, ticketLabelMap, jathaLabelById]);
+  }, [items, tableQ, tableDept, tableMode, tableSangat, tableReqDB, tableReqBD, tableJathaId, tableStartFrom, tableStartTo, tableEndFrom, tableEndTo, showFullData, visibleCutoffISO, ticketLabelMap, jathaLabelById]);
+
+  // ✅ Jatha range resolver (same logic as Reports)
+  function jathaRangeForRow(r: NominalLadooRow): { start: string; end: string } {
+    const id = String((r as any).jathaDateId || "").trim();
+    if (id) {
+      const jd = jathaDates.find((d) => String(d._id) === id);
+      if (jd) {
+        const s = String(jd.jathaStartDate || jd.travelDate || r.jathaDate || "").slice(0, 10);
+        const e = String(jd.jathaEndDate || jd.travelDate || r.jathaDate || "").slice(0, 10);
+        return { start: s || "-", end: e || "-" };
+      }
+    }
+    const s = String((r as any).jathaDate || "").slice(0, 10);
+    return { start: s || "-", end: s || "-" };
+  }
+
+  // ✅ mismatch between Jatha Start/End and Travel Start/End
+  function isMismatchRow(r: NominalLadooRow) {
+    const jr = jathaRangeForRow(r);
+    const ts = String(r.travelStartDate || "").slice(0, 10);
+    const te = String(r.travelEndDate || "").slice(0, 10);
+    if (!ts || !te || !jr.start || !jr.end) return false;
+    return jr.start !== ts || jr.end !== te;
+  }
+
+  // ✅ current view rows (filtered + optional mismatch)
+  const viewItems = React.useMemo(() => {
+    if (!showMismatchOnly) return filteredItems;
+    return filteredItems.filter((r) => isMismatchRow(r));
+  }, [filteredItems, showMismatchOnly, jathaDates]);
+
+  // 🧾 Export XLSX (ALL CAPS) - supports Export All and Export Filtered
+  async function exportXlsxAllCaps(rows: NominalLadooRow[], fileBase: string) {
+    const XLSX = await import("xlsx");
+    const upper = (v: any) => String(v ?? "").toUpperCase();
+
+    // ✅ columns in same order as table (adjust if you change table order)
+    const data = rows.map((r, idx) => {
+      const jr = jathaRangeForRow(r);
+      const fareDB = ticketFare(r.ticketDelhiBeas);
+      const fareBD = ticketFare(r.ticketBeasDelhi);
+      const fareTotal = Number(fareDB + fareBD) || 0;
+      const paid = Number(String(r.payment || "0")) || 0;
+      const pending = Math.max(0, fareTotal - paid);
+
+      return {
+        "S.NO": upper(idx + 1),
+        "NAME": upper(r.customerName || ""),
+        "DEPARTMENT": upper(r.department || ""),
+        "SANGAT": upper(r.sangat || ""),
+        "FATHER/HUSBAND": upper(r.fatherOrHusbandName || ""),
+        "GENDER": upper(r.gender || ""),
+        "AGE": upper(r.age ?? ""),
+        "MOBILE": upper(r.mobile || ""),
+        "AADHAAR": upper(r.adhaarNumber || ""),
+        "ADDRESS": upper(r.address || ""),
+        "BADGE": upper(r.badgeNo || ""),
+        "MODE": upper(r.mode || ""),
+        "REQ D-B": upper(r.bookingReqDelhiBeas || ""),
+        "REQ B-D": upper(r.bookingReqBeasDelhi || ""),
+        "TICKET D-B": upper(renderTicketLabel(r.ticketDelhiBeas)),
+        "TICKET B-D": upper(renderTicketLabel(r.ticketBeasDelhi)),
+        "FARE TOTAL": upper(fareTotal),
+        "PENDING": upper(pending),
+        "PAYMENT": upper(paid),
+        "JATHA DATE": upper(`${jr.start} -> ${jr.end}`),
+        "TRAVEL START": upper(String(r.travelStartDate || "").slice(0, 10)),
+        "TRAVEL END": upper(String(r.travelEndDate || "").slice(0, 10)),
+        "NOTES": upper(r.notes || ""),
+      };
+    });
+
+    const ws = XLSX.utils.json_to_sheet(data, { skipHeader: false });
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "NOMINAL_ROLL");
+    const stamp = new Date().toISOString().slice(0, 10);
+    XLSX.writeFile(wb, `${fileBase}_${stamp}.xlsx`);
+  }
+
+  // 🖨️ Print Tickets: 6 cards per A4 (2 columns x 3 rows) + multi page
+  function printTicketCards(rows: NominalLadooRow[]) {
+    const upper = (v: any) => String(v ?? "").toUpperCase();
+    const w = window.open("", "_blank", "noopener,noreferrer");
+    if (!w) return;
+
+    const style = `
+      <style>
+        @page { size: A4; margin: 10mm; }
+        body { font-family: Arial, sans-serif; }
+        .page { display: grid; grid-template-columns: 1fr 1fr; gap: 8mm; page-break-after: always; }
+        .card { border: 1px solid #000; padding: 6mm; min-height: 85mm; box-sizing: border-box; }
+        .h { font-size: 18px; font-weight: 800; margin-bottom: 4mm; }
+        .row { font-size: 14px; margin: 1.5mm 0; }
+        .small { font-size: 12px; }
+      </style>
+    `;
+
+    function cardHtml(r: NominalLadooRow) {
+      const fareDB = ticketFare(r.ticketDelhiBeas);
+      const fareBD = ticketFare(r.ticketBeasDelhi);
+      const fareTotal = Number(fareDB + fareBD) || 0;
+      const paid = Number(String(r.payment || "0")) || 0;
+      const pending = Math.max(0, fareTotal - paid);
+
+      const jr = jathaRangeForRow(r);
+      return `
+        <div class="card">
+          <div class="h">${upper(r.customerName || "")}</div>
+          <div class="row">BADGE: <b>${upper(r.badgeNo || "-")}</b> &nbsp; DEPT: <b>${upper(r.department || "-")}</b></div>
+          <div class="row">MODE: <b>${upper(r.mode || "-")}</b> &nbsp; SANGAT: <b>${upper(r.sangat || "-")}</b></div>
+          <div class="row small">JATHA: <b>${upper(jr.start)} -> ${upper(jr.end)}</b></div>
+          <div class="row small">TRAVEL: <b>${upper(r.travelStartDate)} -> ${upper(r.travelEndDate)}</b></div>
+          <div class="row small">TICKET D-B: ${upper(renderTicketLabel(r.ticketDelhiBeas))}</div>
+          <div class="row small">TICKET B-D: ${upper(renderTicketLabel(r.ticketBeasDelhi))}</div>
+          <div class="row">FARE: <b>${upper(fareTotal)}</b> &nbsp; PAID: <b>${upper(paid)}</b> &nbsp; PENDING: <b>${upper(pending)}</b></div>
+        </div>
+      `;
+    }
+
+    let html = `<html><head><title>PRINT TICKETS</title>${style}</head><body>`;
+    for (let i = 0; i < rows.length; i += 6) {
+      html += `<div class="page">`;
+      rows.slice(i, i + 6).forEach((r) => (html += cardHtml(r)));
+      html += `</div>`;
+    }
+    html += `</body></html>`;
+
+    w.document.open();
+    w.document.write(html);
+    w.document.close();
+    w.focus();
+    w.print();
+  }
+
 
   return (
     <div>
@@ -1526,6 +1744,39 @@ export default function LadooNominalRollPage() {
                   downloadCSV(`pending-ticket-booking-${stamp}.csv`, rows);
                 }}
               >
+              <button
+                type="button"
+                className="app-btn app-btn-secondary h-9 px-3 text-xs"
+                onClick={() => setShowMismatchOnly((v) => !v)}
+              >
+                {showMismatchOnly ? "Show All" : "Show Mismatched Tickets"}
+              </button>
+
+              <button
+                type="button"
+                className="app-btn app-btn-secondary h-9 px-3 text-xs"
+                onClick={() => printTicketCards(viewItems)}
+              >
+                Print Tickets (Current View)
+              </button>
+
+              <button
+                type="button"
+                className="app-btn app-btn-secondary h-9 px-3 text-xs"
+                onClick={() => exportXlsxAllCaps(items, "NOMINAL_ROLL_ALL")}
+              >
+                Export All (XLSX)
+              </button>
+
+              <button
+                type="button"
+                className="app-btn app-btn-secondary h-9 px-3 text-xs"
+                onClick={() => exportXlsxAllCaps(viewItems, "NOMINAL_ROLL_FILTERED")}
+              >
+                Export Filtered (XLSX)
+              </button>
+
+
                 Export to Excel (CSV)
               </button>
 
@@ -1920,6 +2171,9 @@ export default function LadooNominalRollPage() {
                       Father/Husband: {selectedCustomer?.fatherOrHusbandName || "-"} • Gender/Age:{" "}
                       {(selectedCustomer?.gender || "-") + " / " + (selectedCustomer?.age ?? "-")}
                     </div>
+                    <div className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
+                      Badge: {selectedCustomer?.badgeNo || "-"} • Dept: {selectedCustomer?.department || "-"}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -2299,7 +2553,7 @@ export default function LadooNominalRollPage() {
 
           {/* ✅ Table Search/Filters */}
           <div className="mt-6 rounded-2xl border border-black/5 bg-white p-4 dark:border-white/10 dark:bg-zinc-950">
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-6">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-8">
               <div className="lg:col-span-2">
                 <div className="app-label">Search in table</div>
                 <input className={inputCls()} value={tableQ} onChange={(e) => setTableQ(e.target.value)} placeholder="Type name / mobile / aadhaar / ticket / dept..." />
@@ -2353,12 +2607,63 @@ export default function LadooNominalRollPage() {
                   <option value="No">No</option>
                 </select>
               </div>
+
+              <div className="lg:col-span-2">
+                <div className="app-label">Jatha Date</div>
+                <select className={inputCls()} value={tableJathaId} onChange={(e) => setTableJathaId(e.target.value)}>
+                  <option value="">All</option>
+                  {jathaDates.map((d) => {
+                    const js = getJathaStart(d);
+                    const je = getJathaEnd(d);
+                    return (
+                      <option key={d._id} value={d._id}>
+                        {fmtRangeLabel(js, je)}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+
+              <div className="lg:col-span-2">
+                <div className="app-label">Travel Start (From - To)</div>
+                <div className="flex gap-2">
+                  <input type="date" className={inputCls()} value={tableStartFrom} onChange={(e) => setTableStartFrom(e.target.value)} />
+                  <input type="date" className={inputCls()} value={tableStartTo} onChange={(e) => setTableStartTo(e.target.value)} />
+                </div>
+              </div>
+
+              <div className="lg:col-span-2">
+                <div className="app-label">Travel End (From - To)</div>
+                <div className="flex gap-2">
+                  <input type="date" className={inputCls()} value={tableEndFrom} onChange={(e) => setTableEndFrom(e.target.value)} />
+                  <input type="date" className={inputCls()} value={tableEndTo} onChange={(e) => setTableEndTo(e.target.value)} />
+                </div>
+              </div>
+
             </div>
 
             <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
               <div className="text-sm text-zinc-600 dark:text-zinc-400">
                 Showing <span className="font-semibold">{filteredItems.length}</span> of <span className="font-semibold">{items.length}</span>
               </div>
+
+              
+              <div className="flex flex-wrap items-center gap-2">
+                {visibleCutoffISO && !showFullData ? (
+                  <div className="text-xs text-zinc-600 dark:text-zinc-400">
+                    Showing upto: <span className="font-semibold">{visibleCutoffISO}</span>
+                  </div>
+                ) : null}
+
+                <button
+                  type="button"
+                  className="app-btn app-btn-secondary h-9 px-4 text-xs"
+                  onClick={() => setShowFullData((v) => !v)}
+                >
+                  {showFullData ? "Show Current Months Only" : "Show Full Data"}
+                </button>
+              </div>
+
 
               <button
                 type="button"
@@ -2370,6 +2675,11 @@ export default function LadooNominalRollPage() {
                   setTableSangat("");
                   setTableReqDB("");
                   setTableReqBD("");
+                  setTableJathaId("");
+                  setTableStartFrom("");
+                  setTableStartTo("");
+                  setTableEndFrom("");
+                  setTableEndTo("");
                 }}
               >
                 Clear Filters
@@ -2427,7 +2737,7 @@ export default function LadooNominalRollPage() {
                     </td>
                   </tr>
                 ) : (
-                  filteredItems.map((r, idx) => {
+                  viewItems.map((r, idx) => {
                     const fare = getFareForRow(r);
                     const paid = getPaidForRow(r);
                     const pending = getPendingForRow(r);
@@ -2498,7 +2808,7 @@ export default function LadooNominalRollPage() {
           {/* Edit Modal */}
           {editing && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-              <div className="w-full max-w-3xl rounded-2xl bg-white p-6 shadow-lg dark:bg-zinc-950">
+              <div className="w-full max-w-3xl max-h-[85vh] overflow-y-auto rounded-2xl bg-white p-6 shadow-lg dark:bg-zinc-950">
                 <div className="flex items-center justify-between">
                   <h3 className="text-lg font-semibold">Edit (Ladoo Nominal Roll)</h3>
                   <button
@@ -2514,7 +2824,7 @@ export default function LadooNominalRollPage() {
                   <div className="font-semibold">
                     {editing.customerName}{" "}
                     <span className="text-xs text-zinc-600 dark:text-zinc-400">
-                      (Mobile: {editing.mobile || "-"} • Aadhaar: {editing.adhaarNumber || "-"} • Badge: {editing.badgeNo || "-"})
+                      (Mobile: {editing.mobile || "-"} • Aadhaar: {editing.adhaarNumber || "-"} • Badge: {editing.badgeNo || "-"} • Dept: {editing.department || "-"})
                     </span>
                   </div>
                 </div>
@@ -2558,7 +2868,7 @@ export default function LadooNominalRollPage() {
                       className={inputCls()}
                       list="deptList"
                       value={String(editing.department || "")}
-                      onChange={(e) => setEditing({ ...editing, department: e.target.value })}
+                      onChange={(e) => setEditing((prev) => (prev ? { ...prev, department: e.target.value } : prev))}
                       placeholder="Select or type department"
                     />
                   </div>

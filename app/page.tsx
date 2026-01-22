@@ -5,10 +5,9 @@ import React from "react";
 type Gender = "M" | "F" | "Other" | "";
 type Blacklisted = "Yes" | "No" | "";
 
-// ✅ NEW
+// ✅ UPDATED Department options (added all you listed)
 type Department =
   | ""
-    | "Sangat"
   | "Security"
   | "FR"
   | "Pandal"
@@ -16,7 +15,15 @@ type Department =
   | "Canteen"
   | "BAV"
   | "Traffic"
-  ;
+  | "HRT"
+  | "Baal-Satsang"
+  | "Coupon"
+  | "MNT"
+  | "Office"
+  | "Sewa-Collection"
+  | "Water"
+  | "Sewa-Samiti"
+  | "Sangat";
 
 const DEPARTMENT_OPTIONS: Exclude<Department, "">[] = [
   "Security",
@@ -26,8 +33,28 @@ const DEPARTMENT_OPTIONS: Exclude<Department, "">[] = [
   "Canteen",
   "BAV",
   "Traffic",
+  "HRT",
+  "Baal-Satsang",
+  "Coupon",
+  "MNT",
+  "Office",
+  "Sewa-Collection",
+  "Water",
+  "Sewa-Samiti",
   "Sangat",
 ];
+
+// ✅ Image payload (compressed)
+type ImgData = {
+  /** data URL like: data:image/webp;base64,... */
+  dataUrl: string;
+  /** original filename (optional) */
+  filename?: string;
+  /** mime of compressed output (image/webp or image/jpeg) */
+  mime: string;
+  /** bytes of compressed blob */
+  size: number;
+} | null;
 
 type FormState = {
   name: string;
@@ -42,14 +69,20 @@ type FormState = {
   address: string; // required
   mobile: string; // required digits
 
-  // ✅ NEW
+  // ✅ Department
   department: Department;
 
-  blacklisted: Blacklisted; // new
+  blacklisted: Blacklisted;
 
   emergencyNumber: string;
   medicalDate: string; // YYYY-MM-DD
   notes: string;
+
+  // ✅ NEW: Photos (compressed client-side)
+  passportPhoto: ImgData; // passport size photo
+  aadhaarFrontPhoto: ImgData;
+  aadhaarBackPhoto: ImgData;
+  medicalPhoto: ImgData;
 };
 
 function Field({
@@ -82,6 +115,106 @@ function digitsOnly(s: string) {
   return (s || "").replace(/\D/g, "");
 }
 
+function formatBytes(bytes: number) {
+  if (!bytes && bytes !== 0) return "";
+  const units = ["B", "KB", "MB"];
+  let v = bytes;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) {
+    v = v / 1024;
+    i++;
+  }
+  return `${v.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
+}
+
+/**
+ * Compress image in-browser using canvas:
+ * - Resize to fit within maxW x maxH
+ * - Convert to WebP (if supported) else JPEG
+ * - Quality controls size a lot
+ */
+async function compressImageToDataUrl(
+  file: File,
+  opts: { maxW: number; maxH: number; quality: number }
+): Promise<ImgData> {
+  if (!file) return null;
+
+  // ✅ allow all common image formats (mime can be unreliable for HEIC/HEIF)
+  const name = (file.name || "").toLowerCase();
+  const looksLikeImage =
+    file.type.startsWith("image/") ||
+    /\.(jpg|jpeg|png|webp|bmp|gif|tif|tiff|heic|heif)$/i.test(name);
+
+  if (!looksLikeImage) {
+    throw new Error("Please upload an image file.");
+  }
+
+  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const i = new Image();
+    i.onload = () => resolve(i);
+    i.onerror = () => reject(new Error("Unable to read image (format not supported in this browser)."));
+    i.src = URL.createObjectURL(file);
+  });
+
+  const { maxW, maxH, quality } = opts;
+  const srcW = img.naturalWidth || img.width;
+  const srcH = img.naturalHeight || img.height;
+
+  const scale = Math.min(maxW / srcW, maxH / srcH, 1);
+  const outW = Math.max(1, Math.round(srcW * scale));
+  const outH = Math.max(1, Math.round(srcH * scale));
+
+  const canvas = document.createElement("canvas");
+  canvas.width = outW;
+  canvas.height = outH;
+
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Canvas not supported.");
+
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(img, 0, 0, outW, outH);
+
+  try {
+    URL.revokeObjectURL((img as any).src);
+  } catch {}
+
+  const supportsWebp = (() => {
+    try {
+      return canvas.toDataURL("image/webp").startsWith("data:image/webp");
+    } catch {
+      return false;
+    }
+  })();
+
+  const mime = supportsWebp ? "image/webp" : "image/jpeg";
+
+  const blob = await new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob(
+      (b) => {
+        if (!b) reject(new Error("Failed to compress image."));
+        else resolve(b);
+      },
+      mime,
+      quality
+    );
+  });
+
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error("Failed to encode image."));
+    reader.readAsDataURL(blob);
+  });
+
+  return {
+    dataUrl,
+    filename: file.name,
+    mime,
+    size: blob.size,
+  };
+}
+
 export default function Home() {
   const [form, setForm] = React.useState<FormState>({
     name: "",
@@ -95,7 +228,6 @@ export default function Home() {
     address: "",
     mobile: "",
 
-    // ✅ NEW (default empty; user must select)
     department: "",
 
     blacklisted: "No",
@@ -103,6 +235,11 @@ export default function Home() {
     emergencyNumber: "",
     medicalDate: "",
     notes: "",
+
+    passportPhoto: null,
+    aadhaarFrontPhoto: null,
+    aadhaarBackPhoto: null,
+    medicalPhoto: null,
   });
 
   const [errors, setErrors] = React.useState<Record<string, string>>({});
@@ -110,10 +247,7 @@ export default function Home() {
   const [status, setStatus] = React.useState<{
     type: "idle" | "ok" | "err";
     msg: string;
-  }>({
-    type: "idle",
-    msg: "",
-  });
+  }>({ type: "idle", msg: "" });
 
   function setField<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((p) => ({ ...p, [key]: value }));
@@ -127,7 +261,6 @@ export default function Home() {
   function validate() {
     const e: Record<string, string> = {};
 
-    // ✅ Required fields
     if (!form.name.trim()) e.name = "Name is required.";
     if (!form.fatherOrHusbandName.trim())
       e.fatherOrHusbandName = "Father/Husband Name is required.";
@@ -137,17 +270,13 @@ export default function Home() {
     const mobileDigits = digitsOnly(form.mobile);
     if (!mobileDigits) e.mobile = "Mobile is required.";
 
-    // ✅ Age required + valid
-    if (!form.age.trim()) {
-      e.age = "Age is required.";
-    } else if (!/^\d+$/.test(form.age.trim())) {
-      e.age = "Age must be a number.";
-    } else {
+    if (!form.age.trim()) e.age = "Age is required.";
+    else if (!/^\d+$/.test(form.age.trim())) e.age = "Age must be a number.";
+    else {
       const n = Number(form.age);
       if (Number.isNaN(n) || n <= 0 || n > 120) e.age = "Age must be 1–120.";
     }
 
-    // ✅ Badge OR Aadhaar is required
     const badge = form.badgeNo.trim();
     const aadhaar = digitsOnly(form.adhaarNumber);
     if (!badge && !aadhaar) {
@@ -155,30 +284,61 @@ export default function Home() {
       e.adhaarNumber = "Either Aadhaar or Badge No is required.";
     }
 
-    // ✅ Aadhaar length if provided
     if (aadhaar && aadhaar.length !== 12)
       e.adhaarNumber = "Aadhaar must be exactly 12 digits (if provided).";
 
-    // ✅ Optional phone validations
     const emergencyDigits = digitsOnly(form.emergencyNumber);
     if (emergencyDigits && emergencyDigits.length < 7)
       e.emergencyNumber = "Emergency number looks too short.";
 
-    // ✅ Blacklisted validation
     if (form.blacklisted && !["Yes", "No"].includes(form.blacklisted))
       e.blacklisted = "Blacklisted must be Yes or No.";
 
-    // ✅ NEW: Department required + allowed
     if (!form.department) e.department = "Department is required.";
-    if (
-      form.department &&
-      !DEPARTMENT_OPTIONS.includes(form.department as any)
-    ) {
+    if (form.department && !DEPARTMENT_OPTIONS.includes(form.department as any))
       e.department = "Invalid Department.";
-    }
 
     setErrors(e);
     return Object.keys(e).length === 0;
+  }
+
+  async function handleImagePick(
+    key: "passportPhoto" | "aadhaarFrontPhoto" | "aadhaarBackPhoto" | "medicalPhoto",
+    file: File | null
+  ) {
+    setStatus({ type: "idle", msg: "" });
+
+    if (!file) {
+      setField(key, null as any);
+      return;
+    }
+
+    try {
+      let opts = { maxW: 900, maxH: 900, quality: 0.6 };
+      if (key === "passportPhoto") opts = { maxW: 600, maxH: 600, quality: 0.6 };
+      if (key === "aadhaarFrontPhoto" || key === "aadhaarBackPhoto")
+        opts = { maxW: 1200, maxH: 800, quality: 0.6 };
+      if (key === "medicalPhoto") opts = { maxW: 900, maxH: 900, quality: 0.6 };
+
+      const compressed = await compressImageToDataUrl(file, opts);
+
+      // If still big, try once more at lower quality
+      if (compressed && compressed.size > 300 * 1024) {
+        const compressed2 = await compressImageToDataUrl(file, {
+          ...opts,
+          quality: Math.max(0.45, opts.quality - 0.15),
+        });
+        setField(key, compressed2 as any);
+      } else {
+        setField(key, compressed as any);
+      }
+    } catch (err: any) {
+      setErrors((p) => ({
+        ...p,
+        [key]: err?.message || "Invalid image file.",
+      }));
+      setStatus({ type: "err", msg: err?.message || "Invalid image file." });
+    }
   }
 
   async function onSubmit(e: React.FormEvent) {
@@ -201,14 +361,17 @@ export default function Home() {
         address: form.address.trim(),
         mobile: digitsOnly(form.mobile),
         adhaarNumber: digitsOnly(form.adhaarNumber).slice(0, 12),
-
-        // ✅ NEW
         department: form.department,
-
         blacklisted: form.blacklisted || "No",
         emergencyNumber: digitsOnly(form.emergencyNumber),
         medicalDate: form.medicalDate ? form.medicalDate : null,
         notes: form.notes.trim(),
+
+        // ✅ images
+        passportPhoto: form.passportPhoto,
+        aadhaarFrontPhoto: form.aadhaarFrontPhoto,
+        aadhaarBackPhoto: form.aadhaarBackPhoto,
+        medicalPhoto: form.medicalPhoto,
       };
 
       const res = await fetch("/api/customers", {
@@ -230,23 +393,22 @@ export default function Home() {
         name: "",
         badgeNo: "",
         adhaarNumber: "",
-
         fatherOrHusbandName: "",
         gender: "",
         age: "",
-
         address: "",
         mobile: "",
-
-        // ✅ NEW reset
         department: "",
-
         blacklisted: "No",
-
         emergencyNumber: "",
         medicalDate: "",
         notes: "",
+        passportPhoto: null,
+        aadhaarFrontPhoto: null,
+        aadhaarBackPhoto: null,
+        medicalPhoto: null,
       });
+
       setErrors({});
     } catch (err: any) {
       setStatus({ type: "err", msg: err?.message || "Network error." });
@@ -270,6 +432,7 @@ export default function Home() {
             </span>
             <span className="app-chip">Badge or Aadhaar required</span>
             <span className="app-chip">Department required</span>
+            <span className="app-chip">Photos auto-compressed</span>
           </div>
         </div>
 
@@ -384,7 +547,7 @@ export default function Home() {
                 />
               </Field>
 
-              {/* ✅ NEW Department */}
+              {/* ✅ UPDATED Department */}
               <Field label="Department *" error={errors.department}>
                 <select
                   className={`app-input ${
@@ -437,6 +600,82 @@ export default function Home() {
             <div className="mt-3 text-xs text-zinc-600 dark:text-zinc-400">
               Note: Fill <span className="font-semibold">either</span> Badge No
               or Aadhaar (one is mandatory).
+            </div>
+          </div>
+
+          {/* ✅ NEW: Photos section */}
+          <div className="mt-5 rounded-2xl border border-black/5 p-4 dark:border-white/10 sm:p-5">
+            <div className="mb-4">
+              <div className="text-sm font-semibold">Photos</div>
+              <div className="text-xs text-zinc-600 dark:text-zinc-400">
+                Supports all common formats. Images are auto-compressed to reduce server memory.
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <Field label="Passport Photo" error={errors.passportPhoto}>
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="app-input"
+                  onChange={(e) =>
+                    handleImagePick("passportPhoto", e.target.files?.[0] || null)
+                  }
+                />
+                {form.passportPhoto && (
+                  <div className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
+                    Saved: {formatBytes(form.passportPhoto.size)} ({form.passportPhoto.mime})
+                  </div>
+                )}
+              </Field>
+
+              <Field label="Aadhaar Front" error={errors.aadhaarFrontPhoto}>
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="app-input"
+                  onChange={(e) =>
+                    handleImagePick("aadhaarFrontPhoto", e.target.files?.[0] || null)
+                  }
+                />
+                {form.aadhaarFrontPhoto && (
+                  <div className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
+                    Saved: {formatBytes(form.aadhaarFrontPhoto.size)} ({form.aadhaarFrontPhoto.mime})
+                  </div>
+                )}
+              </Field>
+
+              <Field label="Aadhaar Back" error={errors.aadhaarBackPhoto}>
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="app-input"
+                  onChange={(e) =>
+                    handleImagePick("aadhaarBackPhoto", e.target.files?.[0] || null)
+                  }
+                />
+                {form.aadhaarBackPhoto && (
+                  <div className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
+                    Saved: {formatBytes(form.aadhaarBackPhoto.size)} ({form.aadhaarBackPhoto.mime})
+                  </div>
+                )}
+              </Field>
+
+              <Field label="Medical Photo" error={errors.medicalPhoto}>
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="app-input"
+                  onChange={(e) =>
+                    handleImagePick("medicalPhoto", e.target.files?.[0] || null)
+                  }
+                />
+                {form.medicalPhoto && (
+                  <div className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
+                    Saved: {formatBytes(form.medicalPhoto.size)} ({form.medicalPhoto.mime})
+                  </div>
+                )}
+              </Field>
             </div>
           </div>
 
@@ -527,11 +766,15 @@ export default function Home() {
                   age: "",
                   address: "",
                   mobile: "",
-                  department: "", // ✅ NEW reset
+                  department: "",
                   blacklisted: "No",
                   emergencyNumber: "",
                   medicalDate: "",
                   notes: "",
+                  passportPhoto: null,
+                  aadhaarFrontPhoto: null,
+                  aadhaarBackPhoto: null,
+                  medicalPhoto: null,
                 });
                 setErrors({});
                 setStatus({ type: "idle", msg: "" });

@@ -2,12 +2,30 @@ import { NextResponse } from "next/server";
 import * as XLSX from "xlsx";
 
 export async function GET() {
-  // ✅ Keep these in sync with your bulk upload route validations
-  const DEPARTMENTS = ["Security", "FR", "Pandal", "SHK", "Canteen", "BAV", "Traffic","HRT","Baal-Satsang","Coupon","MNT","Office","Sewa-Collection","Water","Sewa-Samiti", "Sangat"];
+  // ✅ Keep these in sync with bulk + customers routes
+  const DEPARTMENTS = [
+    "Security",
+    "FR",
+    "Pandal",
+    "SHK",
+    "Canteen",
+    "BAV",
+    "Traffic",
+    "HRT",
+    "Baal-Satsang",
+    "Coupon",
+    "MNT",
+    "Office",
+    "Sewa-Collection",
+    "Water",
+    "Sewa-Samiti",
+    "Sangat",
+  ];
+
   const GENDERS = ["M", "F", "Other"];
   const YES_NO = ["Yes", "No"];
 
-  // ✅ Column headers MUST exactly match bulk validation (and your pick() keys)
+  // ✅ Column headers MUST match bulk validation (pick() keys)
   const headers = [
     "Name",
     "Badge No",
@@ -22,34 +40,36 @@ export async function GET() {
     "Emergency Number",
     "Medical Date",
     "Notes",
+
+    // ✅ NOTE (IMPORTANT):
+    // Bulk Excel does NOT support photo columns.
+    // Photos are uploaded from Add/Edit UI only.
   ];
 
-  // ✅ Example row – fully valid as per rules
+  // ✅ Example row – valid
   const exampleRow = [
-    "Ravi Kumar", // Name (required)
-    "B123", // Badge No (OR Aadhaar)
-    "123456789012", // Aadhaar (OR Badge)
-    "Suresh Kumar", // Father/Husband Name (required)
-    "M", // Gender (M / F / Other only)
-    32, // Age (required, > 0)
-    "Patel Nagar, Delhi", // Address (required)
-    "9876543210", // Mobile (required, digits only)
-    "Security", // Department (optional but if filled must be from list)
-    "No", // Blacklisted (Yes / No)
-    "9812345678", // Emergency Number (optional)
-    "2025-12-29", // Medical Date (YYYY-MM-DD)
-    "Sample note", // Notes
+    "Ravi Kumar",
+    "B123",
+    "123456789012",
+    "Suresh Kumar",
+    "M",
+    32,
+    "Patel Nagar, Delhi",
+    "9876543210",
+    "Security",
+    "No",
+    "9812345678",
+    "2025-12-29",
+    "Sample note",
   ];
 
   const ws = XLSX.utils.aoa_to_sheet([headers, exampleRow]);
 
-  // ✅ Add dropdowns in Excel via Data Validation (Gender, Department, Blacklisted)
-  // Sheet range: start from row 2, allow up to 2000 rows (change if you want)
+  // ✅ Add dropdowns in Excel via Data Validation
   const maxRows = 2000;
 
   const colIndex = (headerName: string) => headers.indexOf(headerName); // 0-based
   const toColLetter = (n: number) => {
-    // 0->A, 1->B ...
     let s = "";
     let x = n + 1;
     while (x > 0) {
@@ -59,6 +79,7 @@ export async function GET() {
     }
     return s;
   };
+
   const makeRange = (headerName: string) => {
     const idx = colIndex(headerName);
     const col = toColLetter(idx);
@@ -66,7 +87,6 @@ export async function GET() {
   };
 
   // XLSX supports worksheet data validations with "ws['!dataValidation']"
-  // Note: Some Excel viewers may ignore validations; MS Excel shows them.
   (ws as any)["!dataValidation"] = [
     {
       sqref: makeRange("Gender"),
@@ -100,7 +120,7 @@ export async function GET() {
     },
   ];
 
-  // ✅ Optional: add a small "Lists" sheet for user reference (not required for dropdowns above)
+  // ✅ Optional: reference sheet
   const wsLists = XLSX.utils.aoa_to_sheet([
     ["Allowed Values"],
     ["Gender", ...GENDERS],
@@ -117,7 +137,8 @@ export async function GET() {
   return new NextResponse(buf, {
     status: 200,
     headers: {
-      "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "Content-Type":
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       "Content-Disposition": `attachment; filename="sangat_sample.xlsx"`,
     },
   });
