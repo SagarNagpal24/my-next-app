@@ -1705,84 +1705,103 @@ export default function LadooNominalRollPage() {
 
             <div className="flex flex-wrap items-center gap-2">
               <button
-                type="button"
-                className="app-btn app-btn-secondary h-9 px-3 text-xs"
-                onClick={() => {
-                  const rows = pendingTicketItems.map((r, i) => {
-                    const needDB = String(r.bookingReqDelhiBeas || "") === "Yes" && !String(r.ticketDelhiBeas || "").trim();
-                    const needBD = String(r.bookingReqBeasDelhi || "") === "Yes" && !String(r.ticketBeasDelhi || "").trim();
-                    const pendingSide = [needDB ? "Delhi–Beas" : "", needBD ? "Beas–Delhi" : ""].filter(Boolean).join(" + ");
+  type="button"
+  className="app-btn app-btn-secondary h-9 px-3 text-xs"
+  onClick={() => {
+    const rows = pendingTicketItems.map((r, i) => {
+      const needDB =
+        String(r.bookingReqDelhiBeas || "") === "Yes" &&
+        !String(r.ticketDelhiBeas || "").trim();
+      const needBD =
+        String(r.bookingReqBeasDelhi || "") === "Yes" &&
+        !String(r.ticketBeasDelhi || "").trim();
 
-                    const fare = getFareForRow(r);
-                    const paid = getPaidForRow(r);
-                    const pending = getPendingForRow(r);
+      const pendingSide = [
+        needDB ? "Delhi–Beas" : "",
+        needBD ? "Beas–Delhi" : "",
+      ]
+        .filter(Boolean)
+        .join(" + ");
 
-                    return {
-                      "S.No": i + 1,
-                      Name: r.customerName || "",
-                      Mobile: r.mobile || "",
-                      Aadhaar: r.adhaarNumber || "",
-                      Badge: r.badgeNo || "",
-                      Department: r.department || "",
-                      "Jatha Date": formatJathaLabelFromRow(r),
-                      "Travel Start": formatPrettyDate(r.travelStartDate),
-                      "Travel End": formatPrettyDate(r.travelEndDate),
-                      "REQ D-B": r.bookingReqDelhiBeas || "",
-                      "Ticket D-B": renderTicketValue(r.ticketDelhiBeas),
-                      "REQ B-D": r.bookingReqBeasDelhi || "",
-                      "Ticket B-D": renderTicketValue(r.ticketBeasDelhi),
-                      Fare: fare === null ? "" : fare,
-                      Paid: paid === null ? "" : paid,
-                      Pending: pending === null ? "" : pending,
-                      "Pending Side": pendingSide,
-                      Notes: r.notes || "",
-                    };
-                  });
+      const fare = getFareForRow(r);
+      const paid = getPaidForRow(r);
+      const pending = getPendingForRow(r);
 
-                  if (!rows.length) return alert("No pending records to export.");
-                  const stamp = new Date().toISOString().slice(0, 10);
-                  downloadCSV(`pending-ticket-booking-${stamp}.csv`, rows);
-                }}
-              >
-              <button
-                type="button"
-                className="app-btn app-btn-secondary h-9 px-3 text-xs"
-                onClick={() => setShowMismatchOnly((v) => !v)}
-              >
-                {showMismatchOnly ? "Show All" : "Show Mismatched Tickets"}
-              </button>
+      return {
+        "S.No": i + 1,
+        Name: r.customerName || "",
+        Mobile: r.mobile || "",
+        Aadhaar: r.adhaarNumber || "",
+        Badge: r.badgeNo || "",
+        Department: r.department || "",
+        "Jatha Date": formatJathaLabelFromRow(r),
+        "Travel Start": formatPrettyDate(r.travelStartDate),
+        "Travel End": formatPrettyDate(r.travelEndDate),
+        "REQ D-B": r.bookingReqDelhiBeas || "",
+        "Ticket D-B": renderTicketValue(r.ticketDelhiBeas),
+        "REQ B-D": r.bookingReqBeasDelhi || "",
+        "Ticket B-D": renderTicketValue(r.ticketBeasDelhi),
+        Fare: fare === null ? "" : fare,
+        Paid: paid === null ? "" : paid,
+        Pending: pending === null ? "" : pending,
+        "Pending Side": pendingSide,
+        Notes: r.notes || "",
+      };
+    });
 
-              <button
-                type="button"
-                className="app-btn app-btn-secondary h-9 px-3 text-xs"
-                onClick={() => printTicketCards(viewItems)}
-              >
-                Print Tickets (Current View)
-              </button>
+    if (!rows.length) {
+      alert("No pending records to export.");
+      return;
+    }
 
-              <button
-                type="button"
-                className="app-btn app-btn-secondary h-9 px-3 text-xs"
-                onClick={() => exportXlsxAllCaps(items, "NOMINAL_ROLL_ALL")}
-              >
-                Export All (XLSX)
-              </button>
+    const stamp = new Date().toISOString().slice(0, 10);
+    downloadCSV(`pending-ticket-booking-${stamp}.csv`, rows);
+  }}
+>
+  Export to Excel (CSV)
+</button>
 
-              <button
-                type="button"
-                className="app-btn app-btn-secondary h-9 px-3 text-xs"
-                onClick={() => exportXlsxAllCaps(viewItems, "NOMINAL_ROLL_FILTERED")}
-              >
-                Export Filtered (XLSX)
-              </button>
+<button
+  type="button"
+  className="app-btn app-btn-secondary h-9 px-3 text-xs"
+  onClick={() => setShowMismatchOnly((v) => !v)}
+>
+  {showMismatchOnly ? "Show All" : "Show Mismatched Tickets"}
+</button>
 
+<button
+  type="button"
+  className="app-btn app-btn-secondary h-9 px-3 text-xs"
+  onClick={() => printTicketCards(viewItems)}
+>
+  Print Tickets (Current View)
+</button>
 
-                Export to Excel (CSV)
-              </button>
+<button
+  type="button"
+  className="app-btn app-btn-secondary h-9 px-3 text-xs"
+  onClick={() => exportXlsxAllCaps(items, "NOMINAL_ROLL_ALL")}
+>
+  Export All (XLSX)
+</button>
 
-              <button type="button" className="app-btn app-btn-secondary h-9 px-3 text-xs" onClick={loadNominal} disabled={loading}>
-                {loading ? "Refreshing..." : "Refresh List"}
-              </button>
+<button
+  type="button"
+  className="app-btn app-btn-secondary h-9 px-3 text-xs"
+  onClick={() => exportXlsxAllCaps(viewItems, "NOMINAL_ROLL_FILTERED")}
+>
+  Export Filtered (XLSX)
+</button>
+
+<button
+  type="button"
+  className="app-btn app-btn-secondary h-9 px-3 text-xs"
+  onClick={loadNominal}
+  disabled={loading}
+>
+  {loading ? "Refreshing..." : "Refresh List"}
+</button>
+
             </div>
           </div>
 
