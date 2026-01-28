@@ -55,6 +55,7 @@ const BOARDING_OPTIONS: BoardingStation[] = ["New Delhi", "Old Delhi"];
 const TRAIN_TIME_OPTIONS: string[] = [
   "06:40 AM",
   "08:10 AM",
+  "08:30 AM",
   "07:15 AM",
   "03:40 PM",
   "10:00 AM",

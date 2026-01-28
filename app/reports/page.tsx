@@ -351,6 +351,8 @@ export default function ReportsPage() {
   const [loading, setLoading] = React.useState(true);
   const [rawItems, setRawItems] = React.useState<ReportRow[]>([]);
   const [exporting, setExporting] = React.useState<"filtered" | "all" | null>(null);
+
+  const [deptOpen, setDeptOpen] = React.useState(false);
   const [printing, setPrinting] = React.useState(false);
 
   // jatha dates (for mismatch grouping + start/end display)
@@ -402,24 +404,25 @@ export default function ReportsPage() {
 
 
   const ticketLabelMap = React.useMemo(() => {
+    // ✅ Build from ALL tickets (do not depend on route field being present)
     const m = new Map<string, string>();
-    for (const t of trainDliBeas) { const id = extractId(t._id); if (id) m.set(id, makeTicketLabel(t)); }
-    for (const t of trainBeasDli) { const id = extractId(t._id); if (id) m.set(id, makeTicketLabel(t)); }
+    for (const t of allTickets) {
+      const id = extractId(t._id);
+      if (id) m.set(id, makeTicketLabel(t));
+    }
     return m;
-  }, [trainDliBeas, trainBeasDli]);
+  }, [allTickets]);
 
   const ticketFareMap = React.useMemo(() => {
+    // ✅ Build from ALL tickets (do not depend on route field being present)
     const m = new Map<string, number>();
-    for (const t of trainDliBeas) {
-      const n = toNumberOrNull(t.fare);
-      if (n !== null) { const id = extractId(t._id); if (id) m.set(id, n); }
-    }
-    for (const t of trainBeasDli) {
-      const n = toNumberOrNull(t.fare);
-      if (n !== null) { const id = extractId(t._id); if (id) m.set(id, n); }
+    for (const t of allTickets) {
+      const n = toNumberOrNull((t as any).fare);
+      const id = extractId(t._id);
+      if (id && n !== null) m.set(id, n);
     }
     return m;
-  }, [trainDliBeas, trainBeasDli]);
+  }, [allTickets]);
 
   function normalizeTicketId(v: any): string {
     return extractId(v);
@@ -634,6 +637,124 @@ export default function ReportsPage() {
     if (!showMismatchOnly) return filteredItems;
     return filteredItems.filter((r) => isMismatch(r));
   }, [filteredItems, showMismatchOnly, jathaDates]);
+
+  type DeptSummaryRow = {
+    dept: string;
+    sewadars: number;
+    sangat: number;
+    total: number;
+    bus: number;
+    train: number;
+    self: number;
+  };
+
+  const deptSummary = React.useMemo<DeptSummaryRow[]>(() => {
+    const map = new Map<string, DeptSummaryRow>();
+
+    function normDept(v: any) {
+      const s = String(v || "").trim();
+      return s ? s.toUpperCase() : "";
+    }
+
+    function keyForRow(r: any) {
+      const sangat = String(r.sangat || "").trim().toLowerCase();
+      const dept = normDept(r.department);
+      if ((sangat === "yes") && !dept) return "SANGAT";
+      return dept || "UNKNOWN";
+    }
+
+    function getOrCreate(k: string) {
+      if (!map.has(k)) {
+        map.set(k, { dept: k, sewadars: 0, sangat: 0, total: 0, bus: 0, train: 0, self: 0 });
+      }
+      return map.get(k)!;
+    }
+
+    for (const r of items) {
+      const sangat = String(r.sangat || "").trim().toLowerCase(); // yes/no/blank
+      const deptKey = keyForRow(r);
+      const row = getOrCreate(deptKey);
+
+      // travel mode counts
+      const mode = String(r.mode || "").trim().toLowerCase();
+      if (mode === "bus") row.bus += 1;
+      else if (mode === "train") row.train += 1;
+      else if (mode === "self") row.self += 1;
+
+      // sewadars vs sangat counts
+      if (sangat === "yes") {
+        row.sangat += 1;
+      } else {
+        // blank or "no"
+        row.sewadars += 1;
+      }
+    }
+
+    // totals + sort (keep UNKNOWN last)
+    const out = Array.from(map.values()).map((x) => ({ ...x, total: x.sewadars + x.sangat }));
+    out.sort((a, b) => {
+      if (a.dept === "UNKNOWN") return 1;
+      if (b.dept === "UNKNOWN") return -1;
+      if (a.dept === "SANGAT") return 1;
+      if (b.dept === "SANGAT") return -1;
+      return a.dept.localeCompare(b.dept);
+    });
+
+    return out;
+  }, [items]);
+
+  const deptTotals = React.useMemo(() => {
+    return deptSummary.reduce(
+      (acc, r) => {
+        acc.sewadars += r.sewadars;
+        acc.sangat += r.sangat;
+        acc.total += r.total;
+        acc.bus += r.bus;
+        acc.train += r.train;
+        acc.self += r.self;
+        return acc;
+      },
+      { sewadars: 0, sangat: 0, total: 0, bus: 0, train: 0, self: 0 }
+    );
+  }, [deptSummary]);
+
+  async function onExportDeptSummary() {
+    try {
+      const XLSX = await import("xlsx");
+      const rows = deptSummary.map((r, idx) => ({
+        "S NO": idx + 1,
+        DEPTT: r.dept,
+        SEWADAR: r.sewadars,
+        SANGAT: r.sangat,
+        TOTAL: r.total,
+        BUS: r.bus,
+        "TRAIN": r.train,
+        "SELF": r.self,
+      }));
+
+      // add totals row
+      rows.push({
+        "S NO": "",
+        DEPTT: "TOTAL",
+        SEWADAR: deptTotals.sewadars,
+        SANGAT: deptTotals.sangat,
+        TOTAL: deptTotals.total,
+        BUS: deptTotals.bus,
+        "TRAIN": deptTotals.train,
+        "SELF": deptTotals.self,
+      } as any);
+
+      const ws = XLSX.utils.json_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "DEPT_REPORT");
+
+      const fname = `DEPT_REPORT_${String(tab || "all").toUpperCase()}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      XLSX.writeFile(wb, fname);
+    } catch (e) {
+      console.error(e);
+      alert("Failed to export Dept Report");
+    }
+  }
 
   // mismatch groups
   const mismatchGroups = React.useMemo(() => {
@@ -929,7 +1050,7 @@ React.useEffect(() => {
 
   // -------- PRINT TICKETS (6 per A4 page, multi-page) --------
   function buildTicketsHtml(rows: ReportRow[]) {
-    const chunkSize = 6;
+    const chunkSize = 4;
     const pages: string[] = [];
 
     const cardsForChunk = (chunk: ReportRow[], offset: number) =>
@@ -1033,7 +1154,7 @@ React.useEffect(() => {
           .grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            grid-template-rows: 1fr 1fr 1fr;
+            grid-template-rows: 1fr 1fr;
             gap: 7mm;
             width: 100%;
             height: 100%;
@@ -1042,7 +1163,7 @@ React.useEffect(() => {
           .ticket {
             border: 1.2px solid #111;
             border-radius: 10px;
-            padding: 6mm;
+            padding: 5mm;
             box-sizing: border-box;
             display:flex;
             flex-direction:column;
@@ -1191,6 +1312,10 @@ React.useEffect(() => {
             </button>
             <button onClick={onExportAll} disabled={exporting !== null} className="app-btn app-btn-secondary h-10 px-4">
               {exporting === "all" ? "Exporting..." : "Export All"}
+            </button>
+
+            <button onClick={() => setDeptOpen(true)} className="app-btn app-btn-secondary h-10 px-4">
+              Dept Report
             </button>
 
             <button
@@ -1520,7 +1645,78 @@ React.useEffect(() => {
         </div>
       </div>
 
-      {/* EDIT MODAL (scroll only inside modal) */}
+      
+      {/* DEPT SUMMARY MODAL */}
+      {deptOpen && (
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-3"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setDeptOpen(false);
+          }}
+        >
+          <div className="w-full max-w-5xl rounded-2xl bg-white p-4 shadow-xl dark:bg-zinc-950">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="text-lg font-semibold">Department Summary</div>
+                <div className="text-xs text-zinc-600 dark:text-zinc-400">
+                  Counts are based on current filtered results.
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button onClick={onExportDeptSummary} className="app-btn app-btn-secondary h-9 px-4">
+                  Export Excel
+                </button>
+                <button onClick={() => setDeptOpen(false)} className="app-btn app-btn-primary h-9 px-4">
+                  Close
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-3 max-h-[70vh] overflow-auto rounded-xl border border-black/10 dark:border-white/10">
+              <table className="w-full text-sm">
+                <thead className="sticky top-0 bg-white dark:bg-zinc-950">
+                  <tr className="border-b border-black/10 dark:border-white/10">
+                    <th className="px-3 py-2 text-left">S NO</th>
+                    <th className="px-3 py-2 text-left">DEPTT</th>
+                    <th className="px-3 py-2 text-right">SEWADAR</th>
+                    <th className="px-3 py-2 text-right">SANGAT</th>
+                    <th className="px-3 py-2 text-right">TOTAL</th>
+                    <th className="px-3 py-2 text-right">BUS</th>
+                    <th className="px-3 py-2 text-right">TRAIN</th>
+                    <th className="px-3 py-2 text-right">SELF</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {deptSummary.map((r, idx) => (
+                    <tr key={r.dept} className="border-b border-black/5 dark:border-white/5">
+                      <td className="px-3 py-2">{idx + 1}</td>
+                      <td className="px-3 py-2 font-medium">{r.dept}</td>
+                      <td className="px-3 py-2 text-right">{r.sewadars}</td>
+                      <td className="px-3 py-2 text-right">{r.sangat}</td>
+                      <td className="px-3 py-2 text-right font-semibold">{r.total}</td>
+                      <td className="px-3 py-2 text-right">{r.bus}</td>
+                      <td className="px-3 py-2 text-right">{r.train}</td>
+                      <td className="px-3 py-2 text-right">{r.self}</td>
+                    </tr>
+                  ))}
+                  <tr className="border-t border-black/10 dark:border-white/10 font-semibold">
+                    <td className="px-3 py-2" />
+                    <td className="px-3 py-2">TOTAL</td>
+                    <td className="px-3 py-2 text-right">{deptTotals.sewadars}</td>
+                    <td className="px-3 py-2 text-right">{deptTotals.sangat}</td>
+                    <td className="px-3 py-2 text-right">{deptTotals.total}</td>
+                    <td className="px-3 py-2 text-right">{deptTotals.bus}</td>
+                    <td className="px-3 py-2 text-right">{deptTotals.train}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+{/* EDIT MODAL (scroll only inside modal) */}
       {editOpen && editRow && (
         <div
           className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-3"
