@@ -16,11 +16,40 @@ function toNumNullable(v: any) {
   return Number.isFinite(n) ? n : null;
 }
 
+function cleanStr(v: any) {
+  return String(v ?? "").trim();
+}
+
+// ✅ Excel serial date (e.g., 46052) or string -> YYYY-MM-DD
 function toISODate10(v: any) {
   if (v === undefined || v === null) return "";
-  const s = String(v).trim();
+  if (typeof v === "number" && Number.isFinite(v)) {
+    const ms = Math.round((v - 25569) * 86400 * 1000);
+    const d = new Date(ms);
+    if (Number.isNaN(d.getTime())) return "";
+    return d.toISOString().slice(0, 10);
+  }
+  const s = cleanStr(v);
   if (!s) return "";
+  const n = Number(s);
+  if (Number.isFinite(n) && /^[0-9]+(\.[0-9]+)?$/.test(s)) return toISODate10(n);
   return s.slice(0, 10);
+}
+
+// ✅ Excel time fraction (e.g., 0.4166667) -> HH:MM, else keep string
+function toTrainTime(v: any) {
+  if (v === undefined || v === null) return "";
+  if (typeof v === "number" && Number.isFinite(v)) {
+    const totalMinutes = Math.round(v * 24 * 60);
+    const hh = Math.floor(totalMinutes / 60) % 24;
+    const mm = totalMinutes % 60;
+    return String(hh).padStart(2, "0") + ":" + String(mm).padStart(2, "0");
+  }
+  const s = cleanStr(v);
+  if (!s) return "";
+  const n = Number(s);
+  if (Number.isFinite(n) && /^[0-9]+(\.[0-9]+)?$/.test(s)) return toTrainTime(n);
+  return s;
 }
 
 function normalizeGender(g: string) {
@@ -37,14 +66,14 @@ export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
 
-    const q = (searchParams.get("q") || "").trim();
-    const name = (searchParams.get("name") || "").trim();
-    const seatNumber = (searchParams.get("seatNumber") || "").trim().toUpperCase();
-    const pnrNumber = (searchParams.get("pnrNumber") || "").trim();
-    const trainName = (searchParams.get("trainName") || "").trim();
-    const route = (searchParams.get("route") || "").trim();
-    const boardingStation = (searchParams.get("boardingStation") || "").trim();
-    const gender = normalizeGender(searchParams.get("gender") || "");
+    const q = cleanStr(searchParams.get("q"));
+    const name = cleanStr(searchParams.get("name"));
+    const seatNumber = cleanStr(searchParams.get("seatNumber")); // ✅ no uppercase rule
+    const pnrNumber = cleanStr(searchParams.get("pnrNumber"));
+    const trainName = cleanStr(searchParams.get("trainName"));
+    const route = cleanStr(searchParams.get("route"));
+    const boardingStation = cleanStr(searchParams.get("boardingStation"));
+    const gender = normalizeGender(cleanStr(searchParams.get("gender")));
     const travelDate = toISODate10(searchParams.get("travelDate"));
 
     // optional fare filters
@@ -57,11 +86,12 @@ export async function GET(req: Request) {
     const filter: any = {};
 
     if (name) filter.name = { $regex: name, $options: "i" };
-    if (seatNumber) filter.seatNumber = { $regex: `^${seatNumber}`, $options: "i" };
+    if (seatNumber) filter.seatNumber = { $regex: seatNumber, $options: "i" }; // ✅ contains match
     if (pnrNumber) filter.pnrNumber = { $regex: pnrNumber, $options: "i" };
-    if (trainName) filter.trainName = trainName;
+
+    if (trainName) filter.trainName = { $regex: trainName, $options: "i" };
     if (route) filter.route = route;
-    if (boardingStation) filter.boardingStation = boardingStation;
+    if (boardingStation) filter.boardingStation = { $regex: boardingStation, $options: "i" };
     if (gender) filter.gender = gender;
     if (travelDate) filter.travelDate = travelDate;
 
@@ -85,16 +115,13 @@ export async function GET(req: Request) {
     }
 
     const db = await getDb();
-    const items = await db
-      .collection(COLLECTION)
-      .find(filter)
-      .sort({ createdAt: -1 })
-      .limit(limit)
-      .toArray();
+    const items = await db.collection(COLLECTION).find(filter).sort({ createdAt: -1 }).limit(limit).toArray();
 
     const safe = items.map((x: any) => ({
       ...x,
       _id: x._id.toString(),
+      travelDate: toISODate10(x.travelDate),
+      trainTime: toTrainTime(x.trainTime),
     }));
 
     return NextResponse.json({ items: safe });
@@ -105,24 +132,25 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
+    const body = await req.json().catch(() => ({}));
 
-    const name = String(body.name || "").trim();
+    const name = cleanStr(body.name);
     const age = toNumNullable(body.age);
-    const gender = normalizeGender(String(body.gender || ""));
+    const gender = normalizeGender(cleanStr(body.gender));
 
-    const seatNumber = String(body.seatNumber || "").trim().toUpperCase();
-    const pnrNumber = String(body.pnrNumber || "").trim();
+    // ✅ No seat-number rules; store any string
+    const seatNumber = cleanStr(body.seatNumber);
+    const pnrNumber = cleanStr(body.pnrNumber);
 
-    const trainName = String(body.trainName || "").trim();
-    const route = String(body.route || "").trim();
-    const trainTime = String(body.trainTime || "").trim();
-    const boardingStation = String(body.boardingStation || "").trim();
+    // ✅ Free text fields
+    const trainName = cleanStr(body.trainName);
+    const route = cleanStr(body.route);
+    const trainTime = toTrainTime(body.trainTime);
+    const boardingStation = cleanStr(body.boardingStation);
 
     const travelDate = toISODate10(body.travelDate);
 
-    // ✅ fare is now OPTIONAL (backward-compatible)
-    // store null if missing
+    // fare optional
     const fare = toNumNullable(body.fare);
 
     if (!name) return NextResponse.json({ error: "Name is required" }, { status: 400 });
@@ -137,9 +165,7 @@ export async function POST(req: Request) {
     }
 
     if (!seatNumber) return NextResponse.json({ error: "Seat number is required" }, { status: 400 });
-    if (!/^[A-Za-z]\d{1,3}$/.test(seatNumber)) {
-      return NextResponse.json({ error: "Invalid seat number format (example: A1, B12)" }, { status: 400 });
-    }
+    // ❌ removed seat format validation
 
     if (!pnrNumber) return NextResponse.json({ error: "PNR is required" }, { status: 400 });
     if (!trainName) return NextResponse.json({ error: "Train name is required" }, { status: 400 });
@@ -148,7 +174,7 @@ export async function POST(req: Request) {
     if (!boardingStation) return NextResponse.json({ error: "Boarding station is required" }, { status: 400 });
     if (!travelDate) return NextResponse.json({ error: "Travel date is required" }, { status: 400 });
 
-    // ✅ If you still want to validate fare when provided:
+    // validate fare if provided
     if (fare !== null && fare < 0) {
       return NextResponse.json({ error: "Fare must be a valid non-negative number" }, { status: 400 });
     }

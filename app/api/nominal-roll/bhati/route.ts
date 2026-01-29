@@ -30,18 +30,17 @@ export async function GET() {
       console.error("ensureIndexes failed (GET bhati):", e?.message || e);
     }
 
-    const items = await db
-      .collection(COLLECTION)
-      .find({})
-      .sort({ createdAt: -1 })
-      .limit(1000)
-      .toArray();
+    const items = await db.collection(COLLECTION).find({}).sort({ createdAt: -1 }).limit(1000).toArray();
 
     const safe = items.map((x: any) => ({
       ...x,
       _id: x._id.toString(),
       jathaDate: toYMD(x.jathaDate),
-      // ✅ removed travelStartDate / travelEndDate
+
+      // ✅ NEW
+      department: String(x.department || ""),
+      sangat: String(x.sangat || ""),
+
       payment: String(x.payment || ""), // optional
       notes: String(x.notes || ""),
     }));
@@ -62,7 +61,7 @@ export async function POST(req: Request) {
       console.error("ensureIndexes failed (POST bhati):", e?.message || e);
     }
 
-    const body = await req.json();
+    const body = await req.json().catch(() => ({}));
 
     // snapshot customer data
     const customerId = String(body.customerId || "").trim();
@@ -75,9 +74,13 @@ export async function POST(req: Request) {
     const mobile = String(body.mobile || "").trim();
     const adhaarNumber = String(body.adhaarNumber || "").trim();
 
+    // ✅ NEW: department + sangat snapshot
+    const department = String(body.department || "").trim();
+    const sangat = String(body.sangat || "").trim(); // "Yes" | "No" | ""
+
     // user fields
     const mode = String(body.mode || "").trim(); // should be Bus/Self from UI
-    const payment = String(body.payment || "").trim(); // ✅ optional now
+    const payment = String(body.payment || "").trim(); // optional
 
     const jathaDateId = String(body.jathaDateId || "").trim();
     const jathaDate = String(body.jathaDate || "").trim();
@@ -103,8 +106,11 @@ export async function POST(req: Request) {
       mobile,
       adhaarNumber,
 
+      department,
+      sangat,
+
       mode,
-      payment, // ✅ optional
+      payment,
 
       jathaDateId,
       jathaDate: new Date(jathaDate),

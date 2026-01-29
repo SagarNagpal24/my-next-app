@@ -3,14 +3,9 @@
 import React from "react";
 
 type Gender = "M" | "F" | "Other" | "";
-type TrainName =
-  | ""
-  | "Shan-e-Punjab Express"
-  | "Pathankot Express"
-  | "Shatabdi Express"
-  | "Jallianwala Bagh Express";
+type TrainName = string;
 type RouteType = "" | "DELHI-BEAS" | "BEAS-DELHI";
-type BoardingStation = "" | "New Delhi" | "Old Delhi";
+type BoardingStation = string;
 
 type RowErr = { row: number; field: string; message: string };
 
@@ -44,23 +39,7 @@ type FormState = {
   fare: string; // keep string for input, convert to number
 };
 
-const TRAIN_OPTIONS: TrainName[] = [
-  "Shan-e-Punjab Express",
-  "Pathankot Express",
-  "Shatabdi Express",
-  "Jallianwala Bagh Express",
-];
 const ROUTE_OPTIONS: RouteType[] = ["DELHI-BEAS", "BEAS-DELHI"];
-const BOARDING_OPTIONS: BoardingStation[] = ["New Delhi", "Old Delhi"];
-const TRAIN_TIME_OPTIONS: string[] = [
-  "06:40 AM",
-  "08:10 AM",
-  "08:30 AM",
-  "07:15 AM",
-  "03:40 PM",
-  "10:00 AM",
-  "05:20 PM",
-];
 
 function normalizeId(raw: any): string {
   const candidate =
@@ -74,6 +53,45 @@ function normalizeId(raw: any): string {
   const s = String(candidate).trim();
   const match = s.match(/[a-fA-F0-9]{24}/);
   return (match?.[0] || "").trim();
+}
+
+function pad2(n: number) {
+  return String(n).padStart(2, "0");
+}
+
+// ✅ Excel serial date (e.g., 46052) -> YYYY-MM-DD (Windows Excel)
+function excelSerialToISODate10(v: any): string {
+  if (v === null || v === undefined) return "";
+  if (typeof v === "number" && Number.isFinite(v)) {
+    // Excel date serial starts at 1899-12-30
+    const ms = Math.round((v - 25569) * 86400 * 1000); // 25569 = days between 1899-12-30 and 1970-01-01
+    const d = new Date(ms);
+    if (Number.isNaN(d.getTime())) return "";
+    return d.toISOString().slice(0, 10);
+  }
+  const s = String(v).trim();
+  if (!s) return "";
+  // numeric string
+  const n = Number(s);
+  if (Number.isFinite(n) && /^[0-9]+(\.[0-9]+)?$/.test(s)) return excelSerialToISODate10(n);
+  return s.slice(0, 10);
+}
+
+// ✅ Excel time fraction (e.g., 0.4166667) -> HH:MM
+function excelTimeToHHMM(v: any): string {
+  if (v === null || v === undefined) return "";
+  if (typeof v === "number" && Number.isFinite(v)) {
+    const totalMinutes = Math.round(v * 24 * 60);
+    const hh = Math.floor(totalMinutes / 60) % 24;
+    const mm = totalMinutes % 60;
+    return `${pad2(hh)}:${pad2(mm)}`;
+  }
+  const s = String(v).trim();
+  if (!s) return "";
+  // numeric string
+  const n = Number(s);
+  if (Number.isFinite(n) && /^[0-9]+(\.[0-9]+)?$/.test(s)) return excelTimeToHHMM(n);
+  return s; // already "HH:MM" or "06:40 AM"
 }
 
 function todayISO() {
@@ -138,14 +156,6 @@ function validateSingle(payload: FormState): string | null {
   if (!payload.boardingStation) return "Boarding Station is required.";
   if (!payload.travelDate) return "Travel Date is required.";
   if (fare === null || fare < 0) return "Fare is required and must be a valid number.";
-
-  // allowed checks
-  if (!["M", "F", "Other"].includes(payload.gender)) return "Gender must be M, F, or Other.";
-  if (!TRAIN_OPTIONS.includes(payload.trainName)) return "Train Name is invalid.";
-  if (!ROUTE_OPTIONS.includes(payload.route)) return "Route is invalid.";
-  if (!BOARDING_OPTIONS.includes(payload.boardingStation)) return "Boarding Station is invalid.";
-  if (!TRAIN_TIME_OPTIONS.includes(payload.trainTime)) return "Train Time is invalid.";
-
   return null;
 }
 
@@ -175,13 +185,6 @@ function validateExcelRow(clean: any, rowNumber: number): RowErr[] {
   if (!boardingStation) errs.push({ row: rowNumber, field: "Boarding Station", message: "Boarding Station is required." });
   if (!travelDate) errs.push({ row: rowNumber, field: "Travel Date", message: "Travel Date is required." });
   if (fare === null || fare < 0) errs.push({ row: rowNumber, field: "Fare", message: "Fare is required and must be a valid number." });
-
-  // allowed values
-  if (gender && !["M", "F", "Other"].includes(gender)) errs.push({ row: rowNumber, field: "Gender", message: "Gender must be M, F, or Other." });
-  if (trainName && !TRAIN_OPTIONS.includes(trainName as any)) errs.push({ row: rowNumber, field: "Train Name", message: "Invalid Train Name." });
-  if (route && !ROUTE_OPTIONS.includes(route as any)) errs.push({ row: rowNumber, field: "Route", message: "Invalid Route." });
-  if (boardingStation && !BOARDING_OPTIONS.includes(boardingStation as any)) errs.push({ row: rowNumber, field: "Boarding Station", message: "Invalid Boarding Station." });
-  if (trainTime && !TRAIN_TIME_OPTIONS.includes(trainTime)) errs.push({ row: rowNumber, field: "Train Time", message: "Invalid Train Time." });
 
   // travelDate format check
   if (travelDate) {
@@ -220,9 +223,9 @@ export default function TrainDataPage() {
 
   // filters + search
   const [q, setQ] = React.useState("");
-  const [fTrain, setFTrain] = React.useState<TrainName>("");
+  const [fTrain, setFTrain] = React.useState<string>("");
   const [fRoute, setFRoute] = React.useState<RouteType>("");
-  const [fBoarding, setFBoarding] = React.useState<BoardingStation>("");
+  const [fBoarding, setFBoarding] = React.useState<string>("");
   const [fGender, setFGender] = React.useState<Gender>("");
   const [fTravelDate, setFTravelDate] = React.useState("");
 
@@ -388,7 +391,7 @@ export default function TrainDataPage() {
       name: form.name.trim(),
       age: Number(form.age),
       gender: form.gender,
-      seatNumber: form.seatNumber.trim().toUpperCase(),
+      seatNumber: form.seatNumber.trim(),
       pnrNumber: form.pnrNumber.trim(),
       trainName: form.trainName,
       route: form.route,
@@ -471,7 +474,7 @@ export default function TrainDataPage() {
       name: String(editing.name || "").trim(),
       age: Number(editing.age),
       gender: String(editing.gender || "").trim(),
-      seatNumber: String(editing.seatNumber || "").trim().toUpperCase(),
+      seatNumber: String(editing.seatNumber || "").trim(),
       pnrNumber: String(editing.pnrNumber || "").trim(),
       trainName: String(editing.trainName || "").trim(),
       route: String(editing.route || "").trim(),
@@ -851,6 +854,8 @@ export default function TrainDataPage() {
 
       await load(true);
     } finally {
+      // ✅ allow selecting the same file again even after errors
+      if (bulkInputRef.current) bulkInputRef.current.value = "";
       setBulkLoading(false);
     }
   }
@@ -996,14 +1001,13 @@ export default function TrainDataPage() {
 
           <input className="app-input app-input-sm" value={form.pnrNumber} onChange={(e) => setForm({ ...form, pnrNumber: e.target.value })} placeholder="PNR *" required />
 
-          <select className="app-input app-input-sm" value={form.trainName} onChange={(e) => setForm({ ...form, trainName: e.target.value as any })} required>
-            <option value="">Train Name *</option>
-            {TRAIN_OPTIONS.map((t) => (
-              <option key={t} value={t}>
-                {t}
-              </option>
-            ))}
-          </select>
+          <input
+            className="app-input app-input-sm"
+            value={form.trainName}
+            onChange={(e) => setForm({ ...form, trainName: e.target.value })}
+            placeholder="Train Name *"
+            required
+          />
 
           <select className="app-input app-input-sm" value={form.route} onChange={(e) => setForm({ ...form, route: e.target.value as any })} required>
             <option value="">Route *</option>
@@ -1014,23 +1018,21 @@ export default function TrainDataPage() {
             ))}
           </select>
 
-          <select className="app-input app-input-sm" value={form.trainTime} onChange={(e) => setForm({ ...form, trainTime: e.target.value })} required>
-            <option value="">Train Time *</option>
-            {TRAIN_TIME_OPTIONS.map((t) => (
-              <option key={t} value={t}>
-                {t}
-              </option>
-            ))}
-          </select>
+          <input
+            type="time"
+            className="app-input app-input-sm"
+            value={form.trainTime}
+            onChange={(e) => setForm({ ...form, trainTime: e.target.value })}
+            required
+          />
 
-          <select className="app-input app-input-sm" value={form.boardingStation} onChange={(e) => setForm({ ...form, boardingStation: e.target.value as any })} required>
-            <option value="">Boarding Station/Drop Station *</option>
-            {BOARDING_OPTIONS.map((b) => (
-              <option key={b} value={b}>
-                {b}
-              </option>
-            ))}
-          </select>
+          <input
+            className="app-input app-input-sm"
+            value={form.boardingStation}
+            onChange={(e) => setForm({ ...form, boardingStation: e.target.value })}
+            placeholder="Boarding Station/Drop Station *"
+            required
+          />
 
           <input type="date" className="app-input app-input-sm" value={form.travelDate} onChange={(e) => setForm({ ...form, travelDate: e.target.value })} required />
 
@@ -1090,14 +1092,12 @@ export default function TrainDataPage() {
 
           <div>
             <div className="app-label">Train</div>
-            <select className="app-input app-input-sm" value={fTrain} onChange={(e) => setFTrain(e.target.value as any)}>
-              <option value="">All</option>
-              {TRAIN_OPTIONS.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </select>
+            <input
+              className="app-input app-input-sm"
+              value={fTrain}
+              onChange={(e) => setFTrain(e.target.value)}
+              placeholder="Type train name"
+            />
           </div>
 
           <div>
@@ -1114,14 +1114,12 @@ export default function TrainDataPage() {
 
           <div>
             <div className="app-label">Boarding</div>
-            <select className="app-input app-input-sm" value={fBoarding} onChange={(e) => setFBoarding(e.target.value as any)}>
-              <option value="">All</option>
-              {BOARDING_OPTIONS.map((b) => (
-                <option key={b} value={b}>
-                  {b}
-                </option>
-              ))}
-            </select>
+            <input
+              className="app-input app-input-sm"
+              value={fBoarding}
+              onChange={(e) => setFBoarding(e.target.value)}
+              placeholder="Type boarding station"
+            />
           </div>
 
           <div>
@@ -1327,14 +1325,13 @@ export default function TrainDataPage() {
 
               <input className="app-input app-input-sm" value={editing.pnrNumber || ""} onChange={(e) => setEditing({ ...editing, pnrNumber: e.target.value })} placeholder="PNR *" required />
 
-              <select className="app-input app-input-sm" value={(editing.trainName as any) || ""} onChange={(e) => setEditing({ ...editing, trainName: e.target.value as any })} required>
-                <option value="">Train Name *</option>
-                {TRAIN_OPTIONS.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
-                ))}
-              </select>
+              <input
+                className="app-input app-input-sm"
+                value={String((editing.trainName as any) || "")}
+                onChange={(e) => setEditing({ ...editing, trainName: e.target.value as any })}
+                placeholder="Train Name *"
+                required
+              />
 
               <select className="app-input app-input-sm" value={(editing.route as any) || ""} onChange={(e) => setEditing({ ...editing, route: e.target.value as any })} required>
                 <option value="">Route *</option>
@@ -1345,23 +1342,21 @@ export default function TrainDataPage() {
                 ))}
               </select>
 
-              <select className="app-input app-input-sm" value={editing.trainTime || ""} onChange={(e) => setEditing({ ...editing, trainTime: e.target.value })} required>
-                <option value="">Train Time *</option>
-                {TRAIN_TIME_OPTIONS.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
-                ))}
-              </select>
+              <input
+                type="time"
+                className="app-input app-input-sm"
+                value={String(editing.trainTime || "")}
+                onChange={(e) => setEditing({ ...editing, trainTime: e.target.value })}
+                required
+              />
 
-              <select className="app-input app-input-sm" value={(editing.boardingStation as any) || ""} onChange={(e) => setEditing({ ...editing, boardingStation: e.target.value as any })} required>
-                <option value="">Boarding Station *</option>
-                {BOARDING_OPTIONS.map((b) => (
-                  <option key={b} value={b}>
-                    {b}
-                  </option>
-                ))}
-              </select>
+              <input
+                className="app-input app-input-sm"
+                value={String((editing.boardingStation as any) || "")}
+                onChange={(e) => setEditing({ ...editing, boardingStation: e.target.value as any })}
+                placeholder="Boarding Station *"
+                required
+              />
 
               <input type="date" className="app-input app-input-sm" value={(editing.travelDate as any) || ""} onChange={(e) => setEditing({ ...editing, travelDate: e.target.value })} required />
 

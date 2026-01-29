@@ -2449,15 +2449,7 @@ export default function ParanthaNominalRollPage() {
                                 </optgroup>
                               )}
 
-                              {allowDelhiBeasTicket && assignedTrainDliBeasFiltered.length > 0 && (
-                                <optgroup label={`Assigned Tickets (Not Selectable) (showing ${assignedTrainDliBeasFiltered.length})`}>
-                                  {assignedTrainDliBeasFiltered.map((t) => (
-                                    <option key={t._id} value={t._id} disabled>
-                                      {makeTicketLabel(t)} • Assigned to: {ticketAssignedToNameMap.get(t._id) || "Someone"}
-                                    </option>
-                                  ))}
-                                </optgroup>
-                              )}
+                              
                             </select>
                           </div>
 
@@ -2530,15 +2522,7 @@ export default function ParanthaNominalRollPage() {
                                 </optgroup>
                               )}
 
-                              {allowBeasDelhiTicket && assignedTrainBeasDliFiltered.length > 0 && (
-                                <optgroup label={`Assigned Tickets (Not Selectable) (showing ${assignedTrainBeasDliFiltered.length})`}>
-                                  {assignedTrainBeasDliFiltered.map((t) => (
-                                    <option key={t._id} value={t._id} disabled>
-                                      {makeTicketLabel(t)} • Assigned to: {ticketAssignedToNameMap.get(t._id) || "Someone"}
-                                    </option>
-                                  ))}
-                                </optgroup>
-                              )}
+                             
                             </select>
                           </div>
 

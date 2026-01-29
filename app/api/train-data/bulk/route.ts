@@ -3,14 +3,25 @@ import { getDb } from "../../../lib/mongodb";
 
 const COLLECTION = "trainData";
 
+// ✅ No seat-number rules; store exactly as user provides (trim only)
 function cleanSeat(v: any) {
-  return String(v ?? "").trim().toUpperCase();
+  return String(v ?? "").trim();
 }
 
 function toISODate10(v: any) {
   if (v === undefined || v === null) return "";
+  // Excel serial date support (e.g., 46052)
+  if (typeof v === "number" && Number.isFinite(v)) {
+    const ms = Math.round((v - 25569) * 86400 * 1000);
+    const d = new Date(ms);
+    if (Number.isNaN(d.getTime())) return "";
+    return d.toISOString().slice(0, 10);
+  }
   const s = String(v).trim();
   if (!s) return "";
+  // numeric string serial
+  const n = Number(s);
+  if (Number.isFinite(n) && /^[0-9]+(\.[0-9]+)?$/.test(s)) return toISODate10(n);
   return s.slice(0, 10);
 }
 
@@ -19,6 +30,23 @@ function toNumRequired(v: any) {
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
 }
+
+function toTrainTime(v: any) {
+  if (v === undefined || v === null) return "";
+  // Excel time fraction support (e.g., 0.4166667)
+  if (typeof v === "number" && Number.isFinite(v)) {
+    const totalMinutes = Math.round(v * 24 * 60);
+    const hh = Math.floor(totalMinutes / 60) % 24;
+    const mm = totalMinutes % 60;
+    return String(hh).padStart(2, "0") + ":" + String(mm).padStart(2, "0");
+  }
+  const s = String(v).trim();
+  if (!s) return "";
+  const n = Number(s);
+  if (Number.isFinite(n) && /^[0-9]+(\.[0-9]+)?$/.test(s)) return toTrainTime(n);
+  return s; // already "HH:MM" or "06:40 AM"
+}
+
 
 type RowErr = { row: number; field: string; message: string };
 
@@ -44,9 +72,10 @@ export async function POST(req: Request) {
       const seatNumber = cleanSeat(r.seatNumber);
       const pnrNumber = String(r.pnrNumber ?? "").trim();
 
+      // ✅ Free text for trainName/boardingStation/trainTime (no dropdown restrictions)
       const trainName = String(r.trainName ?? "").trim();
       const route = String(r.route ?? "").trim();
-      const trainTime = String(r.trainTime ?? "").trim();
+      const trainTime = toTrainTime(r.trainTime); // can be "HH:MM" from time picker OR any string
       const boardingStation = String(r.boardingStation ?? "").trim();
 
       const travelDate = toISODate10(r.travelDate);
@@ -56,7 +85,11 @@ export async function POST(req: Request) {
       if (!name) errors.push({ row: rowNumber, field: "Name", message: "Name is required." });
 
       if (age === null || age <= 0) {
-        errors.push({ row: rowNumber, field: "Age", message: "Age is required and must be a valid number." });
+        errors.push({
+          row: rowNumber,
+          field: "Age",
+          message: "Age is required and must be a valid number.",
+        });
       }
 
       if (!gender) errors.push({ row: rowNumber, field: "Gender", message: "Gender is required." });
@@ -65,16 +98,15 @@ export async function POST(req: Request) {
       }
 
       if (!seatNumber) errors.push({ row: rowNumber, field: "Seat Number", message: "Seat Number is required." });
-      if (seatNumber && !/^[A-Za-z]\d{1,3}$/.test(seatNumber)) {
-        errors.push({ row: rowNumber, field: "Seat Number", message: "Seat format invalid (example: A1, B12)." });
-      }
+      // ✅ removed seat format validation (A1/B12 etc.)
 
       if (!pnrNumber) errors.push({ row: rowNumber, field: "PNR", message: "PNR is required." });
 
       if (!trainName) errors.push({ row: rowNumber, field: "Train Name", message: "Train Name is required." });
       if (!route) errors.push({ row: rowNumber, field: "Route", message: "Route is required." });
       if (!trainTime) errors.push({ row: rowNumber, field: "Train Time", message: "Train Time is required." });
-      if (!boardingStation) errors.push({ row: rowNumber, field: "Boarding Station", message: "Boarding Station is required." });
+      if (!boardingStation)
+        errors.push({ row: rowNumber, field: "Boarding Station", message: "Boarding Station is required." });
 
       if (!travelDate) errors.push({ row: rowNumber, field: "Travel Date", message: "Travel Date is required." });
       if (travelDate) {
@@ -103,7 +135,7 @@ export async function POST(req: Request) {
         trainTime,
         boardingStation,
         travelDate, // "YYYY-MM-DD"
-        fare,       // number
+        fare, // number
         createdAt: new Date(),
         updatedAt: new Date(),
       });

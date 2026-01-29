@@ -14,6 +14,8 @@ type Customer = {
   address?: string;
   mobile?: string;
   adhaarNumber?: string;
+  department?: string;
+  sangat?: string;
 };
 
 type JathaDate = {
@@ -34,6 +36,9 @@ type NominalBhatiRow = {
   address?: string;
   mobile?: string;
   adhaarNumber?: string;
+
+  department?: string;
+  sangat?: string;
 
   mode: Mode | string;
 
@@ -73,6 +78,10 @@ export default function BhatiNominalRollPage() {
   const [jathaDateId, setJathaDateId] = React.useState("");
   const [notes, setNotes] = React.useState("");
 
+  // ✅ NEW: department + sangat
+  const [department, setDepartment] = React.useState("");
+  const [sangat, setSangat] = React.useState("");
+
   // list + edit
   const [items, setItems] = React.useState<NominalBhatiRow[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -111,6 +120,8 @@ export default function BhatiNominalRollPage() {
           jathaDate: String(x.jathaDate || "").slice(0, 10),
           payment: String(x.payment || ""),
           notes: String(x.notes || ""),
+          department: String(x.department || ""),
+          sangat: String(x.sangat || ""),
         }))
       );
     } finally {
@@ -142,6 +153,8 @@ export default function BhatiNominalRollPage() {
         address: x.address || "",
         mobile: x.mobile || "",
         adhaarNumber: x.adhaarNumber || "",
+        department: x.department || "",
+        sangat: x.sangat || "",
       }));
 
       setResults(list);
@@ -159,6 +172,8 @@ export default function BhatiNominalRollPage() {
     setPayment("");
     setJathaDateId("");
     setNotes("");
+    setDepartment("");
+    setSangat("");
   }
 
   function validateCreate() {
@@ -188,6 +203,8 @@ export default function BhatiNominalRollPage() {
         address: selectedCustomer!.address || "",
         mobile: selectedCustomer!.mobile || "",
         adhaarNumber: selectedCustomer!.adhaarNumber || "",
+        department: department.trim(),
+        sangat: sangat.trim(),
 
         mode,
         payment: payment.trim(), // optional
@@ -255,6 +272,9 @@ export default function BhatiNominalRollPage() {
           jathaDateId: editing.jathaDateId,
           jathaDate: jd?.travelDate || "",
 
+          department: String(editing.department || "").trim(),
+          sangat: String(editing.sangat || "").trim(),
+
           notes: (editing.notes || "").trim(),
         }),
       });
@@ -303,7 +323,11 @@ export default function BhatiNominalRollPage() {
                     <button
                       key={c._id}
                       type="button"
-                      onClick={() => setSelectedCustomer(c)}
+                      onClick={() => {
+                        setSelectedCustomer(c);
+                        setDepartment(c.department || "");
+                        setSangat(c.sangat || "");
+                      }}
                       className={[
                         "w-full rounded-lg px-3 py-2 text-left hover:bg-zinc-50 dark:hover:bg-white/5",
                         selectedCustomer?._id === c._id ? "bg-zinc-50 dark:bg-white/5" : "",
@@ -326,6 +350,7 @@ export default function BhatiNominalRollPage() {
                 <div className="text-xs text-zinc-600 dark:text-zinc-400">
                   Father/Husband: {selectedCustomer?.fatherOrHusbandName || "-"} • Gender/Age:{" "}
                   {(selectedCustomer?.gender || "-") + " / " + (selectedCustomer?.age ?? "-")}
+                  {" "}• Dept: {department || "-"} • Sangat: {sangat || "-"}
                 </div>
               </div>
             </div>
@@ -352,6 +377,22 @@ export default function BhatiNominalRollPage() {
 
             <div className="app-label mt-3">Payment (optional)</div>
             <input className={inputCls()} value={payment} onChange={(e) => setPayment(e.target.value)} placeholder="Optional" />
+
+            <div className="app-label mt-3">Department</div>
+            <input
+              className={inputCls()}
+              value={department}
+              onChange={(e) => setDepartment(e.target.value)}
+              placeholder="Optional"
+            />
+
+            <div className="app-label mt-3">Sangat</div>
+            <select className={inputCls()} value={sangat} onChange={(e) => setSangat(e.target.value)}>
+              <option value="">Select</option>
+              <option value="Yes">Yes</option>
+              <option value="No">No</option>
+            </select>
+
           </div>
 
           <div className="lg:col-span-3">
@@ -375,7 +416,7 @@ export default function BhatiNominalRollPage() {
         <table className="table">
           <thead className="thead">
             <tr>
-              {["S.No", "Name", "Father/Husband", "Gender/Age", "Address", "Mobile", "Badge", "Mode", "Payment", "Jatha Date", "Notes", "Actions"].map((h) => (
+              {["S.No", "Name", "Father/Husband", "Gender/Age", "Address", "Mobile", "Badge", "Department", "Sangat", "Mode", "Payment", "Jatha Date", "Notes", "Actions"].map((h) => (
                 <th key={h} className="th">
                   {h}
                 </th>
@@ -386,13 +427,13 @@ export default function BhatiNominalRollPage() {
           <tbody className="divide-y divide-black/5 dark:divide-white/10">
             {loading ? (
               <tr>
-                <td className="td text-zinc-600 dark:text-zinc-400" colSpan={12}>
+                <td className="td text-zinc-600 dark:text-zinc-400" colSpan={14}>
                   Loading...
                 </td>
               </tr>
             ) : items.length === 0 ? (
               <tr>
-                <td className="td text-zinc-600 dark:text-zinc-400" colSpan={12}>
+                <td className="td text-zinc-600 dark:text-zinc-400" colSpan={14}>
                   No records found.
                 </td>
               </tr>
@@ -406,6 +447,8 @@ export default function BhatiNominalRollPage() {
                   <td className="td">{r.address || "-"}</td>
                   <td className="td">{r.mobile || "-"}</td>
                   <td className="td">{r.badgeNo || "-"}</td>
+                  <td className="td">{r.department || "-"}</td>
+                  <td className="td">{r.sangat || "-"}</td>
                   <td className="td">{r.mode || "-"}</td>
                   <td className="td">{r.payment || "-"}</td>
                   <td className="td">{r.jathaDate || "-"}</td>
@@ -473,6 +516,29 @@ export default function BhatiNominalRollPage() {
                 <div className="app-label">Payment (optional)</div>
                 <input className={inputCls()} value={editing.payment || ""} onChange={(e) => setEditing({ ...editing, payment: e.target.value })} />
               </div>
+
+              <div>
+                <div className="app-label">Department</div>
+                <input
+                  className={inputCls()}
+                  value={editing.department || ""}
+                  onChange={(e) => setEditing({ ...editing, department: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <div className="app-label">Sangat</div>
+                <select
+                  className={inputCls()}
+                  value={String(editing.sangat || "")}
+                  onChange={(e) => setEditing({ ...editing, sangat: e.target.value })}
+                >
+                  <option value="">Select</option>
+                  <option value="Yes">Yes</option>
+                  <option value="No">No</option>
+                </select>
+              </div>
+
 
               <div className="sm:col-span-2 lg:col-span-3">
                 <div className="app-label">Notes</div>

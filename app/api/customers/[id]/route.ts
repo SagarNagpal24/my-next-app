@@ -22,7 +22,9 @@ type Department =
   | "Sewa-Collection"
   | "Water"
   | "Sewa-Samiti"
-  | "Sangat";
+  | "Medical"
+   | "VIP Block"
+   | "Langar";
 
 const DEPARTMENT_OPTIONS: Exclude<Department, "">[] = [
   "Security",
@@ -40,7 +42,9 @@ const DEPARTMENT_OPTIONS: Exclude<Department, "">[] = [
   "Sewa-Collection",
   "Water",
   "Sewa-Samiti",
-  "Sangat",
+  "Medical",
+  "VIP Block",
+  "Langar"
 ];
 
 function digitsOnly(v: any) {

@@ -230,7 +230,7 @@ export default function BulkUploadPage() {
               "Age *",
               "Address *",
               "Mobile (10 digits) *",
-              "Department *",
+              "Department",
               "Blacklisted (Yes/No)",
               "Emergency Number",
               "Medical Date",

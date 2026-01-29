@@ -23,7 +23,9 @@ type Department =
   | "Sewa-Collection"
   | "Water"
   | "Sewa-Samiti"
-  | "Sangat";
+  | "Medical"
+   | "VIP Block"
+   | "Langar";
 
 const DEPARTMENT_OPTIONS: Exclude<Department, "">[] = [
   "Security",
@@ -41,7 +43,9 @@ const DEPARTMENT_OPTIONS: Exclude<Department, "">[] = [
   "Sewa-Collection",
   "Water",
   "Sewa-Samiti",
-  "Sangat",
+ "Medical",
+  "VIP Block",
+  "Langar"
 ];
 
 // ✅ Image payload (compressed)
@@ -294,7 +298,7 @@ export default function Home() {
     if (form.blacklisted && !["Yes", "No"].includes(form.blacklisted))
       e.blacklisted = "Blacklisted must be Yes or No.";
 
-    if (!form.department) e.department = "Department is required.";
+    // if (!form.department) e.department = "Department is required.";
     if (form.department && !DEPARTMENT_OPTIONS.includes(form.department as any))
       e.department = "Invalid Department.";
 
@@ -428,11 +432,10 @@ export default function Home() {
 
           <div className="flex flex-wrap items-center gap-2">
             <span className="app-chip">
-              Required: Age, Gender, Mobile, Father/Husband, Address
+              Required: Name, Age, Gender, Mobile, Father/Husband, Address
             </span>
             <span className="app-chip">Badge or Aadhaar required</span>
-            <span className="app-chip">Department required</span>
-            <span className="app-chip">Photos auto-compressed</span>
+           
           </div>
         </div>
 
@@ -548,7 +551,7 @@ export default function Home() {
               </Field>
 
               {/* ✅ UPDATED Department */}
-              <Field label="Department *" error={errors.department}>
+              <Field label="Department" error={errors.department}>
                 <select
                   className={`app-input ${
                     errors.department
@@ -559,7 +562,7 @@ export default function Home() {
                   onChange={(e) =>
                     setField("department", e.target.value as Department)
                   }
-                  required
+                 
                 >
                   <option value="">Select</option>
                   {DEPARTMENT_OPTIONS.map((d) => (

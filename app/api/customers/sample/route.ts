@@ -19,7 +19,11 @@ export async function GET() {
     "Sewa-Collection",
     "Water",
     "Sewa-Samiti",
-    "Sangat",
+    
+     "Medical",
+    "VIP Block",
+    "Langar"
+
   ];
 
   const GENDERS = ["M", "F", "Other"];
