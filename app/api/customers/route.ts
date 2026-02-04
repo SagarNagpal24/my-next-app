@@ -20,7 +20,7 @@ const DEPARTMENTS = [
   "Sewa-Collection",
   "Water",
   "Sewa-Samiti",
-  "Sangat",
+  
 ] as const;
 
 function toNum(v: any) {

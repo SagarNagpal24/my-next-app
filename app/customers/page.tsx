@@ -23,7 +23,7 @@ type Department =
   | "Sewa-Collection"
   | "Water"
   | "Sewa-Samiti"
-  | "Sangat";
+   ;
 
 const DEPARTMENT_OPTIONS: Exclude<Department, "">[] = [
   "Security",
@@ -41,7 +41,7 @@ const DEPARTMENT_OPTIONS: Exclude<Department, "">[] = [
   "Sewa-Collection",
   "Water",
   "Sewa-Samiti",
-  "Sangat",
+  
 ];
 
 // ✅ Image payload (compressed)

@@ -24,7 +24,7 @@ const DEPARTMENT_OPTIONS = [
   "Sewa-Collection",
   "Water",
   "Sewa-Samiti",
-  "Sangat",
+  
 ] as const;
 
 type Customer = {
@@ -1668,7 +1668,7 @@ export default function LadooNominalRollPage() {
           className={["app-btn h-9 px-4", tab === "ladoo" ? "app-btn-primary" : "app-btn-secondary"].join(" ")}
           onClick={() => setTab("ladoo")}
         >
-          Ladoo
+          Nominal
         </button>
 
         <button

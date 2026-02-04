@@ -24,7 +24,7 @@ const DEPARTMENT_OPTIONS = [
   "Sewa-Collection",
   "Water",
   "Sewa-Samiti",
-  "Sangat",
+  
 ] as const;
 
 type JathaDate = {
