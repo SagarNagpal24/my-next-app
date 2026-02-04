@@ -23,8 +23,8 @@ type Department =
   | "Water"
   | "Sewa-Samiti"
   | "Medical"
-   | "VIP Block"
-   | "Langar";
+  | "VIP Block"
+  | "Langar";
 
 const DEPARTMENT_OPTIONS: Exclude<Department, "">[] = [
   "Security",
@@ -44,7 +44,7 @@ const DEPARTMENT_OPTIONS: Exclude<Department, "">[] = [
   "Sewa-Samiti",
   "Medical",
   "VIP Block",
-  "Langar"
+  "Langar",
 ];
 
 function digitsOnly(v: any) {
@@ -100,6 +100,29 @@ function pickImg(x: any): ImgData | null {
     mime: String(x.mime || ""),
     size: Number(x.size || 0),
   };
+}
+
+// ✅ NEW: ensure unique indexes for badgeNo + adhaarNumber (only when non-empty)
+async function ensureIndexes(db: any) {
+  const col = db.collection(COLLECTION);
+
+  await col.createIndex(
+    { badgeNo: 1 },
+    {
+      unique: true,
+      name: "uniq_badgeNo",
+      partialFilterExpression: { badgeNo: { $type: "string", $ne: "" } },
+    }
+  );
+
+  await col.createIndex(
+    { adhaarNumber: 1 },
+    {
+      unique: true,
+      name: "uniq_adhaarNumber",
+      partialFilterExpression: { adhaarNumber: { $type: "string", $ne: "" } },
+    }
+  );
 }
 
 /**
@@ -238,6 +261,38 @@ export async function PUT(
       return NextResponse.json({ error: "Invalid medical photo payload" }, { status: 400 });
     }
 
+    const db = await getDb();
+
+    // ✅ try to ensure indexes (may fail if DB already has duplicates)
+    try {
+      await ensureIndexes(db);
+    } catch (e: any) {
+      console.error("ensureIndexes failed (customer PUT):", e?.message || e);
+    }
+
+    // ✅ NEW: manual uniqueness check against other docs (exclude current _id)
+    const col = db.collection(COLLECTION);
+
+    if (badgeNo) {
+      const existsBadge = await col.findOne(
+        { _id: { $ne: oid }, badgeNo },
+        { projection: { _id: 1 } }
+      );
+      if (existsBadge) {
+        return NextResponse.json({ error: "Badge No already exists." }, { status: 409 });
+      }
+    }
+
+    if (adhaarNumber) {
+      const existsAadhaar = await col.findOne(
+        { _id: { $ne: oid }, adhaarNumber },
+        { projection: { _id: 1 } }
+      );
+      if (existsAadhaar) {
+        return NextResponse.json({ error: "Aadhaar already exists." }, { status: 409 });
+      }
+    }
+
     const update: any = {
       name,
       badgeNo,
@@ -263,16 +318,27 @@ export async function PUT(
 
     delete update._id;
 
-    const db = await getDb();
-    const result = await db
-      .collection(COLLECTION)
-      .updateOne({ _id: oid }, { $set: update });
+    try {
+      const result = await col.updateOne({ _id: oid }, { $set: update });
 
-    if (result.matchedCount === 0) {
-      return NextResponse.json({ error: "Customer not found" }, { status: 404 });
+      if (result.matchedCount === 0) {
+        return NextResponse.json({ error: "Customer not found" }, { status: 404 });
+      }
+
+      return NextResponse.json({ ok: true });
+    } catch (err: any) {
+      // ✅ If unique index exists, Mongo may throw duplicate key on concurrency
+      if (err?.code === 11000) {
+        const msg =
+          err?.keyPattern?.badgeNo
+            ? "Badge No already exists."
+            : err?.keyPattern?.adhaarNumber
+            ? "Aadhaar already exists."
+            : "Badge No / Aadhaar already exists.";
+        return NextResponse.json({ error: msg }, { status: 409 });
+      }
+      throw err;
     }
-
-    return NextResponse.json({ ok: true });
   } catch (e: any) {
     console.error("PUT error:", e);
     return NextResponse.json(
@@ -294,6 +360,14 @@ export async function DELETE(
       return NextResponse.json({ error: "Invalid customer id" }, { status: 400 });
 
     const db = await getDb();
+
+    // ✅ optional: try ensure indexes here too (not required for delete)
+    try {
+      await ensureIndexes(db);
+    } catch (e: any) {
+      console.error("ensureIndexes failed (customer DELETE):", e?.message || e);
+    }
+
     const result = await db.collection(COLLECTION).deleteOne({ _id: oid });
 
     if (result.deletedCount === 0) {

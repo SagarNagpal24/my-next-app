@@ -80,6 +80,31 @@ function pickImg(x: any): ImgData | null {
   };
 }
 
+// ✅ Ensure unique indexes for badgeNo + adhaarNumber (only when non-empty)
+// NOTE: if your DB already contains duplicates, createIndex will FAIL.
+// We still do a manual pre-check (below) so duplicates cannot be inserted.
+async function ensureIndexes(db: any) {
+  const col = db.collection(COLLECTION);
+
+  await col.createIndex(
+    { badgeNo: 1 },
+    {
+      unique: true,
+      name: "uniq_badgeNo",
+      partialFilterExpression: { badgeNo: { $type: "string", $ne: "" } },
+    }
+  );
+
+  await col.createIndex(
+    { adhaarNumber: 1 },
+    {
+      unique: true,
+      name: "uniq_adhaarNumber",
+      partialFilterExpression: { adhaarNumber: { $type: "string", $ne: "" } },
+    }
+  );
+}
+
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
@@ -128,6 +153,13 @@ export async function GET(req: Request) {
     }
 
     const db = await getDb();
+
+    try {
+      await ensureIndexes(db);
+    } catch (e: any) {
+      console.error("ensureIndexes failed (customers GET):", e?.message || e);
+    }
+
     const items = await db
       .collection(COLLECTION)
       .find(filter)
@@ -247,7 +279,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Invalid medical date" }, { status: 400 });
     }
 
-    // ✅ NEW: validate image payloads (compressed from UI)
+    // ✅ validate image payloads (compressed from UI)
     const passportPhoto = body.passportPhoto ?? null;
     const aadhaarFrontPhoto = body.aadhaarFrontPhoto ?? null;
     const aadhaarBackPhoto = body.aadhaarBackPhoto ?? null;
@@ -261,6 +293,39 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Invalid Aadhaar back photo payload" }, { status: 400 });
     if (!isValidImgData(medicalPhoto))
       return NextResponse.json({ error: "Invalid medical photo payload" }, { status: 400 });
+
+    const db = await getDb();
+
+    // ✅ try to ensure indexes (may fail if DB already has duplicates)
+    try {
+      await ensureIndexes(db);
+    } catch (e: any) {
+      console.error("ensureIndexes failed (customers POST):", e?.message || e);
+    }
+
+    // ✅ NEW: manual uniqueness check (works even if indexes failed due to existing duplicates)
+    // (Also makes error message immediate and clear)
+    const col = db.collection(COLLECTION);
+
+    if (badgeNo) {
+      const existsBadge = await col.findOne(
+        { badgeNo },
+        { projection: { _id: 1 } }
+      );
+      if (existsBadge) {
+        return NextResponse.json({ error: "Badge No already exists." }, { status: 409 });
+      }
+    }
+
+    if (adhaarNumber) {
+      const existsAadhaar = await col.findOne(
+        { adhaarNumber },
+        { projection: { _id: 1 } }
+      );
+      if (existsAadhaar) {
+        return NextResponse.json({ error: "Aadhaar already exists." }, { status: 409 });
+      }
+    }
 
     const doc = {
       name,
@@ -277,7 +342,7 @@ export async function POST(req: Request) {
       medicalDate,
       notes: String(body.notes || "").trim(),
 
-      // ✅ NEW: store compressed images (dataUrl + meta)
+      // ✅ store compressed images (dataUrl + meta)
       passportPhoto: pickImg(passportPhoto),
       aadhaarFrontPhoto: pickImg(aadhaarFrontPhoto),
       aadhaarBackPhoto: pickImg(aadhaarBackPhoto),
@@ -287,13 +352,28 @@ export async function POST(req: Request) {
       updatedAt: new Date(),
     };
 
-    const db = await getDb();
-    const result = await db.collection(COLLECTION).insertOne(doc);
+    try {
+      const result = await col.insertOne(doc);
 
-    return NextResponse.json(
-      { ok: true, id: result.insertedId.toString() },
-      { status: 201 }
-    );
+      return NextResponse.json(
+        { ok: true, id: result.insertedId.toString() },
+        { status: 201 }
+      );
+    } catch (err: any) {
+      // ✅ duplicate badge/aadhaar handling (in case of concurrency when index exists)
+      if (err?.code === 11000) {
+        const msg =
+          err?.keyPattern?.badgeNo
+            ? "Badge No already exists."
+            : err?.keyPattern?.adhaarNumber
+            ? "Aadhaar already exists."
+            : "Badge No / Aadhaar already exists.";
+
+        return NextResponse.json({ error: msg }, { status: 409 });
+      }
+
+      throw err;
+    }
   } catch (e: any) {
     return NextResponse.json(
       { error: e?.message || "Server error" },

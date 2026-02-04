@@ -24,8 +24,8 @@ type Department =
   | "Water"
   | "Sewa-Samiti"
   | "Medical"
-   | "VIP Block"
-   | "Langar";
+  | "VIP Block"
+  | "Langar";
 
 const DEPARTMENT_OPTIONS: Exclude<Department, "">[] = [
   "Security",
@@ -43,9 +43,9 @@ const DEPARTMENT_OPTIONS: Exclude<Department, "">[] = [
   "Sewa-Collection",
   "Water",
   "Sewa-Samiti",
- "Medical",
+  "Medical",
   "VIP Block",
-  "Langar"
+  "Langar",
 ];
 
 // ✅ Image payload (compressed)
@@ -119,6 +119,14 @@ function digitsOnly(s: string) {
   return (s || "").replace(/\D/g, "");
 }
 
+// ✅ NEW: Badge validation (last 4 chars must be 4 digits)
+function badgeLast4Valid(badgeNo: string) {
+  const s = (badgeNo || "").trim();
+  if (!s) return true; // badge optional (aadhaar can be used)
+  if (s.length < 4) return false;
+  return /^\d{4}$/.test(s.slice(-4));
+}
+
 function formatBytes(bytes: number) {
   if (!bytes && bytes !== 0) return "";
   const units = ["B", "KB", "MB"];
@@ -156,7 +164,10 @@ async function compressImageToDataUrl(
   const img = await new Promise<HTMLImageElement>((resolve, reject) => {
     const i = new Image();
     i.onload = () => resolve(i);
-    i.onerror = () => reject(new Error("Unable to read image (format not supported in this browser)."));
+    i.onerror = () =>
+      reject(
+        new Error("Unable to read image (format not supported in this browser).")
+      );
     i.src = URL.createObjectURL(file);
   });
 
@@ -288,6 +299,12 @@ export default function Home() {
       e.adhaarNumber = "Either Aadhaar or Badge No is required.";
     }
 
+    // ✅ NEW: validate badge last 4 digits (only if badge is provided)
+    if (badge && !badgeLast4Valid(badge)) {
+      e.badgeNo =
+        "Badge No last 4 digits must be exactly 4 numbers (e.g., XXXX1234).";
+    }
+
     if (aadhaar && aadhaar.length !== 12)
       e.adhaarNumber = "Aadhaar must be exactly 12 digits (if provided).";
 
@@ -307,7 +324,11 @@ export default function Home() {
   }
 
   async function handleImagePick(
-    key: "passportPhoto" | "aadhaarFrontPhoto" | "aadhaarBackPhoto" | "medicalPhoto",
+    key:
+      | "passportPhoto"
+      | "aadhaarFrontPhoto"
+      | "aadhaarBackPhoto"
+      | "medicalPhoto",
     file: File | null
   ) {
     setStatus({ type: "idle", msg: "" });
@@ -391,7 +412,7 @@ export default function Home() {
         return;
       }
 
-      setStatus({ type: "ok", msg: "Customer saved successfully." });
+      setStatus({ type: "ok", msg: "Sangat/Sewadar saved successfully." });
 
       setForm({
         name: "",
@@ -423,6 +444,44 @@ export default function Home() {
 
   return (
     <div className="app-page">
+      {/* ✅ NEW: Center overlay for save / error (over old screen) */}
+      {status.type !== "idle" && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          role="dialog"
+          aria-modal="true"
+          onClick={(ev) => {
+            // close only if user clicks backdrop (not the card)
+            if (ev.target === ev.currentTarget) setStatus({ type: "idle", msg: "" });
+          }}
+        >
+          <div
+            className={[
+              "w-full max-w-md rounded-2xl border p-4 text-sm shadow-xl",
+              status.type === "ok"
+                ? "border-emerald-200 bg-white text-emerald-900 dark:border-emerald-900/40 dark:bg-zinc-950 dark:text-emerald-200"
+                : "border-red-200 bg-white text-red-900 dark:border-red-900/40 dark:bg-zinc-950 dark:text-red-200",
+            ].join(" ")}
+          >
+            <div className="mb-2 text-base font-semibold">
+              {status.type === "ok" ? "Saved" : "Action needed"}
+            </div>
+
+            <div className="whitespace-pre-wrap">{status.msg}</div>
+
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                className="app-btn app-btn-secondary"
+                onClick={() => setStatus({ type: "idle", msg: "" })}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="app-card app-card-pad">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -435,23 +494,8 @@ export default function Home() {
               Required: Name, Age, Gender, Mobile, Father/Husband, Address
             </span>
             <span className="app-chip">Badge or Aadhaar required</span>
-           
           </div>
         </div>
-
-        {status.type !== "idle" && (
-          <div
-            className={[
-              "mt-5 rounded-xl border p-3 text-sm",
-              status.type === "ok"
-                ? "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900/40 dark:bg-emerald-900/20 dark:text-emerald-200"
-                : "border-red-200 bg-red-50 text-red-800 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-200",
-            ].join(" ")}
-            role="status"
-          >
-            {status.msg}
-          </div>
-        )}
 
         <form onSubmit={onSubmit} className="mt-6">
           <div className="rounded-2xl border border-black/5 p-4 dark:border-white/10 sm:p-5">
@@ -513,9 +557,7 @@ export default function Home() {
                       : ""
                   }`}
                   value={form.fatherOrHusbandName}
-                  onChange={(e) =>
-                    setField("fatherOrHusbandName", e.target.value)
-                  }
+                  onChange={(e) => setField("fatherOrHusbandName", e.target.value)}
                   placeholder="Father/Husband Name"
                   required
                 />
@@ -559,10 +601,7 @@ export default function Home() {
                       : ""
                   }`}
                   value={form.department}
-                  onChange={(e) =>
-                    setField("department", e.target.value as Department)
-                  }
-                 
+                  onChange={(e) => setField("department", e.target.value as Department)}
                 >
                   <option value="">Select</option>
                   {DEPARTMENT_OPTIONS.map((d) => (
@@ -601,8 +640,7 @@ export default function Home() {
             </div>
 
             <div className="mt-3 text-xs text-zinc-600 dark:text-zinc-400">
-              Note: Fill <span className="font-semibold">either</span> Badge No
-              or Aadhaar (one is mandatory).
+              Note: Fill <span className="font-semibold">either</span> Badge No or Aadhaar (one is mandatory).
             </div>
           </div>
 
@@ -787,7 +825,11 @@ export default function Home() {
               Clear
             </button>
 
-            <button type="submit" disabled={saving} className="app-btn app-btn-primary">
+            <button
+              type="submit"
+              disabled={saving}
+              className="app-btn app-btn-primary"
+            >
               {saving ? "Saving..." : "Save"}
             </button>
           </div>

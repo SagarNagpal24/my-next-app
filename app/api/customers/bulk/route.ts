@@ -22,9 +22,9 @@ type Department =
   | "Sewa-Collection"
   | "Water"
   | "Sewa-Samiti"
- | "Medical"
-   | "VIP Block"
-   | "Langar";
+  | "Medical"
+  | "VIP Block"
+  | "Langar";
 
 const DEPARTMENT_OPTIONS: Exclude<Department, "">[] = [
   "Security",
@@ -43,8 +43,8 @@ const DEPARTMENT_OPTIONS: Exclude<Department, "">[] = [
   "Water",
   "Sewa-Samiti",
   "Medical",
-    "VIP Block",
-    "Langar"
+  "VIP Block",
+  "Langar",
 ];
 
 function digitsOnly(v: any) {
@@ -162,6 +162,18 @@ function validateRow(clean: any, rowNumber: number) {
     });
   }
 
+  // ✅ NEW: Badge last 4 characters must be numeric (if badge is provided)
+  if (badgeNo) {
+    const last4 = badgeNo.slice(-4);
+    if (!/^\d{4}$/.test(last4)) {
+      errors.push({
+        row: rowNumber,
+        field: "Badge No",
+        message: "Last 4 digits of Badge No must be numeric (4 digits).",
+      });
+    }
+  }
+
   // ✅ Aadhaar must be 12 digits if present
   if (aadhaar && aadhaar.length !== 12) {
     errors.push({
@@ -201,6 +213,29 @@ function validateRow(clean: any, rowNumber: number) {
   return errors;
 }
 
+// ✅ NEW: ensure unique indexes for badgeNo + adhaarNumber (only when non-empty)
+async function ensureIndexes(db: any) {
+  const col = db.collection(COLLECTION);
+
+  await col.createIndex(
+    { badgeNo: 1 },
+    {
+      unique: true,
+      name: "uniq_badgeNo",
+      partialFilterExpression: { badgeNo: { $type: "string", $ne: "" } },
+    }
+  );
+
+  await col.createIndex(
+    { adhaarNumber: 1 },
+    {
+      unique: true,
+      name: "uniq_adhaarNumber",
+      partialFilterExpression: { adhaarNumber: { $type: "string", $ne: "" } },
+    }
+  );
+}
+
 export async function POST(req: Request) {
   try {
     const contentType = req.headers.get("content-type") || "";
@@ -236,6 +271,12 @@ export async function POST(req: Request) {
 
     const toInsert: any[] = [];
     const allErrors: RowErr[] = [];
+
+    // ✅ detect duplicates inside the uploaded Excel itself
+    const badgeFirstRow = new Map<string, number>();
+    const aadhaarFirstRow = new Map<string, number>();
+    const badgeToRows = new Map<string, number[]>(); // for DB duplicate mapping
+    const aadhaarToRows = new Map<string, number[]>();
 
     rows.forEach((r, idx) => {
       const rowNumber = idx + 2; // header row is 1
@@ -307,6 +348,36 @@ export async function POST(req: Request) {
         rowNumber
       );
 
+      // ✅ duplicate checks within the same upload file
+      const b = String(clean.badgeNo || "").trim();
+      const a = digitsOnly(clean.adhaarNumber || "");
+
+      if (b) {
+        if (badgeFirstRow.has(b)) {
+          errs.push({
+            row: rowNumber,
+            field: "Badge No",
+            message: `Duplicate Badge No in Excel (already in row ${badgeFirstRow.get(b)}).`,
+          });
+        } else {
+          badgeFirstRow.set(b, rowNumber);
+        }
+        badgeToRows.set(b, [...(badgeToRows.get(b) || []), rowNumber]);
+      }
+
+      if (a) {
+        if (aadhaarFirstRow.has(a)) {
+          errs.push({
+            row: rowNumber,
+            field: "Aadhaar",
+            message: `Duplicate Aadhaar in Excel (already in row ${aadhaarFirstRow.get(a)}).`,
+          });
+        } else {
+          aadhaarFirstRow.set(a, rowNumber);
+        }
+        aadhaarToRows.set(a, [...(aadhaarToRows.get(a) || []), rowNumber]);
+      }
+
       const md = parseExcelDate(clean.medicalDateRaw);
       if (clean.medicalDateRaw && !md) {
         errs.push({
@@ -347,7 +418,7 @@ export async function POST(req: Request) {
       });
     });
 
-    // ✅ ALL OR NOTHING
+    // ✅ ALL OR NOTHING (validation + Excel-internal duplicates)
     if (allErrors.length) {
       return NextResponse.json(
         {
@@ -360,14 +431,88 @@ export async function POST(req: Request) {
     }
 
     const db = await getDb();
-    const result = await db
-      .collection(COLLECTION)
-      .insertMany(toInsert, { ordered: true });
 
-    return NextResponse.json(
-      { ok: true, inserted: result.insertedCount },
-      { status: 201 }
-    );
+    // ✅ ensure unique indexes (may fail if DB already contains duplicates)
+    try {
+      await ensureIndexes(db);
+    } catch (e: any) {
+      console.error("ensureIndexes failed (bulk customers):", e?.message || e);
+    }
+
+    const col = db.collection(COLLECTION);
+
+    // ✅ check DB for existing badge/aadhaar BEFORE insertMany
+    const badgeList = Array.from(badgeToRows.keys());
+    const aadhaarList = Array.from(aadhaarToRows.keys());
+
+    const dupErrors: RowErr[] = [];
+
+    if (badgeList.length) {
+      const existingBadges = await col
+        .find({ badgeNo: { $in: badgeList } }, { projection: { badgeNo: 1 } })
+        .toArray();
+
+      for (const x of existingBadges) {
+        const b = String(x.badgeNo || "").trim();
+        const rowsForB = badgeToRows.get(b) || [];
+        for (const rn of rowsForB) {
+          dupErrors.push({
+            row: rn,
+            field: "Badge No",
+            message: "Badge No already exists in database.",
+          });
+        }
+      }
+    }
+
+    if (aadhaarList.length) {
+      const existingAadhaar = await col
+        .find({ adhaarNumber: { $in: aadhaarList } }, { projection: { adhaarNumber: 1 } })
+        .toArray();
+
+      for (const x of existingAadhaar) {
+        const a = String(x.adhaarNumber || "").trim();
+        const rowsForA = aadhaarToRows.get(a) || [];
+        for (const rn of rowsForA) {
+          dupErrors.push({
+            row: rn,
+            field: "Aadhaar",
+            message: "Aadhaar already exists in database.",
+          });
+        }
+      }
+    }
+
+    if (dupErrors.length) {
+      return NextResponse.json(
+        {
+          error: "Duplicate Badge/Aadhaar found in database. Fix and upload again.",
+          errors: dupErrors.slice(0, 500),
+          totalErrors: dupErrors.length,
+        },
+        { status: 409 }
+      );
+    }
+
+    try {
+      const result = await col.insertMany(toInsert, { ordered: true });
+
+      return NextResponse.json(
+        { ok: true, inserted: result.insertedCount },
+        { status: 201 }
+      );
+    } catch (err: any) {
+      // ✅ If unique index exists, Mongo may throw duplicate key on concurrency
+      if (err?.code === 11000) {
+        return NextResponse.json(
+          {
+            error: "Duplicate Badge/Aadhaar detected while saving. Please try again.",
+          },
+          { status: 409 }
+        );
+      }
+      throw err;
+    }
   } catch (e: any) {
     console.error("Bulk upload error:", e?.message || e, e);
     return NextResponse.json(
