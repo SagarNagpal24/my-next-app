@@ -15,7 +15,7 @@ export default function LoginPage() {
           Sign in with your user
         </button>
         <p style={{ marginTop: 12, fontSize: 12, color: "#666" }}>
-          Sign in .
+          
         </p>
       </div>
     </div>
