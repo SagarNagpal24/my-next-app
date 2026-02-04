@@ -1,11 +1,11 @@
- "use client";
+"use client";
 
 import React from "react";
 
 type Gender = "M" | "F" | "Other" | "";
 type Blacklisted = "Yes" | "No" | "";
 
-// ✅ UPDATED Department options (added all you listed)
+// ✅ UPDATED Department options (aligned with API)
 type Department =
   | ""
   | "Security"
@@ -23,7 +23,10 @@ type Department =
   | "Sewa-Collection"
   | "Water"
   | "Sewa-Samiti"
-   ;
+  | "Sangat"
+  | "Medical"
+  | "VIP Block"
+  | "Langar";
 
 const DEPARTMENT_OPTIONS: Exclude<Department, "">[] = [
   "Security",
@@ -41,7 +44,10 @@ const DEPARTMENT_OPTIONS: Exclude<Department, "">[] = [
   "Sewa-Collection",
   "Water",
   "Sewa-Samiti",
-  
+  "Sangat",
+  "Medical",
+  "VIP Block",
+  "Langar",
 ];
 
 // ✅ Image payload (compressed)
@@ -59,7 +65,11 @@ type Customer = {
   badgeNo?: string;
   fatherOrHusbandName?: string;
   gender?: Gender | string;
+
+  // ✅ DOB + Age (Age is still stored for compatibility; DOB makes age auto-increment)
+  dob?: string | null; // YYYY-MM-DD
   age?: number | null;
+
   address?: string;
   mobile?: string;
   adhaarNumber?: string;
@@ -122,6 +132,41 @@ function fmtExcelDate(d?: string | null) {
 
 function digitsOnly(s: string) {
   return (s || "").replace(/\D/g, "");
+}
+
+function Field({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className="block">
+      <div className="mb-1 text-[11px] font-semibold text-zinc-700 dark:text-zinc-300">
+        {label}
+      </div>
+      {children}
+    </label>
+  );
+}
+
+// ✅ DOB helpers (UTC-safe)
+function parseDobYmd(dobYmd: any): Date | null {
+  const s = String(dobYmd ?? "").trim();
+  if (!s) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  const d = new Date(s + "T00:00:00.000Z");
+  if (Number.isNaN(d.getTime())) return null;
+  return d;
+}
+
+function calcAgeFromDob(dob: Date): number {
+  const now = new Date();
+  let age = now.getUTCFullYear() - dob.getUTCFullYear();
+  const m = now.getUTCMonth() - dob.getUTCMonth();
+  if (m < 0 || (m === 0 && now.getUTCDate() < dob.getUTCDate())) age--;
+  return age;
 }
 
 // --- UI helpers for images ---
@@ -218,7 +263,13 @@ function validateCustomerInput(c: Customer) {
   const addr = (c.address || "").trim();
   const mob = digitsOnly(c.mobile || "").trim();
   const gender = (c.gender as any) || "";
-  const age = c.age;
+
+  // ✅ prefer DOB if present
+  const dobStr = String(c.dob || "").trim();
+  const dob = dobStr ? parseDobYmd(dobStr) : null;
+
+  // fallback legacy age
+  const ageVal = c.age;
 
   if (!name) return { ok: false, msg: "Name is required." };
 
@@ -234,13 +285,21 @@ function validateCustomerInput(c: Customer) {
   if (!fh) return { ok: false, msg: "Father/Husband Name is mandatory." };
   if (!addr) return { ok: false, msg: "Address is mandatory." };
   if (!gender) return { ok: false, msg: "Gender is mandatory." };
-  if (age === null || age === undefined || Number.isNaN(Number(age)))
-    return { ok: false, msg: "Age is mandatory." };
-  if (Number(age) <= 0) return { ok: false, msg: "Age must be a valid number." };
+
+  // ✅ DOB/age rules
+  let age: number | null = null;
+  if (dob) age = calcAgeFromDob(dob);
+  else if (dobStr && !dob) return { ok: false, msg: "DOB must be a valid date (YYYY-MM-DD)." };
+  else if (ageVal === null || ageVal === undefined || Number.isNaN(Number(ageVal)))
+    return { ok: false, msg: "DOB or Age is mandatory." };
+  else age = Number(ageVal);
+
+  if (age === null || Number.isNaN(age) || age <= 0 || age > 120)
+    return { ok: false, msg: "Age must be valid (1–120). Use DOB for auto age." };
 
   if (!mob) return { ok: false, msg: "Mobile is mandatory." };
 
-  // ✅ NEW: 10 digit rule
+  // ✅ 10 digit rule
   if (mob && mob.length !== 10) return { ok: false, msg: "Mobile must be exactly 10 digits." };
 
   if (aadhaar && aadhaar.length !== 12)
@@ -303,6 +362,7 @@ export default function CustomersPage() {
     { label: "Aadhaar", width: "w-28" },
     { label: "Father/Husband", width: "w-36" },
     { label: "Gender", width: "w-16" },
+    { label: "DOB", width: "w-24" },
     { label: "Age", width: "w-12" },
     { label: "Department", width: "w-24" },
     { label: "Address", width: "w-48" },
@@ -404,13 +464,18 @@ export default function CustomersPage() {
       return;
     }
 
+    // ✅ compute age from DOB if present (keeps other pages compatible)
+    const dob = editing.dob ? parseDobYmd(editing.dob) : null;
+    const computedAge = dob ? calcAgeFromDob(dob) : (editing.age ?? null);
+
     setSaving(true);
     try {
       const { _id, ...rest } = editing;
 
       const payload = {
         ...rest,
-        adhaarNumber: rest.adhaarNumber ? digitsOnly(String(rest.adhaarNumber)).slice(0, 12) : "",
+        dob: editing.dob ? String(editing.dob).slice(0, 10) : null,
+adhaarNumber: rest.adhaarNumber ? digitsOnly(String(rest.adhaarNumber)).slice(0, 12) : "",
         mobile: rest.mobile ? digitsOnly(String(rest.mobile)).slice(0, 10) : "",
         emergencyNumber: rest.emergencyNumber ? digitsOnly(String(rest.emergencyNumber)) : "",
         medicalDate: rest.medicalDate ? String(rest.medicalDate).slice(0, 10) : null,
@@ -454,6 +519,7 @@ export default function CustomersPage() {
       "Aadhaar",
       "Father/Husband",
       "Gender",
+      "DOB",
       "Age",
       "Department",
       "Address",
@@ -480,6 +546,7 @@ export default function CustomersPage() {
         c.adhaarNumber || "",
         c.fatherOrHusbandName || "",
         c.gender || "",
+        c.dob ? String(c.dob).slice(0, 10) : "",
         c.age ?? "",
         (c.department as any) || "",
         c.address || "",
@@ -708,6 +775,10 @@ export default function CustomersPage() {
       return { ...prev, ...patch };
     });
   }
+
+  // computed age for edit modal display
+  const editDob = editing?.dob ? parseDobYmd(editing.dob) : null;
+  const editComputedAge = editDob ? calcAgeFromDob(editDob) : (editing?.age ?? null);
 
   return (
     <div className="app-page w-full max-w-none">
@@ -946,7 +1017,7 @@ export default function CustomersPage() {
 
         {/* Table */}
         <div className="w-full overflow-x-auto mt-4">
-          <table className="min-w-[2200px] table-fixed border-collapse text-xs">
+          <table className="min-w-[2400px] table-fixed border-collapse text-xs">
             <thead className="thead">
               <tr>
                 {columns.map((c) => (
@@ -998,6 +1069,7 @@ export default function CustomersPage() {
                           onClick={() =>
                             setEditing({
                               ...c,
+                              dob: toDateInputValue(c.dob),
                               medicalDate: toDateInputValue(c.medicalDate),
                               blacklisted: (c.blacklisted as any) || "No",
                               department: (c.department as any) || "",
@@ -1033,6 +1105,11 @@ export default function CustomersPage() {
                       {/* Gender */}
                       <td className="td whitespace-normal break-words px-2 py-2">
                         {(c.gender as any) || "-"}
+                      </td>
+
+                      {/* DOB */}
+                      <td className="td whitespace-normal break-words px-2 py-2">
+                        {c.dob ? String(c.dob).slice(0, 10) : "-"}
                       </td>
 
                       {/* Age */}
@@ -1111,6 +1188,7 @@ export default function CustomersPage() {
                             onClick={() =>
                               setEditing({
                                 ...c,
+                                dob: toDateInputValue(c.dob),
                                 medicalDate: toDateInputValue(c.medicalDate),
                                 blacklisted: (c.blacklisted as any) || "No",
                                 department: (c.department as any) || "",
@@ -1164,7 +1242,7 @@ export default function CustomersPage() {
         </div>
       )}
 
-      {/* Edit Modal (✅ now includes photo upload) */}
+      {/* Edit Modal (✅ now includes DOB + auto Age) */}
       {editing && (
         <div className="fixed inset-0 z-50 bg-black/40 p-4 overflow-y-auto">
           <div className="mx-auto w-full max-w-3xl rounded-2xl bg-white p-6 shadow-lg dark:bg-zinc-950 my-6">
@@ -1239,18 +1317,34 @@ export default function CustomersPage() {
                 <option value="Other">Other</option>
               </select>
 
+              {/* ✅ DOB input (preferred) */}
+              <input
+                type="date"
+                className="app-input app-input-sm"
+                value={editing.dob ? String(editing.dob).slice(0, 10) : ""}
+                onChange={(e) => {
+                  const dobYmd = e.target.value;
+                  const d = dobYmd ? parseDobYmd(dobYmd) : null;
+                  const age = d ? calcAgeFromDob(d) : editing.age ?? null;
+                  setEditing({ ...editing, dob: dobYmd, age });
+                }}
+                placeholder="DOB"
+              />
+
+              {/* ✅ Age stays for compatibility, but auto when DOB is present */}
               <input
                 className="app-input app-input-sm"
-                value={String(editing.age ?? "")}
+                value={String(editing.dob ? (editComputedAge ?? "") : (editing.age ?? ""))}
                 onChange={(e) =>
                   setEditing({
                     ...editing,
-                    age: e.target.value ? Number(e.target.value) : null,
-                  })
+})
                 }
                 placeholder="Age"
                 inputMode="numeric"
-                required
+                disabled={!!editing.dob}
+                title={editing.dob ? "Age is auto-calculated from DOB" : "Enter Age (or set DOB)"}
+                required={!editing.dob}
               />
 
               <select
@@ -1306,7 +1400,8 @@ export default function CustomersPage() {
                 inputMode="numeric"
               />
 
-              <input
+                            <Field label="Medical Date">
+<input
                 type="date"
                 className="app-input app-input-sm"
                 value={(editing.medicalDate as any) || ""}
@@ -1314,8 +1409,8 @@ export default function CustomersPage() {
                   setEditing({ ...editing, medicalDate: e.target.value })
                 }
               />
-
-              <input
+              </Field>
+<input
                 className="app-input app-input-sm sm:col-span-2 lg:col-span-3"
                 value={editing.address || ""}
                 onChange={(e) =>
@@ -1541,7 +1636,7 @@ export default function CustomersPage() {
             <div className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
               Note: Either <span className="font-semibold">Badge No</span> or{" "}
               <span className="font-semibold">Aadhaar</span> must be filled. Mobile must be{" "}
-              <span className="font-semibold">10 digits</span>.
+              <span className="font-semibold">10 digits</span>. If DOB is set, Age is auto-calculated.
             </div>
           </div>
         </div>

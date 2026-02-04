@@ -20,7 +20,10 @@ const DEPARTMENTS = [
   "Sewa-Collection",
   "Water",
   "Sewa-Samiti",
-  
+  "Sangat",
+  "Medical",
+  "VIP Block",
+  "Langar",
 ] as const;
 
 function toNum(v: any) {
@@ -37,6 +40,35 @@ function normDept(v: any) {
   const s = String(v ?? "").trim();
   if (!s) return "";
   return DEPARTMENTS.includes(s as any) ? s : "";
+}
+
+// ✅ Parse YYYY-MM-DD DOB safely (store as Date at UTC midnight)
+function parseDob(dobYmd: any): Date | null {
+  const s = String(dobYmd ?? "").trim();
+  if (!s) return null;
+  // expect YYYY-MM-DD (date input gives this)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  const d = new Date(s + "T00:00:00.000Z");
+  if (Number.isNaN(d.getTime())) return null;
+  return d;
+}
+
+// ✅ Age from DOB (full years)
+function calcAgeFromDob(dob: Date): number {
+  const now = new Date();
+  let age = now.getUTCFullYear() - dob.getUTCFullYear();
+
+  const m = now.getUTCMonth() - dob.getUTCMonth();
+  if (m < 0 || (m === 0 && now.getUTCDate() < dob.getUTCDate())) age--;
+
+  return age;
+}
+
+function dobToYmd(dob: any) {
+  if (!dob) return "";
+  const d = dob instanceof Date ? dob : new Date(dob);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toISOString().slice(0, 10);
 }
 
 // ✅ image validation for compressed dataUrl payload
@@ -60,8 +92,7 @@ function isValidImgData(x: any) {
   // must be a dataURL
   if (!x.dataUrl.startsWith("data:image/")) return false;
 
-  // small-ish cap (prevents huge base64 saving in DB)
-  // 1.2MB compressed is already too big for your use case
+  // size cap to protect DB/server
   if (x.size > 1_200_000) return false;
 
   // optional filename ok
@@ -80,9 +111,7 @@ function pickImg(x: any): ImgData | null {
   };
 }
 
-// ✅ Ensure unique indexes for badgeNo + adhaarNumber (only when non-empty)
-// NOTE: if your DB already contains duplicates, createIndex will FAIL.
-// We still do a manual pre-check (below) so duplicates cannot be inserted.
+// ✅ ensure unique indexes for badgeNo + adhaarNumber (only when non-empty)
 async function ensureIndexes(db: any) {
   const col = db.collection(COLLECTION);
 
@@ -137,9 +166,10 @@ export async function GET(req: Request) {
     if (gender) filter.gender = gender;
     if (blacklisted) filter.blacklisted = blacklisted;
 
-    // ✅ department filter (exact match)
     if (department) filter.department = department;
 
+    // NOTE: ageMin/ageMax still filter on stored age for now (compat).
+    // If you want ageMin/ageMax to be based on DOB too, we can switch to an aggregation pipeline.
     if (ageMin !== undefined || ageMax !== undefined) {
       filter.age = {};
       if (ageMin !== undefined) filter.age.$gte = ageMin;
@@ -153,7 +183,6 @@ export async function GET(req: Request) {
     }
 
     const db = await getDb();
-
     try {
       await ensureIndexes(db);
     } catch (e: any) {
@@ -167,10 +196,25 @@ export async function GET(req: Request) {
       .limit(limit)
       .toArray();
 
-    const safeItems = items.map((x: any) => ({
-      ...x,
-      _id: x._id?.toString?.() ?? String(x._id),
-    }));
+    // ✅ ALWAYS compute age from DOB when DOB exists (so age auto-updates every year)
+    const safeItems = items.map((x: any) => {
+      const dobYmd = dobToYmd(x.dob);
+      let age = x.age;
+
+      if (dobYmd) {
+        const dob = new Date(dobYmd + "T00:00:00.000Z");
+        if (!Number.isNaN(dob.getTime())) {
+          age = calcAgeFromDob(dob);
+        }
+      }
+
+      return {
+        ...x,
+        _id: x._id?.toString?.() ?? String(x._id),
+        dob: dobYmd || "",
+        age, // ✅ returned age is dynamic (computed from dob if present)
+      };
+    });
 
     return NextResponse.json({ items: safeItems, departments: DEPARTMENTS });
   } catch (e: any) {
@@ -197,7 +241,9 @@ export async function POST(req: Request) {
 
     const department = normDept(body.department || "");
 
-    const age =
+    // ✅ DOB (preferred). Keep legacy age for older clients.
+    const dob = parseDob(body.dob ?? body.dateOfBirth ?? "");
+    const legacyAge =
       body.age === "" || body.age === null || body.age === undefined
         ? null
         : Number(body.age);
@@ -226,9 +272,13 @@ export async function POST(req: Request) {
         { status: 400 }
       );
 
-    if (age === null || Number.isNaN(age) || age <= 0) {
+    let age: number | null = null;
+    if (dob) age = calcAgeFromDob(dob);
+    else age = legacyAge;
+
+    if (age === null || Number.isNaN(age) || age <= 0 || age > 120) {
       return NextResponse.json(
-        { error: "Age is required and must be valid" },
+        { error: "Age is required and must be valid (use DOB or Age 1–120)" },
         { status: 400 }
       );
     }
@@ -241,7 +291,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // ✅ Aadhaar must be 12 digits if provided
     if (adhaarNumber && adhaarNumber.length !== 12) {
       return NextResponse.json(
         { error: "Aadhaar must be exactly 12 digits (if provided)" },
@@ -249,7 +298,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // ✅ Gender allowed values
     if (!["M", "F", "Other"].includes(gender)) {
       return NextResponse.json(
         { error: "Gender must be M, F, or Other" },
@@ -257,7 +305,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // ✅ Blacklisted allowed values
     if (blacklisted && !["Yes", "No"].includes(blacklisted)) {
       return NextResponse.json(
         { error: "Blacklisted must be Yes or No" },
@@ -265,7 +312,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // ✅ Department allowed values (if provided)
     const rawDept = String(body.department || "").trim();
     if (rawDept && !department) {
       return NextResponse.json(
@@ -275,55 +321,69 @@ export async function POST(req: Request) {
     }
 
     const medicalDate = body.medicalDate ? new Date(String(body.medicalDate)) : null;
-    if (body.medicalDate && (medicalDate === null || Number.isNaN(medicalDate.getTime()))) {
+    if (
+      body.medicalDate &&
+      (medicalDate === null || Number.isNaN(medicalDate.getTime()))
+    ) {
       return NextResponse.json({ error: "Invalid medical date" }, { status: 400 });
     }
 
-    // ✅ validate image payloads (compressed from UI)
     const passportPhoto = body.passportPhoto ?? null;
     const aadhaarFrontPhoto = body.aadhaarFrontPhoto ?? null;
     const aadhaarBackPhoto = body.aadhaarBackPhoto ?? null;
     const medicalPhoto = body.medicalPhoto ?? null;
 
     if (!isValidImgData(passportPhoto))
-      return NextResponse.json({ error: "Invalid passport photo payload" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Invalid passport photo payload" },
+        { status: 400 }
+      );
     if (!isValidImgData(aadhaarFrontPhoto))
-      return NextResponse.json({ error: "Invalid Aadhaar front photo payload" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Invalid Aadhaar front photo payload" },
+        { status: 400 }
+      );
     if (!isValidImgData(aadhaarBackPhoto))
-      return NextResponse.json({ error: "Invalid Aadhaar back photo payload" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Invalid Aadhaar back photo payload" },
+        { status: 400 }
+      );
     if (!isValidImgData(medicalPhoto))
-      return NextResponse.json({ error: "Invalid medical photo payload" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Invalid medical photo payload" },
+        { status: 400 }
+      );
 
     const db = await getDb();
-
-    // ✅ try to ensure indexes (may fail if DB already has duplicates)
     try {
       await ensureIndexes(db);
     } catch (e: any) {
       console.error("ensureIndexes failed (customers POST):", e?.message || e);
     }
 
-    // ✅ NEW: manual uniqueness check (works even if indexes failed due to existing duplicates)
-    // (Also makes error message immediate and clear)
     const col = db.collection(COLLECTION);
 
+    // ✅ Pre-check duplicates (friendly error instead of 11000)
     if (badgeNo) {
-      const existsBadge = await col.findOne(
-        { badgeNo },
-        { projection: { _id: 1 } }
-      );
-      if (existsBadge) {
-        return NextResponse.json({ error: "Badge No already exists." }, { status: 409 });
+      const existing = await col.findOne({ badgeNo }, { projection: { _id: 1 } });
+      if (existing) {
+        return NextResponse.json(
+          { error: "Badge No already exists in database." },
+          { status: 409 }
+        );
       }
     }
 
     if (adhaarNumber) {
-      const existsAadhaar = await col.findOne(
+      const existing = await col.findOne(
         { adhaarNumber },
         { projection: { _id: 1 } }
       );
-      if (existsAadhaar) {
-        return NextResponse.json({ error: "Aadhaar already exists." }, { status: 409 });
+      if (existing) {
+        return NextResponse.json(
+          { error: "Aadhaar already exists in database." },
+          { status: 409 }
+        );
       }
     }
 
@@ -332,7 +392,8 @@ export async function POST(req: Request) {
       badgeNo,
       fatherOrHusbandName,
       gender,
-      age,
+      age, // keep for existing pages
+      dob: dob ?? null, // ✅ store DOB for future-proof age
       address,
       mobile,
       adhaarNumber: adhaarNumber || "",
@@ -342,7 +403,6 @@ export async function POST(req: Request) {
       medicalDate,
       notes: String(body.notes || "").trim(),
 
-      // ✅ store compressed images (dataUrl + meta)
       passportPhoto: pickImg(passportPhoto),
       aadhaarFrontPhoto: pickImg(aadhaarFrontPhoto),
       aadhaarBackPhoto: pickImg(aadhaarBackPhoto),
@@ -360,18 +420,12 @@ export async function POST(req: Request) {
         { status: 201 }
       );
     } catch (err: any) {
-      // ✅ duplicate badge/aadhaar handling (in case of concurrency when index exists)
       if (err?.code === 11000) {
-        const msg =
-          err?.keyPattern?.badgeNo
-            ? "Badge No already exists."
-            : err?.keyPattern?.adhaarNumber
-            ? "Aadhaar already exists."
-            : "Badge No / Aadhaar already exists.";
-
-        return NextResponse.json({ error: msg }, { status: 409 });
+        return NextResponse.json(
+          { error: "Duplicate Badge/Aadhaar detected while saving." },
+          { status: 409 }
+        );
       }
-
       throw err;
     }
   } catch (e: any) {

@@ -68,7 +68,9 @@ type FormState = {
 
   fatherOrHusbandName: string; // required
   gender: Gender; // required
-  age: string; // required number
+
+  // ✅ NEW: Date of Birth instead of Age input
+  dob: string; // YYYY-MM-DD (required)
 
   address: string; // required
   mobile: string; // required digits
@@ -137,6 +139,24 @@ function formatBytes(bytes: number) {
     i++;
   }
   return `${v.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
+}
+
+// ✅ NEW: Calculate age from DOB (full years)
+function calcAgeFromDob(dobYmd: string) {
+  const s = String(dobYmd || "").trim();
+  if (!s) return null;
+
+  const dob = new Date(s + "T00:00:00");
+  if (Number.isNaN(dob.getTime())) return null;
+
+  const now = new Date();
+  let age = now.getFullYear() - dob.getFullYear();
+
+  const m = now.getMonth() - dob.getMonth();
+  if (m < 0 || (m === 0 && now.getDate() < dob.getDate())) {
+    age--;
+  }
+  return age;
 }
 
 /**
@@ -238,7 +258,7 @@ export default function Home() {
 
     fatherOrHusbandName: "",
     gender: "",
-    age: "",
+    dob: "",
 
     address: "",
     mobile: "",
@@ -256,6 +276,8 @@ export default function Home() {
     aadhaarBackPhoto: null,
     medicalPhoto: null,
   });
+
+  const computedAge = React.useMemo(() => calcAgeFromDob(form.dob), [form.dob]);
 
   const [errors, setErrors] = React.useState<Record<string, string>>({});
   const [saving, setSaving] = React.useState(false);
@@ -285,11 +307,12 @@ export default function Home() {
     const mobileDigits = digitsOnly(form.mobile);
     if (!mobileDigits) e.mobile = "Mobile is required.";
 
-    if (!form.age.trim()) e.age = "Age is required.";
-    else if (!/^\d+$/.test(form.age.trim())) e.age = "Age must be a number.";
+    // ✅ DOB required + age calculation
+    if (!form.dob.trim()) e.dob = "Date of Birth is required.";
     else {
-      const n = Number(form.age);
-      if (Number.isNaN(n) || n <= 0 || n > 120) e.age = "Age must be 1–120.";
+      const age = calcAgeFromDob(form.dob);
+      if (age === null) e.dob = "Invalid Date of Birth.";
+      else if (age <= 0 || age > 120) e.dob = "Age must be 1–120 (based on DOB).";
     }
 
     const badge = form.badgeNo.trim();
@@ -299,7 +322,7 @@ export default function Home() {
       e.adhaarNumber = "Either Aadhaar or Badge No is required.";
     }
 
-    // ✅ NEW: validate badge last 4 digits (only if badge is provided)
+    // ✅ validate badge last 4 digits (only if badge is provided)
     if (badge && !badgeLast4Valid(badge)) {
       e.badgeNo =
         "Badge No last 4 digits must be exactly 4 numbers (e.g., XXXX1234).";
@@ -315,7 +338,6 @@ export default function Home() {
     if (form.blacklisted && !["Yes", "No"].includes(form.blacklisted))
       e.blacklisted = "Blacklisted must be Yes or No.";
 
-    // if (!form.department) e.department = "Department is required.";
     if (form.department && !DEPARTMENT_OPTIONS.includes(form.department as any))
       e.department = "Invalid Department.";
 
@@ -375,6 +397,14 @@ export default function Home() {
       return;
     }
 
+    const age = calcAgeFromDob(form.dob);
+
+    // Safety (validate() already ensures)
+    if (age === null) {
+      setStatus({ type: "err", msg: "Invalid Date of Birth." });
+      return;
+    }
+
     setSaving(true);
     try {
       const payload = {
@@ -382,7 +412,10 @@ export default function Home() {
         badgeNo: form.badgeNo.trim(),
         fatherOrHusbandName: form.fatherOrHusbandName.trim(),
         gender: form.gender,
-        age: Number(form.age),
+
+        // ✅ send computed age to backend (other pages remain unchanged)
+        age,
+
         address: form.address.trim(),
         mobile: digitsOnly(form.mobile),
         adhaarNumber: digitsOnly(form.adhaarNumber).slice(0, 12),
@@ -420,7 +453,7 @@ export default function Home() {
         adhaarNumber: "",
         fatherOrHusbandName: "",
         gender: "",
-        age: "",
+        dob: "",
         address: "",
         mobile: "",
         department: "",
@@ -444,14 +477,13 @@ export default function Home() {
 
   return (
     <div className="app-page">
-      {/* ✅ NEW: Center overlay for save / error (over old screen) */}
+      {/* ✅ Center overlay for save / error (over old screen) */}
       {status.type !== "idle" && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
           role="dialog"
           aria-modal="true"
           onClick={(ev) => {
-            // close only if user clicks backdrop (not the card)
             if (ev.target === ev.currentTarget) setStatus({ type: "idle", msg: "" });
           }}
         >
@@ -491,7 +523,7 @@ export default function Home() {
 
           <div className="flex flex-wrap items-center gap-2">
             <span className="app-chip">
-              Required: Name, Age, Gender, Mobile, Father/Husband, Address
+              Required: Name, DOB, Gender, Mobile, Father/Husband, Address
             </span>
             <span className="app-chip">Badge or Aadhaar required</span>
           </div>
@@ -579,17 +611,23 @@ export default function Home() {
                 </select>
               </Field>
 
-              <Field label="Age *" error={errors.age}>
+              {/* ✅ NEW: DOB input + computed age */}
+              <Field label="Date of Birth *" error={errors.dob}>
                 <input
+                  type="date"
                   className={`app-input ${
-                    errors.age ? "border-red-400 focus:border-red-500" : ""
+                    errors.dob ? "border-red-400 focus:border-red-500" : ""
                   }`}
-                  value={form.age}
-                  onChange={(e) => setField("age", digitsOnly(e.target.value))}
-                  inputMode="numeric"
-                  placeholder="Age"
+                  value={form.dob}
+                  onChange={(e) => setField("dob", e.target.value)}
                   required
                 />
+                <div className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
+                  Age (auto):{" "}
+                  <span className="font-semibold">
+                    {computedAge === null ? "-" : computedAge}
+                  </span>
+                </div>
               </Field>
 
               {/* ✅ UPDATED Department */}
@@ -804,7 +842,7 @@ export default function Home() {
                   adhaarNumber: "",
                   fatherOrHusbandName: "",
                   gender: "",
-                  age: "",
+                  dob: "",
                   address: "",
                   mobile: "",
                   department: "",

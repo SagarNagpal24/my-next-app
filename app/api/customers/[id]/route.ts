@@ -4,7 +4,6 @@ import { getDb } from "../../../lib/mongodb"; // keep your current working relat
 
 const COLLECTION = "customers";
 
-// ✅ UPDATED Department options (same as UI + GET/POST route)
 type Department =
   | ""
   | "Security"
@@ -63,6 +62,27 @@ function toObjectId(raw: string) {
   }
 }
 
+// ✅ Parse YYYY-MM-DD DOB safely (store as Date at UTC midnight)
+function parseDob(dobYmd: any): Date | null {
+  const s = String(dobYmd ?? "").trim();
+  if (!s) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  const d = new Date(s + "T00:00:00.000Z");
+  if (Number.isNaN(d.getTime())) return null;
+  return d;
+}
+
+// ✅ Age from DOB (full years)
+function calcAgeFromDob(dob: Date): number {
+  const now = new Date();
+  let age = now.getUTCFullYear() - dob.getUTCFullYear();
+
+  const m = now.getUTCMonth() - dob.getUTCMonth();
+  if (m < 0 || (m === 0 && now.getUTCDate() < dob.getUTCDate())) age--;
+
+  return age;
+}
+
 // ✅ image validation (same as POST route)
 type ImgData = {
   dataUrl: string;
@@ -78,17 +98,11 @@ function isValidImgData(x: any) {
   if (typeof x.mime !== "string") return false;
   if (typeof x.size !== "number") return false;
 
-  // allow only what UI compressor generates
   if (!["image/webp", "image/jpeg"].includes(x.mime)) return false;
-
-  // must be dataURL
   if (!x.dataUrl.startsWith("data:image/")) return false;
-
-  // size cap to protect DB/server
   if (x.size > 1_200_000) return false;
 
   if (x.filename !== undefined && typeof x.filename !== "string") return false;
-
   return true;
 }
 
@@ -102,7 +116,7 @@ function pickImg(x: any): ImgData | null {
   };
 }
 
-// ✅ NEW: ensure unique indexes for badgeNo + adhaarNumber (only when non-empty)
+// ✅ ensure unique indexes for badgeNo + adhaarNumber (only when non-empty)
 async function ensureIndexes(db: any) {
   const col = db.collection(COLLECTION);
 
@@ -125,13 +139,6 @@ async function ensureIndexes(db: any) {
   );
 }
 
-/**
- * ✅ PUT supports 2 scenarios:
- * 1) UI sends image objects -> we validate & save
- * 2) UI does NOT send images -> we do not touch existing image fields
- *
- * So existing images remain safe unless you explicitly update/clear them.
- */
 export async function PUT(
   req: Request,
   ctx: { params: Promise<{ id: string }> }
@@ -155,10 +162,18 @@ export async function PUT(
     const mobile = digitsOnly(body.mobile || "");
     const blacklisted = String(body.blacklisted || "No").trim();
 
-    // ✅ Department (optional)
     const department = String(body.department || "").trim();
 
-    const age =
+    // ✅ DOB handling (optional)
+    const hasDob = Object.prototype.hasOwnProperty.call(body, "dob");
+    const dob =
+      hasDob && String(body.dob || "").trim() === ""
+        ? null
+        : hasDob
+        ? parseDob(body.dob)
+        : undefined;
+
+    const legacyAge =
       body.age === "" || body.age === null || body.age === undefined
         ? null
         : Number(body.age);
@@ -187,14 +202,6 @@ export async function PUT(
         { status: 400 }
       );
 
-    if (age === null || Number.isNaN(age) || age <= 0) {
-      return NextResponse.json(
-        { error: "Age is required and must be valid" },
-        { status: 400 }
-      );
-    }
-
-    // ✅ Badge OR Aadhaar required
     if (!badgeNo && !adhaarNumber) {
       return NextResponse.json(
         { error: "Either Badge No or Aadhaar must be filled" },
@@ -202,7 +209,6 @@ export async function PUT(
       );
     }
 
-    // ✅ Aadhaar must be 12 digits if provided
     if (adhaarNumber && adhaarNumber.length !== 12) {
       return NextResponse.json(
         { error: "Aadhaar must be exactly 12 digits (if provided)" },
@@ -210,7 +216,6 @@ export async function PUT(
       );
     }
 
-    // ✅ Gender allowed values
     if (!["M", "F", "Other"].includes(gender)) {
       return NextResponse.json(
         { error: "Gender must be M, F, or Other" },
@@ -218,7 +223,6 @@ export async function PUT(
       );
     }
 
-    // ✅ Blacklisted allowed values
     if (blacklisted && !["Yes", "No"].includes(blacklisted)) {
       return NextResponse.json(
         { error: "Blacklisted must be Yes or No" },
@@ -226,7 +230,6 @@ export async function PUT(
       );
     }
 
-    // ✅ Department validation (optional)
     if (department && !DEPARTMENT_OPTIONS.includes(department as any)) {
       return NextResponse.json(
         { error: `Department must be one of: ${DEPARTMENT_OPTIONS.join(", ")}` },
@@ -240,9 +243,6 @@ export async function PUT(
       return NextResponse.json({ error: "Invalid medical date" }, { status: 400 });
     }
 
-    // ✅ Images (optional in PUT)
-    // If a key is present in body -> we update that field.
-    // If not present -> we do NOT touch existing image in DB.
     const hasPassport = Object.prototype.hasOwnProperty.call(body, "passportPhoto");
     const hasAadhaarFront = Object.prototype.hasOwnProperty.call(body, "aadhaarFrontPhoto");
     const hasAadhaarBack = Object.prototype.hasOwnProperty.call(body, "aadhaarBackPhoto");
@@ -262,35 +262,67 @@ export async function PUT(
     }
 
     const db = await getDb();
-
-    // ✅ try to ensure indexes (may fail if DB already has duplicates)
     try {
       await ensureIndexes(db);
     } catch (e: any) {
-      console.error("ensureIndexes failed (customer PUT):", e?.message || e);
+      console.error("ensureIndexes failed (customers PUT):", e?.message || e);
     }
 
-    // ✅ NEW: manual uniqueness check against other docs (exclude current _id)
     const col = db.collection(COLLECTION);
 
+    // ✅ Pre-check duplicates (exclude current doc)
     if (badgeNo) {
-      const existsBadge = await col.findOne(
-        { _id: { $ne: oid }, badgeNo },
+      const existing = await col.findOne(
+        { badgeNo, _id: { $ne: oid } },
         { projection: { _id: 1 } }
       );
-      if (existsBadge) {
-        return NextResponse.json({ error: "Badge No already exists." }, { status: 409 });
+      if (existing) {
+        return NextResponse.json(
+          { error: "Badge No already exists in database." },
+          { status: 409 }
+        );
       }
     }
 
     if (adhaarNumber) {
-      const existsAadhaar = await col.findOne(
-        { _id: { $ne: oid }, adhaarNumber },
+      const existing = await col.findOne(
+        { adhaarNumber, _id: { $ne: oid } },
         { projection: { _id: 1 } }
       );
-      if (existsAadhaar) {
-        return NextResponse.json({ error: "Aadhaar already exists." }, { status: 409 });
+      if (existing) {
+        return NextResponse.json(
+          { error: "Aadhaar already exists in database." },
+          { status: 409 }
+        );
       }
+    }
+
+    // ✅ Compute age if DOB provided, else if age provided, validate and set.
+    let ageToSet: number | undefined = undefined;
+
+    if (dob instanceof Date) {
+      const computed = calcAgeFromDob(dob);
+      if (computed <= 0 || computed > 120) {
+        return NextResponse.json(
+          { error: "Age must be 1–120 (based on DOB)." },
+          { status: 400 }
+        );
+      }
+      ageToSet = computed;
+    } else if (hasDob && dob === null) {
+      // DOB cleared => require age
+      if (legacyAge === null || Number.isNaN(legacyAge) || legacyAge <= 0 || legacyAge > 120) {
+        return NextResponse.json(
+          { error: "Age is required (DOB cleared). Provide Age 1–120." },
+          { status: 400 }
+        );
+      }
+      ageToSet = legacyAge;
+    } else if (legacyAge !== null && !Number.isNaN(legacyAge)) {
+      if (legacyAge <= 0 || legacyAge > 120) {
+        return NextResponse.json({ error: "Age must be 1–120." }, { status: 400 });
+      }
+      ageToSet = legacyAge;
     }
 
     const update: any = {
@@ -298,7 +330,6 @@ export async function PUT(
       badgeNo,
       fatherOrHusbandName,
       gender,
-      age,
       address,
       mobile,
       adhaarNumber: adhaarNumber || "",
@@ -310,7 +341,14 @@ export async function PUT(
       updatedAt: new Date(),
     };
 
-    // ✅ only update images if they were provided in payload
+    if (ageToSet !== undefined) update.age = ageToSet;
+
+    if (hasDob) {
+      if (dob === null) update.dob = null;
+      else if (dob instanceof Date) update.dob = dob;
+      else return NextResponse.json({ error: "Invalid DOB (use YYYY-MM-DD)" }, { status: 400 });
+    }
+
     if (hasPassport) update.passportPhoto = pickImg(body.passportPhoto);
     if (hasAadhaarFront) update.aadhaarFrontPhoto = pickImg(body.aadhaarFrontPhoto);
     if (hasAadhaarBack) update.aadhaarBackPhoto = pickImg(body.aadhaarBackPhoto);
@@ -318,27 +356,13 @@ export async function PUT(
 
     delete update._id;
 
-    try {
-      const result = await col.updateOne({ _id: oid }, { $set: update });
+    const result = await col.updateOne({ _id: oid }, { $set: update });
 
-      if (result.matchedCount === 0) {
-        return NextResponse.json({ error: "Customer not found" }, { status: 404 });
-      }
-
-      return NextResponse.json({ ok: true });
-    } catch (err: any) {
-      // ✅ If unique index exists, Mongo may throw duplicate key on concurrency
-      if (err?.code === 11000) {
-        const msg =
-          err?.keyPattern?.badgeNo
-            ? "Badge No already exists."
-            : err?.keyPattern?.adhaarNumber
-            ? "Aadhaar already exists."
-            : "Badge No / Aadhaar already exists.";
-        return NextResponse.json({ error: msg }, { status: 409 });
-      }
-      throw err;
+    if (result.matchedCount === 0) {
+      return NextResponse.json({ error: "Customer not found" }, { status: 404 });
     }
+
+    return NextResponse.json({ ok: true });
   } catch (e: any) {
     console.error("PUT error:", e);
     return NextResponse.json(
@@ -360,14 +384,6 @@ export async function DELETE(
       return NextResponse.json({ error: "Invalid customer id" }, { status: 400 });
 
     const db = await getDb();
-
-    // ✅ optional: try ensure indexes here too (not required for delete)
-    try {
-      await ensureIndexes(db);
-    } catch (e: any) {
-      console.error("ensureIndexes failed (customer DELETE):", e?.message || e);
-    }
-
     const result = await db.collection(COLLECTION).deleteOne({ _id: oid });
 
     if (result.deletedCount === 0) {

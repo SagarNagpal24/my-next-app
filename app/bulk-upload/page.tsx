@@ -60,7 +60,7 @@ export default function BulkUploadPage() {
           type: "err",
           msg:
             data?.error ||
-            "Upload failed. Fix the errors (including 10-digit mobile numbers) and try again.",
+            "Upload failed. Fix the errors and try again.",
         });
         return;
       }
@@ -146,7 +146,7 @@ export default function BulkUploadPage() {
               {/* ✅ IMPORTANT RULES */}
               <div className="mt-3 text-xs text-zinc-600 space-y-1">
                 <div>
-                  Required: Name, Father/Husband, Gender, Age, Address, Mobile
+                  Required: Name, Father/Husband, Gender, <strong>DOB or Age</strong>, Address, Mobile
                 </div>
                 <div>
                   <strong>Mobile must be exactly 10 digits</strong>
@@ -154,6 +154,12 @@ export default function BulkUploadPage() {
                 <div>
                   Either <strong>Badge No</strong> or{" "}
                   <strong>Aadhaar</strong> required
+                </div>
+                <div>
+                  <strong>Badge No last 4 digits must be numeric</strong>
+                </div>
+                <div>
+                  <strong>Badge No and Aadhaar must be unique</strong> (no duplicates in Excel or DB)
                 </div>
                 <div>Blacklisted: Yes / No</div>
               </div>
@@ -227,7 +233,8 @@ export default function BulkUploadPage() {
               "Adhaar Number (or Badge No) *",
               "Father’s / Husband’s Name *",
               "Gender (M/F/Other) *",
-              "Age *",
+              "DOB (YYYY-MM-DD) * (or Age *)",
+              "Age * (optional if DOB provided)",
               "Address *",
               "Mobile (10 digits) *",
               "Department",
@@ -243,6 +250,10 @@ export default function BulkUploadPage() {
                 {c}
               </div>
             ))}
+          </div>
+
+          <div className="mt-3 text-xs text-zinc-600">
+            Tip: Prefer <strong>DOB</strong> so age will be calculated automatically every year.
           </div>
         </div>
       </div>

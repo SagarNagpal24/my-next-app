@@ -87,9 +87,35 @@ function parseExcelDate(v: any): Date | null {
 
   const s = String(v).trim();
   if (!s) return null;
+  // allow YYYY-MM-DD and other common formats
   const dt = new Date(s);
   if (Number.isNaN(dt.getTime())) return null;
   return dt;
+}
+
+// ✅ DOB parser: accept Excel date, JS Date, or YYYY-MM-DD text
+function parseDobExcel(v: any): Date | null {
+  const d = parseExcelDate(v);
+  if (!d) return null;
+
+  // normalize to UTC midnight for consistent age calc/storage
+  const y = d.getUTCFullYear();
+  const m = d.getUTCMonth();
+  const day = d.getUTCDate();
+  const dob = new Date(Date.UTC(y, m, day));
+  if (Number.isNaN(dob.getTime())) return null;
+  return dob;
+}
+
+// ✅ Age from DOB (full years)
+function calcAgeFromDob(dob: Date): number {
+  const now = new Date();
+  let age = now.getUTCFullYear() - dob.getUTCFullYear();
+
+  const m = now.getUTCMonth() - dob.getUTCMonth();
+  if (m < 0 || (m === 0 && now.getUTCDate() < dob.getUTCDate())) age--;
+
+  return age;
 }
 
 type RowErr = { row: number; field: string; message: string };
@@ -105,6 +131,9 @@ function validateRow(clean: any, rowNumber: number) {
   const address = String(clean.address || "").trim();
   const mobile = digitsOnly(clean.mobile || "");
   const blacklisted = String(clean.blacklisted || "No").trim();
+
+  // ✅ NEW: DOB support (preferred) + legacy age fallback
+  const dob = clean.dob as Date | null;
   const ageVal = clean.age;
 
   const department = String(clean.department || "").trim();
@@ -137,20 +166,38 @@ function validateRow(clean: any, rowNumber: number) {
       message: "Mobile is required.",
     });
 
-  // ✅ Age mandatory + valid
-  if (
-    ageVal === "" ||
-    ageVal === null ||
-    ageVal === undefined ||
-    Number.isNaN(Number(ageVal))
-  ) {
-    errors.push({ row: rowNumber, field: "Age", message: "Age is required." });
-  } else if (Number(ageVal) <= 0) {
-    errors.push({
-      row: rowNumber,
-      field: "Age",
-      message: "Age must be a valid number.",
-    });
+  // ✅ DOB OR Age mandatory + valid
+  let computedAge: number | null = null;
+
+  if (dob instanceof Date) {
+    computedAge = calcAgeFromDob(dob);
+    if (computedAge <= 0 || computedAge > 120) {
+      errors.push({
+        row: rowNumber,
+        field: "DOB",
+        message: "DOB results in invalid age (must be 1–120).",
+      });
+    }
+  } else {
+    // fallback to Age column
+    if (
+      ageVal === "" ||
+      ageVal === null ||
+      ageVal === undefined ||
+      Number.isNaN(Number(ageVal))
+    ) {
+      errors.push({
+        row: rowNumber,
+        field: "Age/DOB",
+        message: "Either Date of Birth (DOB) or Age is required.",
+      });
+    } else if (Number(ageVal) <= 0 || Number(ageVal) > 120) {
+      errors.push({
+        row: rowNumber,
+        field: "Age",
+        message: "Age must be a valid number (1–120).",
+      });
+    }
   }
 
   // ✅ Badge OR Aadhaar mandatory
@@ -162,7 +209,7 @@ function validateRow(clean: any, rowNumber: number) {
     });
   }
 
-  // ✅ NEW: Badge last 4 characters must be numeric (if badge is provided)
+  // ✅ Badge last 4 characters must be numeric (if badge is provided)
   if (badgeNo) {
     const last4 = badgeNo.slice(-4);
     if (!/^\d{4}$/.test(last4)) {
@@ -213,7 +260,7 @@ function validateRow(clean: any, rowNumber: number) {
   return errors;
 }
 
-// ✅ NEW: ensure unique indexes for badgeNo + adhaarNumber (only when non-empty)
+// ✅ ensure unique indexes for badgeNo + adhaarNumber (only when non-empty)
 async function ensureIndexes(db: any) {
   const col = db.collection(COLLECTION);
 
@@ -283,11 +330,23 @@ export async function POST(req: Request) {
 
       // ✅ header-safe picks (includes common variants)
       let aadhaarPicked = digitsOnly(
-        pick(r, ["Adhaar Number", "Aadhaar Number", "Aadhaar", "Aadhar", "Aadhar Number"])
+        pick(r, [
+          "Adhaar Number",
+          "Aadhaar Number",
+          "Aadhaar",
+          "Aadhar",
+          "Aadhar Number",
+        ])
       ).slice(0, 12);
 
       let blacklistedPicked = String(
-        pick(r, ["Blacklisted", "Black Listed", "Blacklist", "Black list", "Blacklisted (Yes/No)"])
+        pick(r, [
+          "Blacklisted",
+          "Black Listed",
+          "Blacklist",
+          "Black list",
+          "Blacklisted (Yes/No)",
+        ])
       ).trim();
 
       // ✅ DEFENSIVE FIX: shifted columns issue
@@ -308,6 +367,17 @@ export async function POST(req: Request) {
         pick(r, ["Department", "Dept", "Dept.", "Team", "Seva", "Duty"])
       ).trim();
 
+      // ✅ DOB column pick (many header variants)
+      const dobRaw = pick(r, [
+        "DOB",
+        "Date of Birth",
+        "Date Of Birth",
+        "Birth Date",
+        "Birthdate",
+        "D.O.B",
+      ]);
+      const dobParsed = parseDobExcel(dobRaw); // may be null
+
       const clean = {
         name: String(pick(r, ["Name"])).trim(),
         badgeNo: String(pick(r, ["Badge No", "Badge"])).trim(),
@@ -321,7 +391,10 @@ export async function POST(req: Request) {
           ])
         ).trim(),
         gender: String(pick(r, ["Gender"])).trim(),
+        // legacy age column (still supported)
         age: pick(r, ["Age"]),
+        // ✅ new dob computed
+        dob: dobParsed,
         address: String(pick(r, ["Address"])).trim(),
         mobile: digitsOnly(pick(r, ["Mobile", "Phone"])),
         adhaarNumber: aadhaarPicked,
@@ -338,12 +411,23 @@ export async function POST(req: Request) {
         medicalPhoto: null,
       };
 
+      // ✅ if DOB column provided but invalid, throw a clear error
+      if (dobRaw !== null && dobRaw !== undefined && String(dobRaw).trim() !== "" && !dobParsed) {
+        allErrors.push({
+          row: rowNumber,
+          field: "DOB",
+          message: "Invalid DOB. Use a valid date (Excel date or YYYY-MM-DD).",
+        });
+        return;
+      }
+
       const errs = validateRow(
         {
           ...clean,
           adhaarNumber: clean.adhaarNumber,
           age: clean.age,
           department: clean.department,
+          dob: clean.dob,
         },
         rowNumber
       );
@@ -392,12 +476,17 @@ export async function POST(req: Request) {
         return;
       }
 
+      // ✅ final age stored: compute from DOB if present else use Age column
+      const finalAge =
+        clean.dob instanceof Date ? calcAgeFromDob(clean.dob) : Number(clean.age);
+
       toInsert.push({
         name: clean.name,
         badgeNo: clean.badgeNo || "",
         fatherOrHusbandName: clean.fatherOrHusbandName,
         gender: clean.gender,
-        age: Number(clean.age),
+        age: finalAge, // keep existing pages working
+        dob: clean.dob ?? null, // ✅ store DOB for future-proof age
         address: clean.address,
         mobile: clean.mobile,
         adhaarNumber: clean.adhaarNumber || "",
@@ -467,7 +556,10 @@ export async function POST(req: Request) {
 
     if (aadhaarList.length) {
       const existingAadhaar = await col
-        .find({ adhaarNumber: { $in: aadhaarList } }, { projection: { adhaarNumber: 1 } })
+        .find(
+          { adhaarNumber: { $in: aadhaarList } },
+          { projection: { adhaarNumber: 1 } }
+        )
         .toArray();
 
       for (const x of existingAadhaar) {
