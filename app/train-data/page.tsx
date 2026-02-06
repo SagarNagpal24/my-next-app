@@ -565,7 +565,7 @@ export default function TrainDataPage() {
         r.route || "",
         r.trainTime || "",
         r.boardingStation || "",
-        r.travelDate ? String(r.travelDate).slice(0, 10) : "",
+        r.travelDate ? formatPrettyDate(r.travelDate) : "",
         (r as any).fare ?? "",
       ]);
     });
@@ -601,6 +601,26 @@ export default function TrainDataPage() {
     }
   }
 
+
+function ordinal(n: number) {
+  const s = ["th", "st", "nd", "rd"];
+  const v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
+
+function formatPrettyDate(d: any) {
+  if (!d) return "-";
+  const s = String(d).trim();
+  const dt = /^\d{4}-\d{2}-\d{2}$/.test(s)
+    ? new Date(s + "T00:00:00.000Z")
+    : new Date(s);
+  if (Number.isNaN(dt.getTime())) return s;
+  const day = ordinal(dt.getUTCDate());
+  const month = dt.toLocaleString("en-GB", { month: "short", timeZone: "UTC" });
+  const year = dt.getUTCFullYear();
+  return `${day} ${month} ${year}`;
+}
+
   // ---------- MULTI-PAGE PRINT (6 per A4 page) ----------
   function buildTicketsMultiPageHtml(rows: TrainRow[]) {
     const chunkSize = 6;
@@ -612,7 +632,7 @@ export default function TrainDataPage() {
       const cards = chunk
         .map((p, idx) => {
           const sn = i + idx + 1;
-          const dateStr = p.travelDate ? String(p.travelDate).slice(0, 10) : todayISO();
+          const dateStr = formatPrettyDate(p.travelDate || todayISO());
 
           return `
             <div class="ticket">
@@ -630,8 +650,10 @@ export default function TrainDataPage() {
               <div class="row"><span class="label">Time:</span><span class="value">${escapeHtml(p.trainTime || "-")}</span></div>
               <div class="row"><span class="label">Boarding:</span><span class="value">${escapeHtml(p.boardingStation || "-")}</span></div>
               <div class="row"><span class="label">Fare:</span><span class="value">${escapeHtml((p as any).fare ?? "-")}</span></div>
+             <div class="foot"><span>Travel Date: ${escapeHtml(dateStr)}</span></div>
+              <div class="row"><span class="label">Contact:</span><span class="value">Gurjeet Kaur: 9999934357  Pulkit Sethi: 9871331688</span></div>
 
-              <div class="foot"><span>Travel Date: ${escapeHtml(dateStr)}</span></div>
+              
             </div>
           `;
         })
@@ -1265,7 +1287,7 @@ export default function TrainDataPage() {
                       <td className="td px-2 py-2">{r.route || "-"}</td>
                       <td className="td px-2 py-2">{r.trainTime || "-"}</td>
                       <td className="td px-2 py-2">{r.boardingStation || "-"}</td>
-                      <td className="td px-2 py-2 whitespace-nowrap">{r.travelDate ? String(r.travelDate).slice(0, 10) : "-"}</td>
+                      <td className="td px-2 py-2 whitespace-nowrap">{formatPrettyDate(r.travelDate)}</td>
                       <td className="td px-2 py-2">{String((r as any).fare ?? "-")}</td>
 
                       <td className="td px-2 py-2 whitespace-nowrap">

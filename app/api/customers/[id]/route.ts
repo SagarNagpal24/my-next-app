@@ -23,7 +23,8 @@ type Department =
   | "Sewa-Samiti"
   | "Medical"
   | "VIP Block"
-  | "Langar";
+  | "Langar"
+  |"Guest-House";
 
 const DEPARTMENT_OPTIONS: Exclude<Department, "">[] = [
   "Security",
@@ -44,6 +45,7 @@ const DEPARTMENT_OPTIONS: Exclude<Department, "">[] = [
   "Medical",
   "VIP Block",
   "Langar",
+  "Guest-House",
 ];
 
 function digitsOnly(v: any) {
@@ -62,14 +64,28 @@ function toObjectId(raw: string) {
   }
 }
 
-// ✅ Parse YYYY-MM-DD DOB safely (store as Date at UTC midnight)
-function parseDob(dobYmd: any): Date | null {
-  const s = String(dobYmd ?? "").trim();
+// ✅ Parse YYYY-MM-DD safely (store as Date at UTC midnight)
+function parseYmdDate(ymd: any): Date | null {
+  const s = String(ymd ?? "").trim();
   if (!s) return null;
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
-  const d = new Date(s + "T00:00:00.000Z");
-  if (Number.isNaN(d.getTime())) return null;
-  return d;
+
+  // Accept strict YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    const d = new Date(s + "T00:00:00.000Z");
+    if (Number.isNaN(d.getTime())) return null;
+    return d;
+  }
+
+  // Fallback: allow ISO strings but normalize to UTC midnight of the date part
+  const maybe = new Date(s);
+  if (Number.isNaN(maybe.getTime())) return null;
+
+  const y = maybe.getUTCFullYear();
+  const m = String(maybe.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(maybe.getUTCDate()).padStart(2, "0");
+  const normalized = new Date(`${y}-${m}-${day}T00:00:00.000Z`);
+  if (Number.isNaN(normalized.getTime())) return null;
+  return normalized;
 }
 
 // ✅ Age from DOB (full years)
@@ -170,9 +186,13 @@ export async function PUT(
       hasDob && String(body.dob || "").trim() === ""
         ? null
         : hasDob
-        ? parseDob(body.dob)
+        ? parseYmdDate(body.dob)
         : undefined;
 
+    // ✅ We are removing "age editing" from update route.
+    // Age will only be updated when DOB is present in the payload:
+    //  - If DOB is provided => compute & set age
+    //  - If DOB is cleared (dob: "") => require age as fallback (legacy)
     const legacyAge =
       body.age === "" || body.age === null || body.age === undefined
         ? null
@@ -237,28 +257,67 @@ export async function PUT(
       );
     }
 
-    const mdRaw = String(body.medicalDate || "").trim();
-    const medicalDate = mdRaw ? new Date(mdRaw) : null;
-    if (mdRaw && Number.isNaN(medicalDate!.getTime())) {
-      return NextResponse.json({ error: "Invalid medical date" }, { status: 400 });
+    // ✅ Medical date: normalize to UTC midnight to avoid confusion with DOB
+    // Accept YYYY-MM-DD (preferred) or ISO strings, but always store as UTC midnight.
+    const hasMedicalDate = Object.prototype.hasOwnProperty.call(
+      body,
+      "medicalDate"
+    );
+    const medicalDate =
+      hasMedicalDate && String(body.medicalDate || "").trim() === ""
+        ? null
+        : hasMedicalDate
+        ? parseYmdDate(body.medicalDate)
+        : undefined;
+
+    if (
+      hasMedicalDate &&
+      medicalDate === null &&
+      String(body.medicalDate || "").trim() !== ""
+    ) {
+      return NextResponse.json(
+        { error: "Invalid medical date" },
+        { status: 400 }
+      );
     }
 
-    const hasPassport = Object.prototype.hasOwnProperty.call(body, "passportPhoto");
-    const hasAadhaarFront = Object.prototype.hasOwnProperty.call(body, "aadhaarFrontPhoto");
-    const hasAadhaarBack = Object.prototype.hasOwnProperty.call(body, "aadhaarBackPhoto");
+    const hasPassport = Object.prototype.hasOwnProperty.call(
+      body,
+      "passportPhoto"
+    );
+    const hasAadhaarFront = Object.prototype.hasOwnProperty.call(
+      body,
+      "aadhaarFrontPhoto"
+    );
+    const hasAadhaarBack = Object.prototype.hasOwnProperty.call(
+      body,
+      "aadhaarBackPhoto"
+    );
     const hasMedical = Object.prototype.hasOwnProperty.call(body, "medicalPhoto");
 
     if (hasPassport && !isValidImgData(body.passportPhoto)) {
-      return NextResponse.json({ error: "Invalid passport photo payload" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Invalid passport photo payload" },
+        { status: 400 }
+      );
     }
     if (hasAadhaarFront && !isValidImgData(body.aadhaarFrontPhoto)) {
-      return NextResponse.json({ error: "Invalid Aadhaar front photo payload" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Invalid Aadhaar front photo payload" },
+        { status: 400 }
+      );
     }
     if (hasAadhaarBack && !isValidImgData(body.aadhaarBackPhoto)) {
-      return NextResponse.json({ error: "Invalid Aadhaar back photo payload" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Invalid Aadhaar back photo payload" },
+        { status: 400 }
+      );
     }
     if (hasMedical && !isValidImgData(body.medicalPhoto)) {
-      return NextResponse.json({ error: "Invalid medical photo payload" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Invalid medical photo payload" },
+        { status: 400 }
+      );
     }
 
     const db = await getDb();
@@ -297,32 +356,39 @@ export async function PUT(
       }
     }
 
-    // ✅ Compute age if DOB provided, else if age provided, validate and set.
+    // ✅ Age update rules (DOB-first; remove age editing unless DOB is involved)
     let ageToSet: number | undefined = undefined;
 
-    if (dob instanceof Date) {
-      const computed = calcAgeFromDob(dob);
-      if (computed <= 0 || computed > 120) {
+    if (hasDob) {
+      if (dob instanceof Date) {
+        const computed = calcAgeFromDob(dob);
+        if (computed <= 0 || computed > 120) {
+          return NextResponse.json(
+            { error: "Age must be 1–120 (based on DOB)." },
+            { status: 400 }
+          );
+        }
+        ageToSet = computed;
+      } else if (dob === null) {
+        // DOB cleared => require age (legacy fallback)
+        if (
+          legacyAge === null ||
+          Number.isNaN(legacyAge) ||
+          legacyAge <= 0 ||
+          legacyAge > 120
+        ) {
+          return NextResponse.json(
+            { error: "Age is required (DOB cleared). Provide Age 1–120." },
+            { status: 400 }
+          );
+        }
+        ageToSet = legacyAge;
+      } else {
         return NextResponse.json(
-          { error: "Age must be 1–120 (based on DOB)." },
+          { error: "Invalid DOB (use YYYY-MM-DD)" },
           { status: 400 }
         );
       }
-      ageToSet = computed;
-    } else if (hasDob && dob === null) {
-      // DOB cleared => require age
-      if (legacyAge === null || Number.isNaN(legacyAge) || legacyAge <= 0 || legacyAge > 120) {
-        return NextResponse.json(
-          { error: "Age is required (DOB cleared). Provide Age 1–120." },
-          { status: 400 }
-        );
-      }
-      ageToSet = legacyAge;
-    } else if (legacyAge !== null && !Number.isNaN(legacyAge)) {
-      if (legacyAge <= 0 || legacyAge > 120) {
-        return NextResponse.json({ error: "Age must be 1–120." }, { status: 400 });
-      }
-      ageToSet = legacyAge;
     }
 
     const update: any = {
@@ -336,7 +402,6 @@ export async function PUT(
       department: department || "",
       blacklisted: blacklisted || "No",
       emergencyNumber: digitsOnly(body.emergencyNumber || ""),
-      medicalDate,
       notes: String(body.notes || "").trim(),
       updatedAt: new Date(),
     };
@@ -346,7 +411,10 @@ export async function PUT(
     if (hasDob) {
       if (dob === null) update.dob = null;
       else if (dob instanceof Date) update.dob = dob;
-      else return NextResponse.json({ error: "Invalid DOB (use YYYY-MM-DD)" }, { status: 400 });
+    }
+
+    if (hasMedicalDate) {
+      update.medicalDate = medicalDate;
     }
 
     if (hasPassport) update.passportPhoto = pickImg(body.passportPhoto);

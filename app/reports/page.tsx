@@ -24,6 +24,10 @@ const DEPARTMENT_OPTIONS = [
   "Sewa-Collection",
   "Water",
   "Sewa-Samiti",
+  "Medical",
+  "VIP Block",
+  "Langar",
+  "Guest-House",
   
 ] as const;
 

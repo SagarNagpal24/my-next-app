@@ -25,7 +25,8 @@ type Department =
   | "Sewa-Samiti"
   | "Medical"
   | "VIP Block"
-  | "Langar";
+  | "Langar"
+    | "Guest-House";
 
 const DEPARTMENT_OPTIONS: Exclude<Department, "">[] = [
   "Security",
@@ -46,6 +47,7 @@ const DEPARTMENT_OPTIONS: Exclude<Department, "">[] = [
   "Medical",
   "VIP Block",
   "Langar",
+  "Guest-House",
 ];
 
 // ✅ Image payload (compressed)
@@ -306,6 +308,7 @@ export default function Home() {
 
     const mobileDigits = digitsOnly(form.mobile);
     if (!mobileDigits) e.mobile = "Mobile is required.";
+    else if (mobileDigits.length !== 10) e.mobile = "Mobile must be exactly 10 digits.";
 
     // ✅ DOB required + age calculation
     if (!form.dob.trim()) e.dob = "Date of Birth is required.";
@@ -416,8 +419,11 @@ export default function Home() {
         // ✅ send computed age to backend (other pages remain unchanged)
         age,
 
+        // ✅ send DOB too (so Customers list can show DOB)
+        dob: form.dob ? String(form.dob).slice(0, 10) : null,
+
         address: form.address.trim(),
-        mobile: digitsOnly(form.mobile),
+        mobile: digitsOnly(form.mobile).slice(0, 10),
         adhaarNumber: digitsOnly(form.adhaarNumber).slice(0, 12),
         department: form.department,
         blacklisted: form.blacklisted || "No",
@@ -775,7 +781,7 @@ export default function Home() {
                   value={form.mobile}
                   onChange={(e) => setField("mobile", digitsOnly(e.target.value))}
                   inputMode="numeric"
-                  placeholder="Mobile"
+                  placeholder="Mobile (10 digits)"
                   required
                 />
               </Field>

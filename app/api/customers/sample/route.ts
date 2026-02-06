@@ -20,23 +20,25 @@ export async function GET() {
     "Water",
     "Sewa-Samiti",
     
-     "Medical",
+    "Medical",
     "VIP Block",
-    "Langar"
-
+    "Langar",
+    "Guest-House",
   ];
 
   const GENDERS = ["M", "F", "Other"];
   const YES_NO = ["Yes", "No"];
 
   // ✅ Column headers MUST match bulk validation (pick() keys)
+  // NOTE: Bulk supports DOB (preferred) OR Age (legacy). If DOB is filled, Age can be blank.
   const headers = [
     "Name",
     "Badge No",
     "Adhaar Number",
     "Father’s / Husband’s Name",
     "Gender",
-    "Age",
+    "DOB", // ✅ NEW (preferred)
+    "Age", // legacy (optional if DOB is provided)
     "Address",
     "Mobile",
     "Department",
@@ -50,14 +52,15 @@ export async function GET() {
     // Photos are uploaded from Add/Edit UI only.
   ];
 
-  // ✅ Example row – valid
+  // ✅ Example row – valid (DOB filled, Age may be blank)
   const exampleRow = [
     "Ravi Kumar",
     "B123",
     "123456789012",
     "Suresh Kumar",
     "M",
-    32,
+    "1992-05-10", // DOB (YYYY-MM-DD)
+    "", // Age (optional when DOB is present)
     "Patel Nagar, Delhi",
     "9876543210",
     "Security",
@@ -91,6 +94,7 @@ export async function GET() {
   };
 
   // XLSX supports worksheet data validations with "ws['!dataValidation']"
+  // (Dropdown lists are reliable. Date validations may vary by Excel client, so we keep dates as plain cells.)
   (ws as any)["!dataValidation"] = [
     {
       sqref: makeRange("Gender"),
@@ -130,6 +134,10 @@ export async function GET() {
     ["Gender", ...GENDERS],
     ["Department", ...DEPARTMENTS],
     ["Blacklisted", ...YES_NO],
+    [],
+    ["Date Columns"],
+    ["DOB", "Use YYYY-MM-DD (preferred) OR leave blank and fill Age"],
+    ["Medical Date", "Use YYYY-MM-DD (optional)"],
   ]);
 
   const wb = XLSX.utils.book_new();

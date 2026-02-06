@@ -20,10 +20,11 @@ const DEPARTMENTS = [
   "Sewa-Collection",
   "Water",
   "Sewa-Samiti",
-  "Sangat",
+ 
   "Medical",
   "VIP Block",
   "Langar",
+  "Guest-House",
 ] as const;
 
 function toNum(v: any) {
@@ -42,13 +43,78 @@ function normDept(v: any) {
   return DEPARTMENTS.includes(s as any) ? s : "";
 }
 
-// ✅ Parse YYYY-MM-DD DOB safely (store as Date at UTC midnight)
-function parseDob(dobYmd: any): Date | null {
-  const s = String(dobYmd ?? "").trim();
-  if (!s) return null;
-  // expect YYYY-MM-DD (date input gives this)
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
-  const d = new Date(s + "T00:00:00.000Z");
+function escapeRegex(s: string) {
+  return String(s || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * ✅ Normalize date input to YYYY-MM-DD string.
+ * Supports:
+ * - "YYYY-MM-DD"
+ * - "DD/MM/YYYY"
+ * - Date object
+ * - ISO strings like "2025-02-06T00:00:00.000Z"
+ * - Mongo Extended JSON: {$date: "..."} or {$date: {$numberLong:"..."}}
+ */
+function toYMD(v: any) {
+  if (!v) return "";
+
+  try {
+    // Mongo Extended JSON
+    const d1 = (v as any)?.$date;
+    if (d1) {
+      if (typeof d1 === "string") {
+        const dt = new Date(d1);
+        if (!Number.isNaN(dt.getTime())) return dt.toISOString().slice(0, 10);
+      }
+      if (typeof d1 === "number") {
+        const dt = new Date(d1);
+        if (!Number.isNaN(dt.getTime())) return dt.toISOString().slice(0, 10);
+      }
+      if (typeof d1 === "object" && (d1 as any)?.$numberLong) {
+        const n = Number(String((d1 as any).$numberLong));
+        const dt = new Date(n);
+        if (!Number.isNaN(dt.getTime())) return dt.toISOString().slice(0, 10);
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  // Date object
+  if (v instanceof Date) {
+    if (Number.isNaN(v.getTime())) return "";
+    return v.toISOString().slice(0, 10);
+  }
+
+  const s = String(v ?? "").trim();
+  if (!s) return "";
+
+  // Already YYYY-MM-DD or YYYY-MM-DDTHH:mm...
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+
+  // DD/MM/YYYY
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) {
+    const [dd, mm, yyyy] = s.split("/");
+    return `${yyyy}-${mm}-${dd}`;
+  }
+
+  // Fallback parse
+  const d = new Date(s);
+  if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+
+  return "";
+}
+
+// ✅ Parse DOB safely (store as Date at UTC midnight)
+function parseDob(dobLike: any): Date | null {
+  const ymd = toYMD(dobLike);
+  if (!ymd) return null;
+
+  // Must be YYYY-MM-DD at this point
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return null;
+
+  const d = new Date(ymd + "T00:00:00.000Z");
   if (Number.isNaN(d.getTime())) return null;
   return d;
 }
@@ -66,9 +132,17 @@ function calcAgeFromDob(dob: Date): number {
 
 function dobToYmd(dob: any) {
   if (!dob) return "";
-  const d = dob instanceof Date ? dob : new Date(dob);
-  if (Number.isNaN(d.getTime())) return "";
-  return d.toISOString().slice(0, 10);
+  return toYMD(dob);
+}
+
+// ✅ Build inclusive day range [start, nextDay) for YYYY-MM-DD
+function ymdToUtcRange(ymd: string): { start: Date; end: Date } | null {
+  if (!ymd || !/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return null;
+  const start = new Date(ymd + "T00:00:00.000Z");
+  if (Number.isNaN(start.getTime())) return null;
+  const end = new Date(start);
+  end.setUTCDate(end.getUTCDate() + 1);
+  return { start, end };
 }
 
 // ✅ image validation for compressed dataUrl payload
@@ -138,14 +212,14 @@ export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
 
-    const q = (searchParams.get("q") || "").trim();
+    const qRaw = (searchParams.get("q") || "").trim();
     const gender = (searchParams.get("gender") || "").trim();
     const blacklisted = (searchParams.get("blacklisted") || "").trim();
     const department = (searchParams.get("department") || "").trim();
     const ageMin = toNum(searchParams.get("ageMin"));
     const ageMax = toNum(searchParams.get("ageMax"));
-    const medFrom = (searchParams.get("medFrom") || "").trim();
-    const medTo = (searchParams.get("medTo") || "").trim();
+    const medFromRaw = (searchParams.get("medFrom") || "").trim();
+    const medToRaw = (searchParams.get("medTo") || "").trim();
 
     // ✅ limit support (needed for Export All)
     const limitRaw = toNum(searchParams.get("limit"));
@@ -153,7 +227,9 @@ export async function GET(req: Request) {
 
     const filter: any = {};
 
-    if (q) {
+    if (qRaw) {
+      // ✅ safer regex (prevents regex injection + weird crashes on special chars)
+      const q = escapeRegex(qRaw);
       filter.$or = [
         { name: { $regex: q, $options: "i" } },
         { mobile: { $regex: q, $options: "i" } },
@@ -161,6 +237,15 @@ export async function GET(req: Request) {
         { badgeNo: { $regex: q, $options: "i" } },
         { department: { $regex: q, $options: "i" } },
       ];
+
+      // ✅ If q is a date (YYYY-MM-DD), also match DOB/MedicalDate for that day
+      if (/^\d{4}-\d{2}-\d{2}$/.test(qRaw)) {
+        const r = ymdToUtcRange(qRaw);
+        if (r) {
+          filter.$or.push({ dob: { $gte: r.start, $lt: r.end } });
+          filter.$or.push({ medicalDate: { $gte: r.start, $lt: r.end } });
+        }
+      }
     }
 
     if (gender) filter.gender = gender;
@@ -176,10 +261,24 @@ export async function GET(req: Request) {
       if (ageMax !== undefined) filter.age.$lte = ageMax;
     }
 
-    if (medFrom || medTo) {
+    // ✅ Medical date filter (inclusive by day for YYYY-MM-DD)
+    if (medFromRaw || medToRaw) {
+      const fromYmd = toYMD(medFromRaw);
+      const toYmd = toYMD(medToRaw);
+
       filter.medicalDate = {};
-      if (medFrom) filter.medicalDate.$gte = new Date(medFrom);
-      if (medTo) filter.medicalDate.$lte = new Date(medTo);
+
+      if (fromYmd) {
+        const r = ymdToUtcRange(fromYmd);
+        if (r) filter.medicalDate.$gte = r.start;
+      }
+      if (toYmd) {
+        const r = ymdToUtcRange(toYmd);
+        if (r) filter.medicalDate.$lt = r.end; // end-exclusive => includes whole toYmd day
+      }
+
+      // If user passed something but it didn't parse, avoid crashing:
+      if (Object.keys(filter.medicalDate).length === 0) delete filter.medicalDate;
     }
 
     const db = await getDb();
@@ -197,6 +296,8 @@ export async function GET(req: Request) {
       .toArray();
 
     // ✅ ALWAYS compute age from DOB when DOB exists (so age auto-updates every year)
+    // ✅ ALWAYS return DOB as YYYY-MM-DD (string) so UI reliably shows it
+    // ✅ ALSO normalize medicalDate to YYYY-MM-DD (string) or null
     const safeItems = items.map((x: any) => {
       const dobYmd = dobToYmd(x.dob);
       let age = x.age;
@@ -208,11 +309,15 @@ export async function GET(req: Request) {
         }
       }
 
+      const medicalYmd = toYMD(x.medicalDate);
+      const medicalOut = medicalYmd ? medicalYmd : (x.medicalDate ? String(x.medicalDate) : null);
+
       return {
         ...x,
         _id: x._id?.toString?.() ?? String(x._id),
-        dob: dobYmd || "",
+        dob: dobYmd || null,
         age, // ✅ returned age is dynamic (computed from dob if present)
+        medicalDate: medicalYmd || (medicalOut ? String(medicalOut).slice(0, 10) : null),
       };
     });
 
@@ -241,7 +346,7 @@ export async function POST(req: Request) {
 
     const department = normDept(body.department || "");
 
-    // ✅ DOB (preferred). Keep legacy age for older clients.
+    // ✅ DOB (preferred). Accepts DD/MM/YYYY too.
     const dob = parseDob(body.dob ?? body.dateOfBirth ?? "");
     const legacyAge =
       body.age === "" || body.age === null || body.age === undefined
@@ -320,12 +425,14 @@ export async function POST(req: Request) {
       );
     }
 
-    const medicalDate = body.medicalDate ? new Date(String(body.medicalDate)) : null;
-    if (
-      body.medicalDate &&
-      (medicalDate === null || Number.isNaN(medicalDate.getTime()))
-    ) {
-      return NextResponse.json({ error: "Invalid medical date" }, { status: 400 });
+    const medicalDateYmd = toYMD(body.medicalDate);
+    const medicalDate = medicalDateYmd ? new Date(medicalDateYmd + "T00:00:00.000Z") : null;
+
+    if (body.medicalDate && !medicalDateYmd) {
+      return NextResponse.json(
+        { error: "Invalid medical date" },
+        { status: 400 }
+      );
     }
 
     const passportPhoto = body.passportPhoto ?? null;
@@ -393,7 +500,7 @@ export async function POST(req: Request) {
       fatherOrHusbandName,
       gender,
       age, // keep for existing pages
-      dob: dob ?? null, // ✅ store DOB for future-proof age
+      dob: dob ?? null, // ✅ stored consistently (Date or null)
       address,
       mobile,
       adhaarNumber: adhaarNumber || "",
@@ -415,8 +522,31 @@ export async function POST(req: Request) {
     try {
       const result = await col.insertOne(doc);
 
+      // ✅ IMPORTANT: return full created record so UI shows DOB immediately
+      const created = await col.findOne({ _id: result.insertedId });
+
+      const dobYmd = dobToYmd(created?.dob);
+      let computedAge = created?.age;
+
+      if (dobYmd) {
+        const d = new Date(dobYmd + "T00:00:00.000Z");
+        if (!Number.isNaN(d.getTime())) computedAge = calcAgeFromDob(d);
+      }
+
+      const medYmd = toYMD(created?.medicalDate);
+
       return NextResponse.json(
-        { ok: true, id: result.insertedId.toString() },
+        {
+          ok: true,
+          item: {
+            ...(created || {}),
+            _id: result.insertedId.toString(),
+            dob: dobYmd || null,
+            age: computedAge,
+            medicalDate: medYmd || null,
+          },
+          departments: DEPARTMENTS,
+        },
         { status: 201 }
       );
     } catch (err: any) {

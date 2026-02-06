@@ -24,7 +24,8 @@ type Department =
   | "Sewa-Samiti"
   | "Medical"
   | "VIP Block"
-  | "Langar";
+  | "Langar"
+  |"Guest-House";
 
 const DEPARTMENT_OPTIONS: Exclude<Department, "">[] = [
   "Security",
@@ -45,6 +46,7 @@ const DEPARTMENT_OPTIONS: Exclude<Department, "">[] = [
   "Medical",
   "VIP Block",
   "Langar",
+  "Guest-House",
 ];
 
 function digitsOnly(v: any) {
@@ -72,39 +74,52 @@ function pick(row: any, keys: string[]) {
   return "";
 }
 
+// ✅ Normalize any parsed Date to UTC midnight (date-only)
+function normalizeToUtcMidnight(d: Date): Date {
+  const y = d.getUTCFullYear();
+  const m = d.getUTCMonth();
+  const day = d.getUTCDate();
+  return new Date(Date.UTC(y, m, day));
+}
+
+// ✅ Excel date / text date parser (always normalized to UTC midnight)
 function parseExcelDate(v: any): Date | null {
   if (v === null || v === undefined || v === "") return null;
 
-  if (v instanceof Date && !Number.isNaN(v.getTime())) return v;
+  // JS Date
+  if (v instanceof Date && !Number.isNaN(v.getTime())) {
+    return normalizeToUtcMidnight(v);
+  }
 
+  // Excel serial number
   if (typeof v === "number") {
     const d = XLSX.SSF.parse_date_code(v);
     if (!d) return null;
     const dt = new Date(Date.UTC(d.y, d.m - 1, d.d));
     if (Number.isNaN(dt.getTime())) return null;
-    return dt;
+    return normalizeToUtcMidnight(dt);
   }
 
   const s = String(v).trim();
   if (!s) return null;
-  // allow YYYY-MM-DD and other common formats
+
+  // Prefer strict YYYY-MM-DD (avoids timezone shifts)
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    const dt = new Date(s + "T00:00:00.000Z");
+    if (Number.isNaN(dt.getTime())) return null;
+    return normalizeToUtcMidnight(dt);
+  }
+
+  // Fallback: allow ISO and other common formats, but store date-only
   const dt = new Date(s);
   if (Number.isNaN(dt.getTime())) return null;
-  return dt;
+  return normalizeToUtcMidnight(dt);
 }
 
 // ✅ DOB parser: accept Excel date, JS Date, or YYYY-MM-DD text
 function parseDobExcel(v: any): Date | null {
-  const d = parseExcelDate(v);
-  if (!d) return null;
-
-  // normalize to UTC midnight for consistent age calc/storage
-  const y = d.getUTCFullYear();
-  const m = d.getUTCMonth();
-  const day = d.getUTCDate();
-  const dob = new Date(Date.UTC(y, m, day));
-  if (Number.isNaN(dob.getTime())) return null;
-  return dob;
+  // already normalized to UTC midnight
+  return parseExcelDate(v);
 }
 
 // ✅ Age from DOB (full years)
@@ -132,7 +147,7 @@ function validateRow(clean: any, rowNumber: number) {
   const mobile = digitsOnly(clean.mobile || "");
   const blacklisted = String(clean.blacklisted || "No").trim();
 
-  // ✅ NEW: DOB support (preferred) + legacy age fallback
+  // ✅ DOB support (preferred) + legacy age fallback
   const dob = clean.dob as Date | null;
   const ageVal = clean.age;
 
@@ -412,7 +427,12 @@ export async function POST(req: Request) {
       };
 
       // ✅ if DOB column provided but invalid, throw a clear error
-      if (dobRaw !== null && dobRaw !== undefined && String(dobRaw).trim() !== "" && !dobParsed) {
+      if (
+        dobRaw !== null &&
+        dobRaw !== undefined &&
+        String(dobRaw).trim() !== "" &&
+        !dobParsed
+      ) {
         allErrors.push({
           row: rowNumber,
           field: "DOB",
@@ -441,7 +461,9 @@ export async function POST(req: Request) {
           errs.push({
             row: rowNumber,
             field: "Badge No",
-            message: `Duplicate Badge No in Excel (already in row ${badgeFirstRow.get(b)}).`,
+            message: `Duplicate Badge No in Excel (already in row ${badgeFirstRow.get(
+              b
+            )}).`,
           });
         } else {
           badgeFirstRow.set(b, rowNumber);
@@ -454,7 +476,9 @@ export async function POST(req: Request) {
           errs.push({
             row: rowNumber,
             field: "Aadhaar",
-            message: `Duplicate Aadhaar in Excel (already in row ${aadhaarFirstRow.get(a)}).`,
+            message: `Duplicate Aadhaar in Excel (already in row ${aadhaarFirstRow.get(
+              a
+            )}).`,
           });
         } else {
           aadhaarFirstRow.set(a, rowNumber);
@@ -462,8 +486,9 @@ export async function POST(req: Request) {
         aadhaarToRows.set(a, [...(aadhaarToRows.get(a) || []), rowNumber]);
       }
 
+      // ✅ Medical Date parsing (store date-only at UTC midnight, like DOB)
       const md = parseExcelDate(clean.medicalDateRaw);
-      if (clean.medicalDateRaw && !md) {
+      if (clean.medicalDateRaw && String(clean.medicalDateRaw).trim() !== "" && !md) {
         errs.push({
           row: rowNumber,
           field: "Medical Date",
@@ -493,7 +518,7 @@ export async function POST(req: Request) {
         department: clean.department || "",
         blacklisted: clean.blacklisted || "No",
         emergencyNumber: clean.emergencyNumber || "",
-        medicalDate: md ? md : null,
+        medicalDate: md ? md : null, // ✅ normalized UTC midnight date-only
         notes: clean.notes || "",
 
         // ✅ images set empty for bulk
@@ -542,7 +567,7 @@ export async function POST(req: Request) {
         .toArray();
 
       for (const x of existingBadges) {
-        const b = String(x.badgeNo || "").trim();
+        const b = String((x as any).badgeNo || "").trim();
         const rowsForB = badgeToRows.get(b) || [];
         for (const rn of rowsForB) {
           dupErrors.push({
@@ -563,7 +588,7 @@ export async function POST(req: Request) {
         .toArray();
 
       for (const x of existingAadhaar) {
-        const a = String(x.adhaarNumber || "").trim();
+        const a = String((x as any).adhaarNumber || "").trim();
         const rowsForA = aadhaarToRows.get(a) || [];
         for (const rn of rowsForA) {
           dupErrors.push({

@@ -23,10 +23,11 @@ type Department =
   | "Sewa-Collection"
   | "Water"
   | "Sewa-Samiti"
-  | "Sangat"
+
   | "Medical"
   | "VIP Block"
-  | "Langar";
+  | "Langar"
+  | "Guest-House";
 
 const DEPARTMENT_OPTIONS: Exclude<Department, "">[] = [
   "Security",
@@ -44,10 +45,11 @@ const DEPARTMENT_OPTIONS: Exclude<Department, "">[] = [
   "Sewa-Collection",
   "Water",
   "Sewa-Samiti",
-  "Sangat",
+  
   "Medical",
   "VIP Block",
   "Langar",
+  "Guest-House",
 ];
 
 // ✅ Image payload (compressed)
@@ -89,18 +91,115 @@ type Customer = {
   medicalPhoto?: ImgData;
 };
 
-function fmtDate(d?: string | null) {
-  if (!d) return "-";
+// ✅ Robust date normalizers (handles string | Date | Mongo Extended JSON)
+function toYmdAny(v: any): string {
+  if (!v) return "";
   try {
-    return new Date(d).toLocaleDateString();
+    // Mongo Extended JSON patterns
+    const d1 = v?.$date;
+    if (d1) {
+      if (typeof d1 === "string") {
+        const dt = new Date(d1);
+        if (!Number.isNaN(dt.getTime())) return dt.toISOString().slice(0, 10);
+      }
+      if (typeof d1 === "number") {
+        const dt = new Date(d1);
+        if (!Number.isNaN(dt.getTime())) return dt.toISOString().slice(0, 10);
+      }
+      if (typeof d1 === "object" && d1?.$numberLong) {
+        const n = Number(String(d1.$numberLong));
+        const dt = new Date(n);
+        if (!Number.isNaN(dt.getTime())) return dt.toISOString().slice(0, 10);
+      }
+    }
+
+    if (v instanceof Date && !Number.isNaN(v.getTime())) return v.toISOString().slice(0, 10);
+
+    if (typeof v === "string") {
+      const s = v.trim();
+      if (!s) return "";
+      // If already YYYY-MM-DD
+      if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+      // ISO or other date-like string
+      const dt = new Date(s);
+      if (!Number.isNaN(dt.getTime())) return dt.toISOString().slice(0, 10);
+      // sometimes backend returns "YYYY-MM-DDT..." without timezone
+      if (s.length >= 10 && /^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+    }
+
+    // timestamp number
+    if (typeof v === "number") {
+      const dt = new Date(v);
+      if (!Number.isNaN(dt.getTime())) return dt.toISOString().slice(0, 10);
+    }
+
+    // last resort: try Date(v)
+    const dt = new Date(String(v));
+    if (!Number.isNaN(dt.getTime())) return dt.toISOString().slice(0, 10);
+  } catch {
+    // ignore
+  }
+  return "";
+}
+
+function fmtDate(d?: any) {
+  const ymd = toYmdAny(d);
+  if (!ymd) return "-";
+  try {
+    // Render in user's locale; input is date-only so add Z to avoid timezone shift in display
+    const dt = new Date(ymd + "T00:00:00.000Z");
+    return Number.isNaN(dt.getTime()) ? "-" : dt.toLocaleDateString();
   } catch {
     return "-";
   }
 }
 
-function toDateInputValue(d?: string | null) {
-  if (!d) return "";
-  return String(d).slice(0, 10);
+// ✅ DOB pretty format: "23rd feb 1995" (lowercase month)
+function fmtDobPretty(d?: any) {
+  const ymd = toYmdAny(d);
+  if (!ymd) return "-";
+  try {
+    const dt = new Date(ymd + "T00:00:00.000Z");
+    if (Number.isNaN(dt.getTime())) return "-";
+
+    const day = dt.getUTCDate();
+    const year = dt.getUTCFullYear();
+    const months = [
+      "jan",
+      "feb",
+      "mar",
+      "apr",
+      "may",
+      "jun",
+      "jul",
+      "aug",
+      "sep",
+      "oct",
+      "nov",
+      "dec",
+    ];
+    const month = months[dt.getUTCMonth()] || "";
+
+    const mod100 = day % 100;
+    const suffix =
+      mod100 >= 11 && mod100 <= 13
+        ? "th"
+        : day % 10 === 1
+        ? "st"
+        : day % 10 === 2
+        ? "nd"
+        : day % 10 === 3
+        ? "rd"
+        : "th";
+
+    return `${day}${suffix} ${month} ${year}`;
+  } catch {
+    return "-";
+  }
+}
+
+function toDateInputValue(d?: any) {
+  return toYmdAny(d);
 }
 
 // ✅ Strong id normalizer
@@ -119,15 +218,8 @@ function normalizeId(raw: any): string {
   return (match?.[0] || "").trim();
 }
 
-function fmtExcelDate(d?: string | null) {
-  if (!d) return "";
-  try {
-    const dt = new Date(d);
-    if (Number.isNaN(dt.getTime())) return "";
-    return dt.toISOString().slice(0, 10);
-  } catch {
-    return "";
-  }
+function fmtExcelDate(d?: any) {
+  return toYmdAny(d);
 }
 
 function digitsOnly(s: string) {
@@ -400,7 +492,17 @@ export default function CustomersPage() {
       const safe: Customer[] = (data.items || [])
         .map((x: any) => {
           const _id = normalizeId(x._id);
-          return { ...x, _id };
+
+          // ✅ normalize date fields for UI display/edit
+          const dob = toYmdAny(x.dob) || null;
+          const medicalDate = toYmdAny(x.medicalDate) || null;
+
+          return {
+            ...x,
+            _id,
+            dob,
+            medicalDate,
+          };
         })
         .filter((x: any) => /^[a-fA-F0-9]{24}$/.test(x._id));
 
@@ -464,18 +566,14 @@ export default function CustomersPage() {
       return;
     }
 
-    // ✅ compute age from DOB if present (keeps other pages compatible)
-    const dob = editing.dob ? parseDobYmd(editing.dob) : null;
-    const computedAge = dob ? calcAgeFromDob(dob) : (editing.age ?? null);
-
     setSaving(true);
     try {
       const { _id, ...rest } = editing;
 
       const payload = {
         ...rest,
-        dob: editing.dob ? String(editing.dob).slice(0, 10) : null,
-adhaarNumber: rest.adhaarNumber ? digitsOnly(String(rest.adhaarNumber)).slice(0, 12) : "",
+        dob: rest.dob ? String(rest.dob).slice(0, 10) : null,
+        adhaarNumber: rest.adhaarNumber ? digitsOnly(String(rest.adhaarNumber)).slice(0, 12) : "",
         mobile: rest.mobile ? digitsOnly(String(rest.mobile)).slice(0, 10) : "",
         emergencyNumber: rest.emergencyNumber ? digitsOnly(String(rest.emergencyNumber)) : "",
         medicalDate: rest.medicalDate ? String(rest.medicalDate).slice(0, 10) : null,
@@ -591,7 +689,12 @@ adhaarNumber: rest.adhaarNumber ? digitsOnly(String(rest.adhaarNumber)).slice(0,
       const data = await res.json().catch(() => ({}));
 
       const safe: Customer[] = (data.items || [])
-        .map((x: any) => ({ ...x, _id: normalizeId(x._id) }))
+        .map((x: any) => ({
+          ...x,
+          _id: normalizeId(x._id),
+          dob: toYmdAny(x.dob) || null,
+          medicalDate: toYmdAny(x.medicalDate) || null,
+        }))
         .filter((x: any) => /^[a-fA-F0-9]{24}$/.test(x._id));
 
       await exportCustomersToExcel(
@@ -1069,8 +1172,8 @@ adhaarNumber: rest.adhaarNumber ? digitsOnly(String(rest.adhaarNumber)).slice(0,
                           onClick={() =>
                             setEditing({
                               ...c,
-                              dob: toDateInputValue(c.dob),
-                              medicalDate: toDateInputValue(c.medicalDate),
+                              dob: toDateInputValue(c.dob) || "",
+                              medicalDate: toDateInputValue(c.medicalDate) || "",
                               blacklisted: (c.blacklisted as any) || "No",
                               department: (c.department as any) || "",
                             })
@@ -1109,7 +1212,7 @@ adhaarNumber: rest.adhaarNumber ? digitsOnly(String(rest.adhaarNumber)).slice(0,
 
                       {/* DOB */}
                       <td className="td whitespace-normal break-words px-2 py-2">
-                        {c.dob ? String(c.dob).slice(0, 10) : "-"}
+                        {fmtDobPretty(c.dob)}
                       </td>
 
                       {/* Age */}
@@ -1188,8 +1291,8 @@ adhaarNumber: rest.adhaarNumber ? digitsOnly(String(rest.adhaarNumber)).slice(0,
                             onClick={() =>
                               setEditing({
                                 ...c,
-                                dob: toDateInputValue(c.dob),
-                                medicalDate: toDateInputValue(c.medicalDate),
+                                dob: toDateInputValue(c.dob) || "",
+                                medicalDate: toDateInputValue(c.medicalDate) || "",
                                 blacklisted: (c.blacklisted as any) || "No",
                                 department: (c.department as any) || "",
                               })
@@ -1338,7 +1441,8 @@ adhaarNumber: rest.adhaarNumber ? digitsOnly(String(rest.adhaarNumber)).slice(0,
                 onChange={(e) =>
                   setEditing({
                     ...editing,
-})
+                    age: Number(digitsOnly(e.target.value || "")) || null,
+                  })
                 }
                 placeholder="Age"
                 inputMode="numeric"
@@ -1400,17 +1504,18 @@ adhaarNumber: rest.adhaarNumber ? digitsOnly(String(rest.adhaarNumber)).slice(0,
                 inputMode="numeric"
               />
 
-                            <Field label="Medical Date">
-<input
-                type="date"
-                className="app-input app-input-sm"
-                value={(editing.medicalDate as any) || ""}
-                onChange={(e) =>
-                  setEditing({ ...editing, medicalDate: e.target.value })
-                }
-              />
+              <Field label="Medical Date">
+                <input
+                  type="date"
+                  className="app-input app-input-sm"
+                  value={(editing.medicalDate as any) || ""}
+                  onChange={(e) =>
+                    setEditing({ ...editing, medicalDate: e.target.value })
+                  }
+                />
               </Field>
-<input
+
+              <input
                 className="app-input app-input-sm sm:col-span-2 lg:col-span-3"
                 value={editing.address || ""}
                 onChange={(e) =>
@@ -1448,7 +1553,10 @@ adhaarNumber: rest.adhaarNumber ? digitsOnly(String(rest.adhaarNumber)).slice(0,
                       >
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
-                          src={safeImgSrc(editing.passportPhoto) || "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80'%3E%3Crect width='100%25' height='100%25' fill='%23eee'/%3E%3Ctext x='50%25' y='52%25' dominant-baseline='middle' text-anchor='middle' fill='%23999' font-size='12'%3ENo%20Photo%3C/text%3E%3C/svg%3E"}
+                          src={
+                            safeImgSrc(editing.passportPhoto) ||
+                            "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80'%3E%3Crect width='100%25' height='100%25' fill='%23eee'/%3E%3Ctext x='50%25' y='52%25' dominant-baseline='middle' text-anchor='middle' fill='%23999' font-size='12'%3ENo%20Photo%3C/text%3E%3C/svg%3E"
+                          }
                           alt="Passport"
                           className="h-full w-full object-cover"
                         />
@@ -1492,7 +1600,10 @@ adhaarNumber: rest.adhaarNumber ? digitsOnly(String(rest.adhaarNumber)).slice(0,
                       >
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
-                          src={safeImgSrc(editing.aadhaarFrontPhoto) || "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80'%3E%3Crect width='100%25' height='100%25' fill='%23eee'/%3E%3Ctext x='50%25' y='52%25' dominant-baseline='middle' text-anchor='middle' fill='%23999' font-size='12'%3ENo%20Photo%3C/text%3E%3C/svg%3E"}
+                          src={
+                            safeImgSrc(editing.aadhaarFrontPhoto) ||
+                            "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80'%3E%3Crect width='100%25' height='100%25' fill='%23eee'/%3E%3Ctext x='50%25' y='52%25' dominant-baseline='middle' text-anchor='middle' fill='%23999' font-size='12'%3ENo%20Photo%3C/text%3E%3C/svg%3E"
+                          }
                           alt="Aadhaar Front"
                           className="h-full w-full object-cover"
                         />
@@ -1536,7 +1647,10 @@ adhaarNumber: rest.adhaarNumber ? digitsOnly(String(rest.adhaarNumber)).slice(0,
                       >
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
-                          src={safeImgSrc(editing.aadhaarBackPhoto) || "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80'%3E%3Crect width='100%25' height='100%25' fill='%23eee'/%3E%3Ctext x='50%25' y='52%25' dominant-baseline='middle' text-anchor='middle' fill='%23999' font-size='12'%3ENo%20Photo%3C/text%3E%3C/svg%3E"}
+                          src={
+                            safeImgSrc(editing.aadhaarBackPhoto) ||
+                            "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80'%3E%3Crect width='100%25' height='100%25' fill='%23eee'/%3E%3Ctext x='50%25' y='52%25' dominant-baseline='middle' text-anchor='middle' fill='%23999' font-size='12'%3ENo%20Photo%3C/text%3E%3C/svg%3E"
+                          }
                           alt="Aadhaar Back"
                           className="h-full w-full object-cover"
                         />
@@ -1580,7 +1694,10 @@ adhaarNumber: rest.adhaarNumber ? digitsOnly(String(rest.adhaarNumber)).slice(0,
                       >
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
-                          src={safeImgSrc(editing.medicalPhoto) || "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80'%3E%3Crect width='100%25' height='100%25' fill='%23eee'/%3E%3Ctext x='50%25' y='52%25' dominant-baseline='middle' text-anchor='middle' fill='%23999' font-size='12'%3ENo%20Photo%3C/text%3E%3C/svg%3E"}
+                          src={
+                            safeImgSrc(editing.medicalPhoto) ||
+                            "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80'%3E%3Crect width='100%25' height='100%25' fill='%23eee'/%3E%3Ctext x='50%25' y='52%25' dominant-baseline='middle' text-anchor='middle' fill='%23999' font-size='12'%3ENo%20Photo%3C/text%3E%3C/svg%3E"
+                          }
                           alt="Medical"
                           className="h-full w-full object-cover"
                         />
