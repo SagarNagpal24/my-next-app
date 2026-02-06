@@ -650,10 +650,11 @@ function formatPrettyDate(d: any) {
               <div class="row"><span class="label">Time:</span><span class="value">${escapeHtml(p.trainTime || "-")}</span></div>
               <div class="row"><span class="label">Boarding:</span><span class="value">${escapeHtml(p.boardingStation || "-")}</span></div>
               <div class="row"><span class="label">Fare:</span><span class="value">${escapeHtml((p as any).fare ?? "-")}</span></div>
-             <div class="foot"><span>Travel Date: ${escapeHtml(dateStr)}</span></div>
-              <div class="row"><span class="label">Contact:</span><span class="value">Gurjeet Kaur: 9999934357  Pulkit Sethi: 9871331688</span></div>
-
-              
+                            <div class="foot">
+  <div class="footline">Travel Date: ${escapeHtml(dateStr)}</div>
+  <div class="footline">Contact: Gurjeet Kaur: 9999934357</div>
+  <div class="footline">Pulkit Sethi: 9871331688</div>
+</div>
             </div>
           `;
         })
@@ -679,44 +680,90 @@ function formatPrettyDate(d: any) {
         <meta charset="utf-8" />
         <title>Tickets</title>
        <style>
-  @page { size: A4; margin: 8mm; }
+  @page { size: A4; margin: 0; }
 
-  html, body { margin: 0; padding: 0; font-family: Arial, sans-serif; }
+html, body {
+  margin: 0;
+  padding: 0;
+  font-family: Arial, sans-serif;
+}
 
-  .page { width: 194mm; height: 281mm; box-sizing: border-box; page-break-after: always; }
-  .page:last-child { page-break-after: auto; }
+.page {
+  width: 210mm;
+  height: 297mm;
+  box-sizing: border-box;
+  page-break-after: always;
+}
+.page:last-child { page-break-after: auto; }
 
-  .grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    grid-template-rows: 1fr 1fr 1fr;
-    gap: 6mm;
-    width: 100%;
-    height: 100%;
-  }
+.grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
 
-  .ticket {
-    border: 1.2px solid #111;
-    border-radius: 8px;
-    padding: 5mm;
-    box-sizing: border-box;
-    display: flex;
-    flex-direction: column;
-    break-inside: avoid;
-    page-break-inside: avoid;
-  }
+  /* ✅ lock 3 rows to equal height so overlap never happens */
+  grid-template-rows: repeat(3, 1fr);
 
-  .ticket-empty { border: 0; }
+  gap: 3mm;               /* smaller gap saves space */
+  width: 100%;
+  height: 100%;
+  padding: 3mm;           /* tiny page padding */
+  box-sizing: border-box;
+}
 
-  .head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2.5mm; }
-  .title { font-size: 14pt; font-weight: 800; }
-  .sn { font-size: 10.5pt; font-weight: 700; }
+.ticket {
+  border: 1.1px solid #111;
+  border-radius: 7px;
 
-  .row { display: flex; gap: 6px; margin: 1.6mm 0; font-size: 11pt; line-height: 1.15; }
-  .label { width: 40%; font-weight: 700; }
-  .value { width: 60%; font-weight: 600; }
+  /* ✅ reduce padding slightly */
+  padding: 3.6mm;
 
-  .foot { margin-top: auto; border-top: 1px dashed #999; padding-top: 2mm; font-size: 10.5pt; font-weight: 700; }
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+
+  overflow: hidden;       /* ✅ prevent text pushing outside */
+}
+
+.ticket-empty { border: 0; }
+
+.head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.4mm;
+}
+
+.title {
+  font-size: 14.5pt;      /* ✅ bigger */
+  font-weight: 800;
+}
+
+.sn {
+  font-size: 11pt;        /* ✅ bigger */
+  font-weight: 700;
+}
+
+.row {
+  display: flex;
+  gap: 6px;
+  margin: 1.1mm 0;        /* ✅ smaller vertical gaps */
+  font-size: 11.5pt;      /* ✅ bigger */
+  line-height: 1.1;       /* ✅ tighter */
+}
+
+.label { width: 38%; font-weight: 700; }
+.value { width: 62%; font-weight: 600; }
+
+.foot {
+  margin-top: auto;
+  border-top: 1px dashed #999;
+  padding-top: 1.6mm;
+  font-size: 10.8pt;      /* ✅ slightly bigger */
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+  .foot .footline { margin: 0.8mm 0 0 0; }
 </style>
       </head>
       <body>
