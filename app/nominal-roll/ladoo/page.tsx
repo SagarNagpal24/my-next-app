@@ -496,9 +496,9 @@ export default function LadooNominalRollPage() {
   const [department, setDepartment] = React.useState("");
   const [sangat, setSangat] = React.useState<YesNo>("");
 
-  // ✅ MULTI JATHA SAVE
-  const [multiJatha, setMultiJatha] = React.useState(false);
-  const [jathaDateIds, setJathaDateIds] = React.useState<string[]>([]); // ✅ multi selected ids
+  // ✅ Jatha multi-select via dropdown checkboxes
+  const [jathaDateIds, setJathaDateIds] = React.useState<string[]>([]);
+  const [createJathaOpen, setCreateJathaOpen] = React.useState(false);
 
   const [bookingDelhiBeas, setBookingDelhiBeas] = React.useState<YesNo>("");
   const [bookingBeasDelhi, setBookingBeasDelhi] = React.useState<YesNo>("");
@@ -524,6 +524,8 @@ export default function LadooNominalRollPage() {
   const [loading, setLoading] = React.useState(true);
   const [editing, setEditing] = React.useState<NominalLadooRow | null>(null);
   const [saving, setSaving] = React.useState(false);
+  const [editJathaDateIds, setEditJathaDateIds] = React.useState<string[]>([]);
+  const [editJathaOpen, setEditJathaOpen] = React.useState(false);
 
   // ✅ Ticket search fields (Edit)
   const [editTicketSearchDB, setEditTicketSearchDB] = React.useState("");
@@ -546,6 +548,8 @@ export default function LadooNominalRollPage() {
 
   // ✅ NEW: show only upto last Jatha month by default
   const [showFullData, setShowFullData] = React.useState(false);
+  const createJathaRef = React.useRef<HTMLDivElement | null>(null);
+  const editJathaRef = React.useRef<HTMLDivElement | null>(null);
 
   const isTrainMode = mode === "Train";
   const isEditTrainMode = String(editing?.mode || "") === "Train";
@@ -567,7 +571,11 @@ export default function LadooNominalRollPage() {
 
   // ✅ close edit if user switches tab
   React.useEffect(() => {
-    if (tab !== "ladoo") setEditing(null);
+    if (tab !== "ladoo") {
+      setEditing(null);
+      setEditJathaDateIds([]);
+      setEditJathaOpen(false);
+    }
   }, [tab]);
 
   // ✅ reset edit ticket search when opening edit modal
@@ -575,6 +583,20 @@ export default function LadooNominalRollPage() {
     setEditTicketSearchDB("");
     setEditTicketSearchBD("");
   }, [editing?._id]);
+
+
+  React.useEffect(() => {
+    function onDocClick(e: MouseEvent) {
+      if (createJathaRef.current && !createJathaRef.current.contains(e.target as Node)) {
+        setCreateJathaOpen(false);
+      }
+      if (editJathaRef.current && !editJathaRef.current.contains(e.target as Node)) {
+        setEditJathaOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, []);
 
   // ✅ Auto-suggest while typing (debounced) + department filtering + exclude blacklisted
   React.useEffect(() => {
@@ -887,6 +909,14 @@ export default function LadooNominalRollPage() {
     return m;
   }, [jathaDates]);
 
+
+  function selectedJathaLabel(ids: string[]) {
+    const valid = Array.from(new Set(ids.map((x) => String(x).trim()).filter(Boolean)));
+    if (!valid.length) return "Select Jatha date(s)";
+    if (valid.length === 1) return jathaLabelById.get(valid[0]) || "1 selected";
+    return `${valid.length} selected`;
+  }
+
   // ✅ Default list window: show data only up to the month of the LAST Jatha (by end date)
   const visibleCutoffISO = React.useMemo(() => {
     if (!jathaDates.length) return "";
@@ -1049,8 +1079,8 @@ export default function LadooNominalRollPage() {
     setDepartment("");
     setSangat("");
 
-    setMultiJatha(false);
     setJathaDateIds([]);
+    setCreateJathaOpen(false);
 
     setBookingDelhiBeas("");
     setBookingBeasDelhi("");
@@ -1070,7 +1100,43 @@ export default function LadooNominalRollPage() {
     setEndTouched(false);
   }
 
-  function validateCreate(selectedIds: string[]) {
+    function isDuplicateNominal(args: {
+    customerName: string;
+    jathaDateId: string;
+    travelStartDate: string;
+    travelEndDate: string;
+    excludeId?: string;
+  }) {
+    const name = String(args.customerName || "").trim().toLowerCase();
+    const jathaId = String(args.jathaDateId || "").trim();
+    const start = iso10(args.travelStartDate);
+    const end = iso10(args.travelEndDate);
+    const excludeId = String(args.excludeId || "").trim();
+
+    return items.some((r) => {
+      if (excludeId && String(r._id || "").trim() === excludeId) return false;
+      return (
+        String(r.customerName || "").trim().toLowerCase() === name &&
+        String(r.jathaDateId || "").trim() === jathaId &&
+        iso10(r.travelStartDate) === start &&
+        iso10(r.travelEndDate) === end
+      );
+    });
+  }
+
+  function openEditRow(r: NominalLadooRow) {
+    setEditing({
+      ...r,
+      travelStartDate: iso10(r.travelStartDate),
+      travelEndDate: iso10(r.travelEndDate),
+      department: String(r.department || "").trim(),
+      sangat: (String(r.sangat || "").trim() as any) || "",
+    });
+    setEditJathaDateIds(r.jathaDateId ? [String(r.jathaDateId).trim()] : []);
+    setEditJathaOpen(false);
+  }
+
+function validateCreate(selectedIds: string[]) {
     if (!selectedCustomer?._id) return "Please search and select a customer first.";
     if (!selectedIds.length) return "Jatha date is required (select at least 1).";
     if (!mode) return "Mode is required.";
@@ -1114,6 +1180,20 @@ export default function LadooNominalRollPage() {
       allow: mode === "Train" && bookingDelhiBeas === "Yes" && !!String(ticketDelhiBeas || "").trim(),
     });
     if (!okMismatch) return;
+
+    for (const oneId of selectedIds) {
+      if (
+        isDuplicateNominal({
+          customerName: selectedCustomer!.name,
+          jathaDateId: oneId,
+          travelStartDate,
+          travelEndDate,
+        })
+      ) {
+        const label = jathaLabelById.get(oneId) || oneId;
+        return alert(`Duplicate not allowed. Same customer, Jatha Date (${label}) and Travel Dates already exist.`);
+      }
+    }
 
     setSaving(true);
     try {
@@ -1194,13 +1274,13 @@ export default function LadooNominalRollPage() {
     e.preventDefault();
     if (!editing) return;
 
-    if (!editing.jathaDateId) return alert("Jatha date is required.");
+    const selectedIds = Array.from(new Set(editJathaDateIds.map((x) => String(x).trim()).filter(Boolean)));
+    if (!selectedIds.length) return alert("Jatha date is required.");
     if (!editing.mode) return alert("Mode is required.");
 
     if (String(editing.mode) === "Train") {
       if (!editing.bookingReqDelhiBeas) return alert("Booking REQ (Delhi–Beas) is required.");
       if (!editing.bookingReqBeasDelhi) return alert("Booking REQ (Beas–Delhi) is required.");
-      // ✅ tickets not mandatory
     }
 
     if (!editing.payment.trim()) return alert("Payment is required.");
@@ -1210,7 +1290,6 @@ export default function LadooNominalRollPage() {
     const okDates = confirmIfEndBeforeStart(editing.travelStartDate, editing.travelEndDate);
     if (!okDates) return;
 
-    // ✅ mismatch check only if ticket selected (Delhi–Beas)
     const okMismatch = confirmIfDelhiBeasDateMismatch({
       travelStartDate: editing.travelStartDate,
       ticketId: String(editing.ticketDelhiBeas || ""),
@@ -1218,25 +1297,37 @@ export default function LadooNominalRollPage() {
     });
     if (!okMismatch) return;
 
-    const realId = encodeURIComponent(String(editing._id).trim());
-    const jd = jathaDates.find((x) => x._id === editing.jathaDateId);
-    const jStart = jd ? getJathaStart(jd) : "";
+    for (let i = 0; i < selectedIds.length; i++) {
+      const oneId = selectedIds[i];
+      const dup = isDuplicateNominal({
+        customerName: editing.customerName,
+        jathaDateId: oneId,
+        travelStartDate: editing.travelStartDate,
+        travelEndDate: editing.travelEndDate,
+        excludeId: i === 0 ? editing._id : "",
+      });
+      if (dup) {
+        const label = jathaLabelById.get(oneId) || oneId;
+        return alert(`Duplicate not allowed. Same customer, Jatha Date (${label}) and Travel Dates already exist.`);
+      }
+    }
 
+    const realId = encodeURIComponent(String(editing._id).trim());
     setSaving(true);
     try {
+      const firstId = selectedIds[0];
+      const jd = jathaDates.find((x) => x._id === firstId);
+      const jStart = jd ? getJathaStart(jd) : "";
+
       const res = await fetch(`/api/nominal-roll/ladoo/${realId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           department: String(editing.department || "").trim(),
           sangat: String(editing.sangat || "").trim(),
-
           mode: editing.mode,
-
           bookingReqDelhiBeas: String(editing.mode) === "Train" ? editing.bookingReqDelhiBeas : "",
           bookingReqBeasDelhi: String(editing.mode) === "Train" ? editing.bookingReqBeasDelhi : "",
-
-          // ✅ ticket optional even if booking Yes
           ticketDelhiBeas:
             String(editing.mode) === "Train" && editing.bookingReqDelhiBeas === "Yes"
               ? String(editing.ticketDelhiBeas || "").trim()
@@ -1245,12 +1336,9 @@ export default function LadooNominalRollPage() {
             String(editing.mode) === "Train" && editing.bookingReqBeasDelhi === "Yes"
               ? String(editing.ticketBeasDelhi || "").trim()
               : "",
-
           payment: editing.payment.trim(),
-
-          jathaDateId: editing.jathaDateId,
+          jathaDateId: firstId,
           jathaDate: jStart || "",
-
           travelStartDate: String(editing.travelStartDate).slice(0, 10),
           travelEndDate: String(editing.travelEndDate).slice(0, 10),
           notes: (editing.notes || "").trim(),
@@ -1263,7 +1351,53 @@ export default function LadooNominalRollPage() {
         return;
       }
 
+      if (selectedIds.length > 1) {
+        for (const extraId of selectedIds.slice(1)) {
+          const extraJd = jathaDates.find((x) => x._id === extraId);
+          const extraJStart = extraJd ? getJathaStart(extraJd) : "";
+
+          const payload = {
+            customerId: editing.customerId,
+            customerName: editing.customerName,
+            badgeNo: editing.badgeNo || "",
+            fatherOrHusbandName: editing.fatherOrHusbandName || "",
+            gender: editing.gender || "",
+            age: editing.age ?? null,
+            address: editing.address || "",
+            mobile: editing.mobile || "",
+            adhaarNumber: editing.adhaarNumber || "",
+            department: String(editing.department || "").trim(),
+            sangat: String(editing.sangat || "").trim(),
+            mode: editing.mode,
+            bookingReqDelhiBeas: "",
+            bookingReqBeasDelhi: "",
+            ticketDelhiBeas: "",
+            ticketBeasDelhi: "",
+            payment: editing.payment.trim(),
+            jathaDateId: extraId,
+            jathaDate: extraJStart || "",
+            travelStartDate: String(editing.travelStartDate).slice(0, 10),
+            travelEndDate: String(editing.travelEndDate).slice(0, 10),
+            notes: (editing.notes || "").trim(),
+          };
+
+          const extraRes = await fetch("/api/nominal-roll/ladoo", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+
+          const extraData = await extraRes.json().catch(() => ({}));
+          if (!extraRes.ok) {
+            alert(`Extra save failed (${extraRes.status}). ${extraData?.error || "Error"}`);
+            return;
+          }
+        }
+      }
+
       setEditing(null);
+      setEditJathaDateIds([]);
+      setEditJathaOpen(false);
       await loadNominal();
     } finally {
       setSaving(false);
@@ -1272,12 +1406,20 @@ export default function LadooNominalRollPage() {
 
   // ✅ Pending ticket booking list
   const pendingTicketItems = React.useMemo(() => {
-    return items.filter((r) => {
+    const raw = items.filter((r) => {
       if (String(r.mode) !== "Train") return false;
 
       const needDB = String(r.bookingReqDelhiBeas || "") === "Yes" && !String(r.ticketDelhiBeas || "").trim();
       const needBD = String(r.bookingReqBeasDelhi || "") === "Yes" && !String(r.ticketBeasDelhi || "").trim();
       return needDB || needBD;
+    });
+
+    const seen = new Set<string>();
+    return raw.filter((r) => {
+      const key = `${String(r.customerName || "").trim().toLowerCase()}__${iso10(r.travelStartDate)}__${iso10(r.travelEndDate)}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
     });
   }, [items]);
 
@@ -2204,69 +2346,26 @@ export default function LadooNominalRollPage() {
               {/* Right: Main controls */}
               <div className="lg:col-span-7">
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {/* ✅ Multi-jatha toggle */}
-                  <div className="lg:col-span-3 sm:col-span-2">
-                    <div className="flex items-center justify-between rounded-xl border border-black/5 bg-zinc-50 px-3 py-2 text-sm dark:border-white/10 dark:bg-black/30">
-                      <div>
-                        <div className="font-semibold">Save for multiple Jatha dates</div>
-                        <div className="text-xs text-zinc-600 dark:text-zinc-400">Select 1..N dates and save in one click.</div>
-                      </div>
-                      <label className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={multiJatha}
-                          onChange={(e) => {
-                            const v = e.target.checked;
-                            setMultiJatha(v);
-                            setJathaDateIds([]);
-                            setStartTouched(false);
-                            setEndTouched(false);
-                          }}
-                        />
-                        <span className="text-sm font-semibold">Multi</span>
-                      </label>
-                    </div>
-                  </div>
+                  <div className="lg:col-span-3 sm:col-span-2" ref={createJathaRef}>
+                    <div className="app-label">Jatha Date(s) *</div>
+                    <button
+                      type="button"
+                      className={[inputCls(), "flex w-full items-center justify-between"].join(" ")}
+                      onClick={() => setCreateJathaOpen((v) => !v)}
+                      disabled={loadingJatha}
+                    >
+                      <span>{loadingJatha ? "Loading..." : selectedJathaLabel(jathaDateIds)}</span>
+                      <span>{createJathaOpen ? "▲" : "▼"}</span>
+                    </button>
 
-                  {/* ✅ Jatha date selection */}
-                  {!multiJatha ? (
-                    <div>
-                      <div className="app-label">Jatha Date (Ladoo) *</div>
-                      <select
-                        className={inputCls()}
-                        value={jathaDateIds[0] || ""}
-                        onChange={(e) => {
-                          setJathaDateIds(e.target.value ? [e.target.value] : []);
-                          setStartTouched(false);
-                          setEndTouched(false);
-                        }}
-                        disabled={loadingJatha}
-                      >
-                        <option value="">{loadingJatha ? "Loading..." : "Select date range"}</option>
-                        {jathaDates.map((d) => {
-                          const js = getJathaStart(d);
-                          const je = getJathaEnd(d);
-                          return (
-                            <option key={d._id} value={d._id}>
-                              {fmtRangeLabel(js, je)}
-                            </option>
-                          );
-                        })}
-                      </select>
-                    </div>
-                  ) : (
-                    <div className="lg:col-span-3 sm:col-span-2">
-                      <div className="app-label">Jatha Dates (Multi-select) *</div>
-                      <div className="max-h-44 overflow-auto rounded-xl border border-black/5 bg-white p-2 dark:border-white/10 dark:bg-zinc-950">
-                        {loadingJatha ? (
-                          <div className="px-2 py-2 text-sm text-zinc-600 dark:text-zinc-400">Loading...</div>
-                        ) : jathaDates.length === 0 ? (
+                    {createJathaOpen && !loadingJatha && (
+                      <div className="mt-2 max-h-56 overflow-auto rounded-xl border border-black/5 bg-white p-2 dark:border-white/10 dark:bg-zinc-950">
+                        {jathaDates.length === 0 ? (
                           <div className="px-2 py-2 text-sm text-zinc-600 dark:text-zinc-400">No Jatha dates found.</div>
                         ) : (
                           jathaDates.map((d) => {
                             const js = getJathaStart(d);
                             const je = getJathaEnd(d);
-                            const label = fmtRangeLabel(js, je);
                             const checked = jathaDateIds.includes(d._id);
                             return (
                               <label
@@ -2288,17 +2387,17 @@ export default function LadooNominalRollPage() {
                                     setEndTouched(false);
                                   }}
                                 />
-                                <span className="text-sm">{label}</span>
+                                <span className="text-sm">{fmtRangeLabel(js, je)}</span>
                               </label>
                             );
                           })
                         )}
                       </div>
-                      <div className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
-                        Selected: <span className="font-semibold">{jathaDateIds.length}</span>
-                      </div>
+                    )}
+                    <div className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
+                      Selected: <span className="font-semibold">{jathaDateIds.length}</span>
                     </div>
-                  )}
+                  </div>
 
                   <div>
                     <div className="app-label">Mode *</div>
@@ -2550,7 +2649,7 @@ export default function LadooNominalRollPage() {
 
             <div className="mt-4 flex items-center gap-2">
               <button type="submit" disabled={saving} className="app-btn app-btn-primary h-10 px-4 disabled:opacity-60">
-                {saving ? "Saving..." : multiJatha ? "Save (All Selected Jatha Dates)" : "Save"}
+                {saving ? "Saving..." : jathaDateIds.length > 1 ? "Save (All Selected Jatha Dates)" : "Save"}
               </button>
               <button type="button" onClick={resetForm} className="app-btn app-btn-secondary h-10 px-4">
                 Clear
@@ -2750,7 +2849,11 @@ export default function LadooNominalRollPage() {
                     const pending = getPendingForRow(r);
 
                     return (
-                      <tr key={r._id} className={["row", idx % 2 === 0 ? "row-alt" : "row-alt2"].join(" ")}>
+                      <tr
+                        key={r._id}
+                        className={["row cursor-pointer hover:bg-zinc-50 dark:hover:bg-white/5", idx % 2 === 0 ? "row-alt" : "row-alt2"].join(" ")}
+                        onClick={() => openEditRow(r)}
+                      >
                         <td className="td">{idx + 1}</td>
                         <td className="td font-medium">{r.customerName || "-"}</td>
                         <td className="td">{r.department || "-"}</td>
@@ -2782,22 +2885,10 @@ export default function LadooNominalRollPage() {
                           <div className="flex items-center gap-2">
                             <button
                               type="button"
-                              className="app-btn app-btn-secondary h-9 px-3 text-xs"
-                              onClick={() =>
-                                setEditing({
-                                  ...r,
-                                  travelStartDate: iso10(r.travelStartDate),
-                                  travelEndDate: iso10(r.travelEndDate),
-                                  department: String(r.department || "").trim(),
-                                  sangat: (String(r.sangat || "").trim() as any) || "",
-                                })
-                              }
-                            >
-                              Edit
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => onDelete(r._id)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onDelete(r._id);
+                              }}
                               className="h-9 rounded-xl border border-red-200 bg-red-50 px-3 text-xs font-semibold text-red-700 hover:bg-red-100 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-200 dark:hover:bg-red-900/30"
                             >
                               Delete
@@ -2820,7 +2911,7 @@ export default function LadooNominalRollPage() {
                   <h3 className="text-lg font-semibold">Edit (Ladoo Nominal Roll)</h3>
                   <button
                     type="button"
-                    onClick={() => setEditing(null)}
+                    onClick={() => { setEditing(null); setEditJathaDateIds([]); setEditJathaOpen(false); }}
                     className="rounded-lg px-3 py-1.5 text-sm hover:bg-zinc-100 dark:hover:bg-zinc-900/40"
                   >
                     ✕
@@ -2843,20 +2934,47 @@ export default function LadooNominalRollPage() {
                 </div>
 
                 <form onSubmit={onSaveEdit} className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  <div>
-                    <div className="app-label">Jatha Date *</div>
-                    <select className={inputCls()} value={editing.jathaDateId} onChange={(e) => setEditing({ ...editing, jathaDateId: e.target.value })}>
-                      <option value="">Select date range</option>
-                      {jathaDates.map((d) => {
-                        const js = getJathaStart(d);
-                        const je = getJathaEnd(d);
-                        return (
-                          <option key={d._id} value={d._id}>
-                            {fmtRangeLabel(js, je)}
-                          </option>
-                        );
-                      })}
-                    </select>
+                  <div className="lg:col-span-3 sm:col-span-2" ref={editJathaRef}>
+                    <div className="app-label">Jatha Date(s) *</div>
+                    <button
+                      type="button"
+                      className={[inputCls(), "flex w-full items-center justify-between"].join(" ")}
+                      onClick={() => setEditJathaOpen((v) => !v)}
+                    >
+                      <span>{selectedJathaLabel(editJathaDateIds)}</span>
+                      <span>{editJathaOpen ? "▲" : "▼"}</span>
+                    </button>
+
+                    {editJathaOpen && (
+                      <div className="mt-2 max-h-56 overflow-auto rounded-xl border border-black/5 bg-white p-2 dark:border-white/10 dark:bg-zinc-950">
+                        {jathaDates.map((d) => {
+                          const js = getJathaStart(d);
+                          const je = getJathaEnd(d);
+                          const checked = editJathaDateIds.includes(d._id);
+                          return (
+                            <label
+                              key={d._id}
+                              className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-zinc-50 dark:hover:bg-white/5"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={(e) => {
+                                  const on = e.target.checked;
+                                  setEditJathaDateIds((prev) => {
+                                    const s = new Set(prev);
+                                    if (on) s.add(d._id);
+                                    else s.delete(d._id);
+                                    return Array.from(s);
+                                  });
+                                }}
+                              />
+                              <span className="text-sm">{fmtRangeLabel(js, je)}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
 
                   <div>
@@ -3071,11 +3189,11 @@ export default function LadooNominalRollPage() {
                   </div>
 
                   <div className="sm:col-span-2 lg:col-span-3 mt-2 flex items-center justify-end gap-2">
-                    <button type="button" onClick={() => setEditing(null)} className="app-btn app-btn-secondary h-10 px-4">
+                    <button type="button" onClick={() => { setEditing(null); setEditJathaDateIds([]); setEditJathaOpen(false); }} className="app-btn app-btn-secondary h-10 px-4">
                       Cancel
                     </button>
                     <button type="submit" disabled={saving} className="app-btn app-btn-primary h-10 px-4 disabled:opacity-60">
-                      {saving ? "Saving..." : "Save Changes"}
+                      {saving ? "Saving..." : editJathaDateIds.length > 1 ? "Save All Selected" : "Save Changes"}
                     </button>
                   </div>
                 </form>
