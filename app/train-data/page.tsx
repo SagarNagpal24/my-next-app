@@ -661,7 +661,7 @@ export default function TrainDataPage() {
                 <div class="title">Train Ticket</div>
                 <div class="sn">#${sn}</div>
               </div>
-
+                 <div class="row"><span class="label">Travel Date:</span><span class="value"> ${escapeHtml(dateStr)}</span></div>
               <div class="row"><span class="label">Name:</span><span class="value">${escapeHtml(p.name)}</span></div>
               <div class="row"><span class="label">Seat:</span><span class="value">${escapeHtml(p.seatNumber || "-")}</span></div>
               <div class="row"><span class="label">PNR:</span><span class="value">${escapeHtml(p.pnrNumber || "-")}</span></div>
@@ -671,8 +671,8 @@ export default function TrainDataPage() {
               <div class="row"><span class="label">Boarding:</span><span class="value">${escapeHtml(p.boardingStation || "-")}</span></div>
               <div class="row"><span class="label">Fare:</span><span class="value">${escapeHtml((p as any).fare ?? "-")}</span></div>
               <div class="foot">
-                <div class="footline">Travel Date: ${escapeHtml(dateStr)}</div>
-                <div class="footline">Contact: Gurjeet Kaur: 9999934357</div>
+              
+                <div class="footline">Gurjeet Kaur: 9999934357</div>
                 <div class="footline">Pulkit Sethi: 9871331688</div>
               </div>
             </div>
