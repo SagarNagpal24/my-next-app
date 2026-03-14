@@ -25,7 +25,7 @@ type Department =
   | "Medical"
   | "VIP Block"
   | "Langar"
-  |"Guest-House";
+  | "Guest-House";
 
 const DEPARTMENT_OPTIONS: Exclude<Department, "">[] = [
   "Security",
@@ -53,6 +53,14 @@ function digitsOnly(v: any) {
   return String(v ?? "").replace(/\D/g, "");
 }
 
+function toUpperTrim(v: any) {
+  return String(v ?? "").trim().toUpperCase();
+}
+
+function hasSpaceOrHyphen(v: any) {
+  return /[\s-]/.test(String(v ?? ""));
+}
+
 function normKey(s: string) {
   return String(s || "")
     .toLowerCase()
@@ -63,10 +71,8 @@ function pick(row: any, keys: string[]) {
   for (const k of keys) {
     const nk = normKey(k);
 
-    // direct hit
     if (row[k] !== undefined && row[k] !== null) return row[k];
 
-    // normalized match
     for (const rk of Object.keys(row)) {
       if (normKey(rk) === nk) return row[rk];
     }
@@ -86,12 +92,10 @@ function normalizeToUtcMidnight(d: Date): Date {
 function parseExcelDate(v: any): Date | null {
   if (v === null || v === undefined || v === "") return null;
 
-  // JS Date
   if (v instanceof Date && !Number.isNaN(v.getTime())) {
     return normalizeToUtcMidnight(v);
   }
 
-  // Excel serial number
   if (typeof v === "number") {
     const d = XLSX.SSF.parse_date_code(v);
     if (!d) return null;
@@ -103,14 +107,12 @@ function parseExcelDate(v: any): Date | null {
   const s = String(v).trim();
   if (!s) return null;
 
-  // Prefer strict YYYY-MM-DD (avoids timezone shifts)
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
     const dt = new Date(s + "T00:00:00.000Z");
     if (Number.isNaN(dt.getTime())) return null;
     return normalizeToUtcMidnight(dt);
   }
 
-  // Fallback: allow ISO and other common formats, but store date-only
   const dt = new Date(s);
   if (Number.isNaN(dt.getTime())) return null;
   return normalizeToUtcMidnight(dt);
@@ -118,7 +120,6 @@ function parseExcelDate(v: any): Date | null {
 
 // ✅ DOB parser: accept Excel date, JS Date, or YYYY-MM-DD text
 function parseDobExcel(v: any): Date | null {
-  // already normalized to UTC midnight
   return parseExcelDate(v);
 }
 
@@ -147,13 +148,11 @@ function validateRow(clean: any, rowNumber: number) {
   const mobile = digitsOnly(clean.mobile || "");
   const blacklisted = String(clean.blacklisted || "No").trim();
 
-  // ✅ DOB support (preferred) + legacy age fallback
   const dob = clean.dob as Date | null;
   const ageVal = clean.age;
 
   const department = String(clean.department || "").trim();
 
-  // ✅ Mandatory fields
   if (!name)
     errors.push({ row: rowNumber, field: "Name", message: "Name is required." });
   if (!father)
@@ -181,7 +180,6 @@ function validateRow(clean: any, rowNumber: number) {
       message: "Mobile is required.",
     });
 
-  // ✅ DOB OR Age mandatory + valid
   let computedAge: number | null = null;
 
   if (dob instanceof Date) {
@@ -194,7 +192,6 @@ function validateRow(clean: any, rowNumber: number) {
       });
     }
   } else {
-    // fallback to Age column
     if (
       ageVal === "" ||
       ageVal === null ||
@@ -215,12 +212,20 @@ function validateRow(clean: any, rowNumber: number) {
     }
   }
 
-  // ✅ Badge OR Aadhaar mandatory
   if (!badgeNo && !aadhaar) {
     errors.push({
       row: rowNumber,
       field: "Badge/Aadhaar",
       message: "Either Badge No or Aadhaar must be filled.",
+    });
+  }
+
+  // ✅ NEW: no spaces or hyphen in badge
+  if (badgeNo && hasSpaceOrHyphen(clean.badgeNo)) {
+    errors.push({
+      row: rowNumber,
+      field: "Badge No",
+      message: "No spacing or - is allowed in Badge No.",
     });
   }
 
@@ -236,7 +241,15 @@ function validateRow(clean: any, rowNumber: number) {
     }
   }
 
-  // ✅ Aadhaar must be 12 digits if present
+  // ✅ NEW: no spaces or hyphen in aadhaar
+  if (String(clean.adhaarNumber || "").trim() && hasSpaceOrHyphen(clean.adhaarNumber)) {
+    errors.push({
+      row: rowNumber,
+      field: "Aadhaar",
+      message: "No spacing or - is allowed in Aadhaar.",
+    });
+  }
+
   if (aadhaar && aadhaar.length !== 12) {
     errors.push({
       row: rowNumber,
@@ -245,7 +258,6 @@ function validateRow(clean: any, rowNumber: number) {
     });
   }
 
-  // ✅ Gender allowed values
   if (gender && !["M", "F", "Other"].includes(gender)) {
     errors.push({
       row: rowNumber,
@@ -254,7 +266,6 @@ function validateRow(clean: any, rowNumber: number) {
     });
   }
 
-  // ✅ Blacklisted allowed values
   if (blacklisted && !["Yes", "No"].includes(blacklisted)) {
     errors.push({
       row: rowNumber,
@@ -263,7 +274,6 @@ function validateRow(clean: any, rowNumber: number) {
     });
   }
 
-  // ✅ Department allowed values (optional)
   if (department && !DEPARTMENT_OPTIONS.includes(department as any)) {
     errors.push({
       row: rowNumber,
@@ -334,27 +344,25 @@ export async function POST(req: Request) {
     const toInsert: any[] = [];
     const allErrors: RowErr[] = [];
 
-    // ✅ detect duplicates inside the uploaded Excel itself
     const badgeFirstRow = new Map<string, number>();
     const aadhaarFirstRow = new Map<string, number>();
-    const badgeToRows = new Map<string, number[]>(); // for DB duplicate mapping
+    const badgeToRows = new Map<string, number[]>();
     const aadhaarToRows = new Map<string, number[]>();
 
     rows.forEach((r, idx) => {
-      const rowNumber = idx + 2; // header row is 1
+      const rowNumber = idx + 2;
 
-      // ✅ header-safe picks (includes common variants)
-      let aadhaarPicked = digitsOnly(
-        pick(r, [
-          "Adhaar Number",
-          "Aadhaar Number",
-          "Aadhaar",
-          "Aadhar",
-          "Aadhar Number",
-        ])
-      ).slice(0, 12);
+      const rawAadhaarPicked = pick(r, [
+        "Adhaar Number",
+        "Aadhaar Number",
+        "Aadhaar",
+        "Aadhar",
+        "Aadhar Number",
+      ]);
 
-      let blacklistedPicked = String(
+      let aadhaarPicked = digitsOnly(rawAadhaarPicked).slice(0, 12);
+
+      let blacklistedPicked = toUpperTrim(
         pick(r, [
           "Blacklisted",
           "Black Listed",
@@ -362,27 +370,23 @@ export async function POST(req: Request) {
           "Black list",
           "Blacklisted (Yes/No)",
         ])
-      ).trim();
+      );
 
-      // ✅ DEFENSIVE FIX: shifted columns issue
       const blkDigits = digitsOnly(blacklistedPicked);
       if (!aadhaarPicked && blkDigits.length === 12) {
         aadhaarPicked = blkDigits;
-        blacklistedPicked = "No";
+        blacklistedPicked = "NO";
       }
 
-      // If Aadhaar column accidentally has Yes/No and blacklisted is empty, swap
-      if (!blacklistedPicked && ["Yes", "No"].includes(String(aadhaarPicked))) {
+      if (!blacklistedPicked && ["YES", "NO"].includes(String(aadhaarPicked))) {
         blacklistedPicked = String(aadhaarPicked);
         aadhaarPicked = "";
       }
 
-      // ✅ Department pick (many header variants)
-      const departmentPicked = String(
+      const departmentPicked = toUpperTrim(
         pick(r, ["Department", "Dept", "Dept.", "Team", "Seva", "Duty"])
-      ).trim();
+      );
 
-      // ✅ DOB column pick (many header variants)
       const dobRaw = pick(r, [
         "DOB",
         "Date of Birth",
@@ -391,42 +395,49 @@ export async function POST(req: Request) {
         "Birthdate",
         "D.O.B",
       ]);
-      const dobParsed = parseDobExcel(dobRaw); // may be null
+      const dobParsed = parseDobExcel(dobRaw);
+
+      const rawBadgeNo = pick(r, ["Badge No", "Badge"]);
+      const rawName = pick(r, ["Name"]);
+      const rawFatherName = pick(r, [
+        "Father’s / Husband’s Name",
+        "Father/Husband Name",
+        "Father Husband Name",
+        "Father Name",
+        "Husband Name",
+      ]);
+      const rawGender = pick(r, ["Gender"]);
+      const rawAddress = pick(r, ["Address"]);
+      const rawMobile = pick(r, ["Mobile", "Phone"]);
+      const rawEmergency = pick(r, ["Emergency Number", "Emergency"]);
+      const rawNotes = pick(r, ["Notes"]);
 
       const clean = {
-        name: String(pick(r, ["Name"])).trim(),
-        badgeNo: String(pick(r, ["Badge No", "Badge"])).trim(),
-        fatherOrHusbandName: String(
-          pick(r, [
-            "Father’s / Husband’s Name",
-            "Father/Husband Name",
-            "Father Husband Name",
-            "Father Name",
-            "Husband Name",
-          ])
-        ).trim(),
-        gender: String(pick(r, ["Gender"])).trim(),
-        // legacy age column (still supported)
+        name: toUpperTrim(rawName),
+        badgeNo: toUpperTrim(rawBadgeNo),
+        fatherOrHusbandName: toUpperTrim(rawFatherName),
+        gender: toUpperTrim(rawGender),
         age: pick(r, ["Age"]),
-        // ✅ new dob computed
         dob: dobParsed,
-        address: String(pick(r, ["Address"])).trim(),
-        mobile: digitsOnly(pick(r, ["Mobile", "Phone"])),
+        address: toUpperTrim(rawAddress),
+        mobile: digitsOnly(rawMobile),
         adhaarNumber: aadhaarPicked,
         department: departmentPicked,
-        blacklisted: (blacklistedPicked || "No") as "Yes" | "No" | string,
-        emergencyNumber: digitsOnly(pick(r, ["Emergency Number", "Emergency"])),
+        blacklisted: (blacklistedPicked || "NO") as string,
+        emergencyNumber: digitsOnly(rawEmergency),
         medicalDateRaw: pick(r, ["Medical Date"]),
-        notes: String(pick(r, ["Notes"])).trim(),
+        notes: toUpperTrim(rawNotes),
 
-        // ✅ images are NOT supported in bulk excel (keeps file small)
         passportPhoto: null,
         aadhaarFrontPhoto: null,
         aadhaarBackPhoto: null,
         medicalPhoto: null,
+
+        // raw values only for validation
+        _rawBadgeNo: String(rawBadgeNo ?? ""),
+        _rawAadhaar: String(rawAadhaarPicked ?? ""),
       };
 
-      // ✅ if DOB column provided but invalid, throw a clear error
       if (
         dobRaw !== null &&
         dobRaw !== undefined &&
@@ -448,11 +459,19 @@ export async function POST(req: Request) {
           age: clean.age,
           department: clean.department,
           dob: clean.dob,
+          badgeNo: clean.badgeNo,
+          blacklisted:
+            clean.blacklisted === "YES"
+              ? "Yes"
+              : clean.blacklisted === "NO"
+              ? "No"
+              : clean.blacklisted,
+          _rawBadgeNo: clean._rawBadgeNo,
+          _rawAadhaar: clean._rawAadhaar,
         },
         rowNumber
       );
 
-      // ✅ duplicate checks within the same upload file
       const b = String(clean.badgeNo || "").trim();
       const a = digitsOnly(clean.adhaarNumber || "");
 
@@ -486,7 +505,6 @@ export async function POST(req: Request) {
         aadhaarToRows.set(a, [...(aadhaarToRows.get(a) || []), rowNumber]);
       }
 
-      // ✅ Medical Date parsing (store date-only at UTC midnight, like DOB)
       const md = parseExcelDate(clean.medicalDateRaw);
       if (clean.medicalDateRaw && String(clean.medicalDateRaw).trim() !== "" && !md) {
         errs.push({
@@ -501,7 +519,6 @@ export async function POST(req: Request) {
         return;
       }
 
-      // ✅ final age stored: compute from DOB if present else use Age column
       const finalAge =
         clean.dob instanceof Date ? calcAgeFromDob(clean.dob) : Number(clean.age);
 
@@ -510,18 +527,22 @@ export async function POST(req: Request) {
         badgeNo: clean.badgeNo || "",
         fatherOrHusbandName: clean.fatherOrHusbandName,
         gender: clean.gender,
-        age: finalAge, // keep existing pages working
-        dob: clean.dob ?? null, // ✅ store DOB for future-proof age
+        age: finalAge,
+        dob: clean.dob ?? null,
         address: clean.address,
         mobile: clean.mobile,
         adhaarNumber: clean.adhaarNumber || "",
         department: clean.department || "",
-        blacklisted: clean.blacklisted || "No",
+        blacklisted:
+          clean.blacklisted === "YES"
+            ? "Yes"
+            : clean.blacklisted === "NO"
+            ? "No"
+            : clean.blacklisted || "No",
         emergencyNumber: clean.emergencyNumber || "",
-        medicalDate: md ? md : null, // ✅ normalized UTC midnight date-only
+        medicalDate: md ? md : null,
         notes: clean.notes || "",
 
-        // ✅ images set empty for bulk
         passportPhoto: null,
         aadhaarFrontPhoto: null,
         aadhaarBackPhoto: null,
@@ -532,7 +553,6 @@ export async function POST(req: Request) {
       });
     });
 
-    // ✅ ALL OR NOTHING (validation + Excel-internal duplicates)
     if (allErrors.length) {
       return NextResponse.json(
         {
@@ -546,7 +566,6 @@ export async function POST(req: Request) {
 
     const db = await getDb();
 
-    // ✅ ensure unique indexes (may fail if DB already contains duplicates)
     try {
       await ensureIndexes(db);
     } catch (e: any) {
@@ -555,7 +574,6 @@ export async function POST(req: Request) {
 
     const col = db.collection(COLLECTION);
 
-    // ✅ check DB for existing badge/aadhaar BEFORE insertMany
     const badgeList = Array.from(badgeToRows.keys());
     const aadhaarList = Array.from(aadhaarToRows.keys());
 
@@ -567,7 +585,7 @@ export async function POST(req: Request) {
         .toArray();
 
       for (const x of existingBadges) {
-        const b = String((x as any).badgeNo || "").trim();
+        const b = String((x as any).badgeNo || "").trim().toUpperCase();
         const rowsForB = badgeToRows.get(b) || [];
         for (const rn of rowsForB) {
           dupErrors.push({
@@ -619,7 +637,6 @@ export async function POST(req: Request) {
         { status: 201 }
       );
     } catch (err: any) {
-      // ✅ If unique index exists, Mongo may throw duplicate key on concurrency
       if (err?.code === 11000) {
         return NextResponse.json(
           {

@@ -109,16 +109,16 @@ export default function BulkUploadPage() {
 
         {/* File picker */}
         <div className="mt-6 rounded-2xl border border-black/5 p-4 dark:border-white/10">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <div className="app-label">Select Excel file</div>
 
-              <div className="flex gap-2 items-center">
+              <div className="flex items-center gap-2">
                 <input
                   ref={fileInputRef}
                   type="file"
                   accept=".xlsx,.xls"
-                  className="app-input app-input-sm pt-2 flex-1"
+                  className="app-input app-input-sm flex-1 pt-2"
                   onChange={(e) => {
                     setBulkFile(e.target.files?.[0] || null);
                     setErrors([]);
@@ -144,7 +144,7 @@ export default function BulkUploadPage() {
               )}
 
               {/* ✅ IMPORTANT RULES */}
-              <div className="mt-3 text-xs text-zinc-600 space-y-1">
+              <div className="mt-3 space-y-1 text-xs text-zinc-600">
                 <div>
                   Required: Name, Father/Husband, Gender, <strong>DOB or Age</strong>, Address, Mobile
                 </div>
@@ -152,14 +152,22 @@ export default function BulkUploadPage() {
                   <strong>Mobile must be exactly 10 digits</strong>
                 </div>
                 <div>
-                  Either <strong>Badge No</strong> or{" "}
-                  <strong>Aadhaar</strong> required
+                  Either <strong>Badge No</strong> or <strong>Aadhaar</strong> required
+                </div>
+                <div>
+                  <strong>No spacing or - is allowed in Badge No</strong>
+                </div>
+                <div>
+                  <strong>No spacing or - is allowed in Aadhaar</strong>
                 </div>
                 <div>
                   <strong>Badge No last 4 digits must be numeric</strong>
                 </div>
                 <div>
                   <strong>Badge No and Aadhaar must be unique</strong> (no duplicates in Excel or DB)
+                </div>
+                <div>
+                  <strong>All saved text data will be stored in CAPITAL LETTERS</strong>
                 </div>
                 <div>Blacklisted: Yes / No</div>
               </div>
@@ -185,7 +193,7 @@ export default function BulkUploadPage() {
           {/* Error Report */}
           {errors.length > 0 && (
             <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm">
-              <div className="flex justify-between items-center">
+              <div className="flex items-center justify-between">
                 <div className="font-semibold">
                   Fix these rows and upload again
                 </div>
@@ -206,7 +214,7 @@ export default function BulkUploadPage() {
                 Total errors: <strong>{totalErrors}</strong>
               </div>
 
-              <div className="mt-3 max-h-64 overflow-auto border rounded-lg bg-white p-3 text-xs">
+              <div className="mt-3 max-h-64 overflow-auto rounded-lg border bg-white p-3 text-xs">
                 <ul className="space-y-1">
                   {errors.slice(0, 200).map((e, i) => (
                     <li key={i}>
@@ -225,8 +233,8 @@ export default function BulkUploadPage() {
 
         {/* Accepted Columns */}
         <div className="mt-6 rounded-2xl border p-4 text-sm">
-          <div className="font-semibold mb-2">Accepted Columns</div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1">
+          <div className="mb-2 font-semibold">Accepted Columns</div>
+          <div className="grid grid-cols-1 gap-1 sm:grid-cols-2 lg:grid-cols-3">
             {[
               "Name *",
               "Badge No (or Aadhaar) *",
@@ -252,8 +260,16 @@ export default function BulkUploadPage() {
             ))}
           </div>
 
-          <div className="mt-3 text-xs text-zinc-600">
-            Tip: Prefer <strong>DOB</strong> so age will be calculated automatically every year.
+          <div className="mt-3 space-y-1 text-xs text-zinc-600">
+            <div>
+              Tip: Prefer <strong>DOB</strong> so age will be calculated automatically every year.
+            </div>
+            <div>
+              <strong>Badge No and Aadhaar must not contain spaces or hyphen (-).</strong>
+            </div>
+            <div>
+              <strong>All text data is saved in CAPITAL LETTERS.</strong>
+            </div>
           </div>
         </div>
       </div>

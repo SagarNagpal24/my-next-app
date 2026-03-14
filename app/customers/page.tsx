@@ -23,7 +23,6 @@ type Department =
   | "Sewa-Collection"
   | "Water"
   | "Sewa-Samiti"
-
   | "Medical"
   | "VIP Block"
   | "Langar"
@@ -45,7 +44,6 @@ const DEPARTMENT_OPTIONS: Exclude<Department, "">[] = [
   "Sewa-Collection",
   "Water",
   "Sewa-Samiti",
-  
   "Medical",
   "VIP Block",
   "Langar",
@@ -95,7 +93,6 @@ type Customer = {
 function toYmdAny(v: any): string {
   if (!v) return "";
   try {
-    // Mongo Extended JSON patterns
     const d1 = v?.$date;
     if (d1) {
       if (typeof d1 === "string") {
@@ -118,27 +115,20 @@ function toYmdAny(v: any): string {
     if (typeof v === "string") {
       const s = v.trim();
       if (!s) return "";
-      // If already YYYY-MM-DD
       if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-      // ISO or other date-like string
       const dt = new Date(s);
       if (!Number.isNaN(dt.getTime())) return dt.toISOString().slice(0, 10);
-      // sometimes backend returns "YYYY-MM-DDT..." without timezone
       if (s.length >= 10 && /^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
     }
 
-    // timestamp number
     if (typeof v === "number") {
       const dt = new Date(v);
       if (!Number.isNaN(dt.getTime())) return dt.toISOString().slice(0, 10);
     }
 
-    // last resort: try Date(v)
     const dt = new Date(String(v));
     if (!Number.isNaN(dt.getTime())) return dt.toISOString().slice(0, 10);
-  } catch {
-    // ignore
-  }
+  } catch {}
   return "";
 }
 
@@ -146,7 +136,6 @@ function fmtDate(d?: any) {
   const ymd = toYmdAny(d);
   if (!ymd) return "-";
   try {
-    // Render in user's locale; input is date-only so add Z to avoid timezone shift in display
     const dt = new Date(ymd + "T00:00:00.000Z");
     return Number.isNaN(dt.getTime()) ? "-" : dt.toLocaleDateString();
   } catch {
@@ -154,7 +143,6 @@ function fmtDate(d?: any) {
   }
 }
 
-// ✅ DOB pretty format: "23rd feb 1995" (lowercase month)
 function fmtDobPretty(d?: any) {
   const ymd = toYmdAny(d);
   if (!ymd) return "-";
@@ -165,18 +153,7 @@ function fmtDobPretty(d?: any) {
     const day = dt.getUTCDate();
     const year = dt.getUTCFullYear();
     const months = [
-      "jan",
-      "feb",
-      "mar",
-      "apr",
-      "may",
-      "jun",
-      "jul",
-      "aug",
-      "sep",
-      "oct",
-      "nov",
-      "dec",
+      "jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec",
     ];
     const month = months[dt.getUTCMonth()] || "";
 
@@ -202,7 +179,6 @@ function toDateInputValue(d?: any) {
   return toYmdAny(d);
 }
 
-// ✅ Strong id normalizer
 function normalizeId(raw: any): string {
   const candidate =
     typeof raw === "string"
@@ -243,7 +219,6 @@ function Field({
   );
 }
 
-// ✅ DOB helpers (UTC-safe)
 function parseDobYmd(dobYmd: any): Date | null {
   const s = String(dobYmd ?? "").trim();
   if (!s) return null;
@@ -261,7 +236,6 @@ function calcAgeFromDob(dob: Date): number {
   return age;
 }
 
-// --- UI helpers for images ---
 function formatBytes(bytes?: number) {
   if (!bytes && bytes !== 0) return "";
   const units = ["B", "KB", "MB"];
@@ -279,11 +253,6 @@ function safeImgSrc(img?: ImgData) {
   return img.dataUrl;
 }
 
-/**
- * Compress image file in-browser using canvas.
- * - Resizes to maxW/maxH (keeps aspect ratio)
- * - Encodes to JPEG/WebP for smaller size
- */
 async function fileToCompressedImgData(
   file: File,
   opts?: { maxW?: number; maxH?: number; quality?: number }
@@ -292,7 +261,6 @@ async function fileToCompressedImgData(
   const maxH = opts?.maxH ?? 900;
   const quality = opts?.quality ?? 0.75;
 
-  // Read file into Image
   const dataUrl = await new Promise<string>((resolve, reject) => {
     const fr = new FileReader();
     fr.onload = () => resolve(String(fr.result || ""));
@@ -310,7 +278,6 @@ async function fileToCompressedImgData(
   const iw = img.naturalWidth || img.width;
   const ih = img.naturalHeight || img.height;
 
-  // Compute new size (contain)
   let w = iw;
   let h = ih;
   const wr = maxW / w;
@@ -328,14 +295,12 @@ async function fileToCompressedImgData(
 
   ctx.drawImage(img, 0, 0, w, h);
 
-  // Prefer webp if browser supports, else jpeg
   const mimeCandidate = "image/webp";
   const testWebp = canvas.toDataURL(mimeCandidate).startsWith("data:image/webp");
   const outMime = testWebp ? "image/webp" : "image/jpeg";
 
   const outDataUrl = canvas.toDataURL(outMime, quality);
 
-  // Approx byte size from base64
   const base64 = outDataUrl.split(",")[1] || "";
   const approxBytes = Math.floor((base64.length * 3) / 4);
 
@@ -356,16 +321,13 @@ function validateCustomerInput(c: Customer) {
   const mob = digitsOnly(c.mobile || "").trim();
   const gender = (c.gender as any) || "";
 
-  // ✅ prefer DOB if present
   const dobStr = String(c.dob || "").trim();
   const dob = dobStr ? parseDobYmd(dobStr) : null;
 
-  // fallback legacy age
   const ageVal = c.age;
 
   if (!name) return { ok: false, msg: "Name is required." };
 
-  // ✅ One of Badge or Aadhaar must be filled
   if (!badge && !aadhaar) {
     return {
       ok: false,
@@ -373,12 +335,10 @@ function validateCustomerInput(c: Customer) {
     };
   }
 
-  // ✅ Mandatory fields
   if (!fh) return { ok: false, msg: "Father/Husband Name is mandatory." };
   if (!addr) return { ok: false, msg: "Address is mandatory." };
   if (!gender) return { ok: false, msg: "Gender is mandatory." };
 
-  // ✅ DOB/age rules
   let age: number | null = null;
   if (dob) age = calcAgeFromDob(dob);
   else if (dobStr && !dob) return { ok: false, msg: "DOB must be a valid date (YYYY-MM-DD)." };
@@ -391,13 +351,11 @@ function validateCustomerInput(c: Customer) {
 
   if (!mob) return { ok: false, msg: "Mobile is mandatory." };
 
-  // ✅ 10 digit rule
   if (mob && mob.length !== 10) return { ok: false, msg: "Mobile must be exactly 10 digits." };
 
   if (aadhaar && aadhaar.length !== 12)
     return { ok: false, msg: "Aadhaar must be 12 digits (if provided)." };
 
-  // ✅ Department (optional, but validate if present)
   if (c.department && c.department !== "" && !DEPARTMENT_OPTIONS.includes(c.department as any)) {
     return { ok: false, msg: "Invalid Department." };
   }
@@ -405,11 +363,35 @@ function validateCustomerInput(c: Customer) {
   return { ok: true as const, msg: "" };
 }
 
+function customerSnapshot(c: Customer | null): string {
+  if (!c) return "";
+  return JSON.stringify({
+    _id: c._id || "",
+    name: c.name || "",
+    badgeNo: c.badgeNo || "",
+    fatherOrHusbandName: c.fatherOrHusbandName || "",
+    gender: c.gender || "",
+    dob: c.dob || "",
+    age: c.age ?? null,
+    address: c.address || "",
+    mobile: c.mobile || "",
+    adhaarNumber: c.adhaarNumber || "",
+    department: c.department || "",
+    blacklisted: c.blacklisted || "",
+    emergencyNumber: c.emergencyNumber || "",
+    medicalDate: c.medicalDate || "",
+    notes: c.notes || "",
+    passportPhoto: c.passportPhoto?.dataUrl || "",
+    aadhaarFrontPhoto: c.aadhaarFrontPhoto?.dataUrl || "",
+    aadhaarBackPhoto: c.aadhaarBackPhoto?.dataUrl || "",
+    medicalPhoto: c.medicalPhoto?.dataUrl || "",
+  });
+}
+
 export default function CustomersPage() {
   const [items, setItems] = React.useState<Customer[]>([]);
   const [loading, setLoading] = React.useState(true);
 
-  // search / filters
   const [q, setQ] = React.useState("");
   const [gender, setGender] = React.useState<Gender>("");
   const [department, setDepartment] = React.useState<Department>("");
@@ -419,27 +401,22 @@ export default function CustomersPage() {
   const [medFrom, setMedFrom] = React.useState("");
   const [medTo, setMedTo] = React.useState("");
 
-  // ✅ autocomplete
   const [suggestions, setSuggestions] = React.useState<string[]>([]);
   const [sugOpen, setSugOpen] = React.useState(false);
   const [highlightIndex, setHighlightIndex] = React.useState(-1);
   const sugBoxRef = React.useRef<HTMLDivElement | null>(null);
 
-  // pagination
   const [page, setPage] = React.useState(1);
   const [pageSize, setPageSize] = React.useState(25);
 
-  // edit modal
   const [editing, setEditing] = React.useState<Customer | null>(null);
   const [saving, setSaving] = React.useState(false);
+  const [editInitialSnapshot, setEditInitialSnapshot] = React.useState("");
 
-  // export
   const [exporting, setExporting] = React.useState<"filtered" | "all" | null>(null);
 
-  // ✅ image preview modal
   const [imgPreview, setImgPreview] = React.useState<{ title: string; src: string } | null>(null);
 
-  // ✅ upload state inside edit modal
   const [imgUploading, setImgUploading] = React.useState<{
     passport?: boolean;
     aadhaarFront?: boolean;
@@ -462,15 +439,12 @@ export default function CustomersPage() {
     { label: "Blacklisted", width: "w-20" },
     { label: "Emergency", width: "w-28" },
     { label: "Medical Date", width: "w-24" },
-
-    // ✅ image columns
     { label: "Passport", width: "w-24" },
     { label: "Aadhaar Front", width: "w-28" },
     { label: "Aadhaar Back", width: "w-28" },
     { label: "Medical Photo", width: "w-28" },
-
     { label: "Notes", width: "w-40" },
-    { label: "Actions", width: "w-28" },
+    { label: "Delete", width: "w-20" },
   ];
 
   async function load() {
@@ -492,8 +466,6 @@ export default function CustomersPage() {
       const safe: Customer[] = (data.items || [])
         .map((x: any) => {
           const _id = normalizeId(x._id);
-
-          // ✅ normalize date fields for UI display/edit
           const dob = toYmdAny(x.dob) || null;
           const medicalDate = toYmdAny(x.medicalDate) || null;
 
@@ -515,7 +487,6 @@ export default function CustomersPage() {
 
   React.useEffect(() => {
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function clearFilters() {
@@ -531,6 +502,49 @@ export default function CustomersPage() {
     setSuggestions([]);
     setSugOpen(false);
     setHighlightIndex(-1);
+  }
+
+  const hasUnsavedChanges = !!editing && customerSnapshot(editing) !== editInitialSnapshot;
+
+  React.useEffect(() => {
+    function onBeforeUnload(e: BeforeUnloadEvent) {
+      if (!hasUnsavedChanges) return;
+      e.preventDefault();
+      e.returnValue = "";
+    }
+
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [hasUnsavedChanges]);
+
+  function openEdit(c: Customer) {
+    const nextEditing: Customer = {
+      ...c,
+      dob: toDateInputValue(c.dob) || "",
+      medicalDate: toDateInputValue(c.medicalDate) || "",
+      blacklisted: (c.blacklisted as any) || "No",
+      department: (c.department as any) || "",
+    };
+    setEditing(nextEditing);
+    setEditInitialSnapshot(customerSnapshot(nextEditing));
+  }
+
+  function attemptCloseEdit() {
+    if (!editing) return;
+    if (!hasUnsavedChanges) {
+      setEditing(null);
+      setEditInitialSnapshot("");
+      return;
+    }
+
+    const shouldLeave = window.confirm(
+      "Data is not saved. Do you want to leave without saving?\n\nPress OK to leave without saving.\nPress Cancel to stay and save first."
+    );
+
+    if (shouldLeave) {
+      setEditing(null);
+      setEditInitialSnapshot("");
+    }
   }
 
   async function onDelete(id: string) {
@@ -579,8 +593,6 @@ export default function CustomersPage() {
         medicalDate: rest.medicalDate ? String(rest.medicalDate).slice(0, 10) : null,
         blacklisted: (rest.blacklisted as any) || "No",
         department: (rest.department as any) || "",
-
-        // ✅ images can be edited now
         passportPhoto: rest.passportPhoto || null,
         aadhaarFrontPhoto: rest.aadhaarFrontPhoto || null,
         aadhaarBackPhoto: rest.aadhaarBackPhoto || null,
@@ -600,39 +612,19 @@ export default function CustomersPage() {
       }
 
       setEditing(null);
+      setEditInitialSnapshot("");
       await load();
     } finally {
       setSaving(false);
     }
   }
 
-  // --------- Export helpers ----------
   async function exportCustomersToExcel(rows: Customer[], filename: string) {
     const XLSX = await import("xlsx");
 
     const header = [
-      "S.No",
-      "Name",
-      "Badge No",
-      "Aadhaar",
-      "Father/Husband",
-      "Gender",
-      "DOB",
-      "Age",
-      "Department",
-      "Address",
-      "Mobile",
-      "Blacklisted",
-      "Emergency",
-      "Medical Date",
-
-      // ✅ export as Yes/No flags
-      "Passport Photo",
-      "Aadhaar Front Photo",
-      "Aadhaar Back Photo",
-      "Medical Photo",
-
-      "Notes",
+      "S.No","Name","Badge No","Aadhaar","Father/Husband","Gender","DOB","Age","Department","Address","Mobile","Blacklisted","Emergency","Medical Date",
+      "Passport Photo","Aadhaar Front Photo","Aadhaar Back Photo","Medical Photo","Notes",
     ];
 
     const aoa: any[][] = [header];
@@ -652,12 +644,10 @@ export default function CustomersPage() {
         (c.blacklisted as any) || "No",
         c.emergencyNumber || "",
         fmtExcelDate(c.medicalDate),
-
         c.passportPhoto?.dataUrl ? "Yes" : "No",
         c.aadhaarFrontPhoto?.dataUrl ? "Yes" : "No",
         c.aadhaarBackPhoto?.dataUrl ? "Yes" : "No",
         c.medicalPhoto?.dataUrl ? "Yes" : "No",
-
         c.notes || "",
       ]);
     });
@@ -708,7 +698,6 @@ export default function CustomersPage() {
     }
   }
 
-  // ---------- Pagination derived values ----------
   const total = items.length;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
@@ -735,7 +724,6 @@ export default function CustomersPage() {
   }
   const pageButtons = getPageButtons();
 
-  // ---------- Autocomplete (debounced) ----------
   React.useEffect(() => {
     const term = q.trim();
     setHighlightIndex(-1);
@@ -756,15 +744,12 @@ export default function CustomersPage() {
         const list = Array.isArray(data.suggestions) ? data.suggestions : [];
         setSuggestions(list);
         setSugOpen(list.length > 0);
-      } catch {
-        // ignore
-      }
+      } catch {}
     }, 200);
 
     return () => window.clearTimeout(t);
   }, [q]);
 
-  // close suggestions on outside click
   React.useEffect(() => {
     function onDocClick(e: MouseEvent) {
       if (!sugBoxRef.current) return;
@@ -815,11 +800,13 @@ export default function CustomersPage() {
       <div className="flex items-center gap-2">
         <button
           type="button"
-          onClick={() => setImgPreview({ title, src })}
+          onClick={(e) => {
+            e.stopPropagation();
+            setImgPreview({ title, src });
+          }}
           className="h-8 w-8 overflow-hidden rounded-lg border border-black/10 bg-white dark:border-white/10 dark:bg-zinc-950"
           title="Click to preview"
         >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={src} alt={title} className="h-full w-full object-cover" />
         </button>
         <span className="text-[11px] text-zinc-600 dark:text-zinc-400">
@@ -836,7 +823,6 @@ export default function CustomersPage() {
     if (!editing) return;
     if (!file) return;
 
-    // basic file type guard
     if (!file.type.startsWith("image/")) {
       alert("Please select an image file.");
       return;
@@ -879,7 +865,6 @@ export default function CustomersPage() {
     });
   }
 
-  // computed age for edit modal display
   const editDob = editing?.dob ? parseDobYmd(editing.dob) : null;
   const editComputedAge = editDob ? calcAgeFromDob(editDob) : (editing?.age ?? null);
 
@@ -925,9 +910,7 @@ export default function CustomersPage() {
           </div>
         </div>
 
-        {/* Filters */}
         <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
-          {/* Search with suggestions */}
           <div className="relative" ref={sugBoxRef}>
             <div className="app-label">Search</div>
             <input
@@ -978,7 +961,6 @@ export default function CustomersPage() {
             </select>
           </div>
 
-          {/* Department filter */}
           <div>
             <div className="app-label">Department</div>
             <select
@@ -1049,7 +1031,6 @@ export default function CustomersPage() {
           </div>
         </div>
 
-        {/* Pagination bar */}
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
           <div className="text-sm text-zinc-600 dark:text-zinc-400">
             Showing{" "}
@@ -1118,7 +1099,6 @@ export default function CustomersPage() {
           </div>
         </div>
 
-        {/* Table */}
         <div className="w-full overflow-x-auto mt-4">
           <table className="min-w-[2400px] table-fixed border-collapse text-xs">
             <thead className="thead">
@@ -1160,24 +1140,20 @@ export default function CustomersPage() {
                   return (
                     <tr
                       key={c._id}
+                      onClick={() => openEdit(c)}
                       className={[
-                        "row",
+                        "row cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-900/30",
                         i % 2 === 0 ? "row-alt" : "row-alt2",
                       ].join(" ")}
+                      title="Click row to edit"
                     >
-                      {/* S.No */}
                       <td className="td whitespace-nowrap px-2 py-2 text-center">
                         <button
                           type="button"
-                          onClick={() =>
-                            setEditing({
-                              ...c,
-                              dob: toDateInputValue(c.dob) || "",
-                              medicalDate: toDateInputValue(c.medicalDate) || "",
-                              blacklisted: (c.blacklisted as any) || "No",
-                              department: (c.department as any) || "",
-                            })
-                          }
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openEdit(c);
+                          }}
                           className="rounded-lg px-2 py-1 font-semibold hover:bg-zinc-100 dark:hover:bg-zinc-900/40"
                           title="Click to edit"
                         >
@@ -1185,72 +1161,58 @@ export default function CustomersPage() {
                         </button>
                       </td>
 
-                      {/* Name */}
                       <td className="td whitespace-normal break-words px-2 py-2 font-medium">
                         {c.name || "-"}
                       </td>
 
-                      {/* Badge No */}
                       <td className="td whitespace-normal break-words px-2 py-2">
                         {c.badgeNo || "-"}
                       </td>
 
-                      {/* Aadhaar */}
                       <td className="td whitespace-normal break-all px-2 py-2">
                         {c.adhaarNumber || "-"}
                       </td>
 
-                      {/* Father/Husband */}
                       <td className="td whitespace-normal break-words px-2 py-2">
                         {c.fatherOrHusbandName || "-"}
                       </td>
 
-                      {/* Gender */}
                       <td className="td whitespace-normal break-words px-2 py-2">
                         {(c.gender as any) || "-"}
                       </td>
 
-                      {/* DOB */}
                       <td className="td whitespace-normal break-words px-2 py-2">
                         {fmtDobPretty(c.dob)}
                       </td>
 
-                      {/* Age */}
                       <td className="td whitespace-normal break-words px-2 py-2">
                         {c.age ?? "-"}
                       </td>
 
-                      {/* Department */}
                       <td className="td whitespace-normal break-words px-2 py-2">
                         {(c.department as any) || "-"}
                       </td>
 
-                      {/* Address */}
                       <td className="td whitespace-normal break-words px-2 py-2">
                         {c.address || "-"}
                       </td>
 
-                      {/* Mobile */}
                       <td className="td whitespace-normal break-all px-2 py-2">
                         {c.mobile || "-"}
                       </td>
 
-                      {/* Blacklisted */}
                       <td className="td whitespace-normal break-words px-2 py-2">
                         {(c.blacklisted as any) || "No"}
                       </td>
 
-                      {/* Emergency */}
                       <td className="td whitespace-normal break-all px-2 py-2">
                         {c.emergencyNumber || "-"}
                       </td>
 
-                      {/* Medical Date */}
                       <td className="td whitespace-normal break-words px-2 py-2">
                         {fmtDate(c.medicalDate)}
                       </td>
 
-                      {/* Images */}
                       <td className="td whitespace-normal break-words px-2 py-2">
                         <ImgCell
                           title={`${c.name || "Passport"} - Passport`}
@@ -1279,31 +1241,17 @@ export default function CustomersPage() {
                         />
                       </td>
 
-                      {/* Notes */}
                       <td className="td whitespace-normal break-words px-2 py-2">
                         {c.notes || "-"}
                       </td>
 
-                      {/* Actions */}
                       <td className="td whitespace-nowrap px-2 py-2">
                         <div className="flex items-center gap-1">
                           <button
-                            onClick={() =>
-                              setEditing({
-                                ...c,
-                                dob: toDateInputValue(c.dob) || "",
-                                medicalDate: toDateInputValue(c.medicalDate) || "",
-                                blacklisted: (c.blacklisted as any) || "No",
-                                department: (c.department as any) || "",
-                              })
-                            }
-                            className="app-btn app-btn-secondary h-8 px-2 text-[11px]"
-                          >
-                            Edit
-                          </button>
-
-                          <button
-                            onClick={() => onDelete(c._id)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onDelete(c._id);
+                            }}
                             className="h-8 rounded-xl border border-red-200 bg-red-50 px-2 text-[11px] font-semibold text-red-700 hover:bg-red-100 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-200 dark:hover:bg-red-900/30"
                           >
                             Delete
@@ -1319,7 +1267,6 @@ export default function CustomersPage() {
         </div>
       </div>
 
-      {/* ✅ Image Preview Modal */}
       {imgPreview && (
         <div className="fixed inset-0 z-[60] bg-black/60 p-4 overflow-y-auto">
           <div className="mx-auto w-full max-w-3xl rounded-2xl bg-white p-4 shadow-lg dark:bg-zinc-950 my-6">
@@ -1334,7 +1281,6 @@ export default function CustomersPage() {
             </div>
 
             <div className="mt-3 overflow-hidden rounded-xl border border-black/10 dark:border-white/10">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={imgPreview.src}
                 alt={imgPreview.title}
@@ -1345,19 +1291,29 @@ export default function CustomersPage() {
         </div>
       )}
 
-      {/* Edit Modal (✅ now includes DOB + auto Age) */}
       {editing && (
-        <div className="fixed inset-0 z-50 bg-black/40 p-4 overflow-y-auto">
+        <div
+          className="fixed inset-0 z-50 bg-black/40 p-4 overflow-y-auto"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) attemptCloseEdit();
+          }}
+        >
           <div className="mx-auto w-full max-w-3xl rounded-2xl bg-white p-6 shadow-lg dark:bg-zinc-950 my-6">
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-semibold">Edit Customer</h3>
               <button
-                onClick={() => setEditing(null)}
+                onClick={attemptCloseEdit}
                 className="rounded-lg px-3 py-1.5 text-sm hover:bg-zinc-100 dark:hover:bg-zinc-900/40"
               >
                 ✕
               </button>
             </div>
+
+            {hasUnsavedChanges && (
+              <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-200">
+                Data is not saved yet. Save changes before leaving this page or switching tabs.
+              </div>
+            )}
 
             <form
               onSubmit={onSaveEdit}
@@ -1420,7 +1376,6 @@ export default function CustomersPage() {
                 <option value="Other">Other</option>
               </select>
 
-              {/* ✅ DOB input (preferred) */}
               <input
                 type="date"
                 className="app-input app-input-sm"
@@ -1434,7 +1389,6 @@ export default function CustomersPage() {
                 placeholder="DOB"
               />
 
-              {/* ✅ Age stays for compatibility, but auto when DOB is present */}
               <input
                 className="app-input app-input-sm"
                 value={String(editing.dob ? (editComputedAge ?? "") : (editing.age ?? ""))}
@@ -1533,12 +1487,10 @@ export default function CustomersPage() {
                 placeholder="Notes"
               />
 
-              {/* ✅ Photo Upload section */}
               <div className="sm:col-span-2 lg:col-span-3 mt-2 rounded-2xl border border-black/5 p-4 dark:border-white/10">
                 <div className="text-sm font-semibold mb-3">Photos</div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {/* Passport */}
                   <div className="rounded-xl border border-black/5 p-3 dark:border-white/10">
                     <div className="text-xs font-semibold mb-2">Passport Photo</div>
                     <div className="flex items-center gap-3">
@@ -1551,7 +1503,6 @@ export default function CustomersPage() {
                         }}
                         title="Preview"
                       >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
                           src={
                             safeImgSrc(editing.passportPhoto) ||
@@ -1585,7 +1536,6 @@ export default function CustomersPage() {
                     </div>
                   </div>
 
-                  {/* Aadhaar Front */}
                   <div className="rounded-xl border border-black/5 p-3 dark:border-white/10">
                     <div className="text-xs font-semibold mb-2">Aadhaar Front</div>
                     <div className="flex items-center gap-3">
@@ -1598,7 +1548,6 @@ export default function CustomersPage() {
                         }}
                         title="Preview"
                       >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
                           src={
                             safeImgSrc(editing.aadhaarFrontPhoto) ||
@@ -1632,7 +1581,6 @@ export default function CustomersPage() {
                     </div>
                   </div>
 
-                  {/* Aadhaar Back */}
                   <div className="rounded-xl border border-black/5 p-3 dark:border-white/10">
                     <div className="text-xs font-semibold mb-2">Aadhaar Back</div>
                     <div className="flex items-center gap-3">
@@ -1645,7 +1593,6 @@ export default function CustomersPage() {
                         }}
                         title="Preview"
                       >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
                           src={
                             safeImgSrc(editing.aadhaarBackPhoto) ||
@@ -1679,7 +1626,6 @@ export default function CustomersPage() {
                     </div>
                   </div>
 
-                  {/* Medical */}
                   <div className="rounded-xl border border-black/5 p-3 dark:border-white/10">
                     <div className="text-xs font-semibold mb-2">Medical Photo</div>
                     <div className="flex items-center gap-3">
@@ -1692,7 +1638,6 @@ export default function CustomersPage() {
                         }}
                         title="Preview"
                       >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
                           src={
                             safeImgSrc(editing.medicalPhoto) ||
@@ -1735,7 +1680,7 @@ export default function CustomersPage() {
               <div className="sm:col-span-2 lg:col-span-3 mt-2 flex items-center justify-end gap-2">
                 <button
                   type="button"
-                  onClick={() => setEditing(null)}
+                  onClick={attemptCloseEdit}
                   className="app-btn app-btn-secondary h-10 px-4"
                 >
                   Cancel

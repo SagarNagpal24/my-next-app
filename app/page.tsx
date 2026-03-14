@@ -5,7 +5,6 @@ import React from "react";
 type Gender = "M" | "F" | "Other" | "";
 type Blacklisted = "Yes" | "No" | "";
 
-// ✅ UPDATED Department options (added all you listed)
 type Department =
   | ""
   | "Security"
@@ -26,7 +25,7 @@ type Department =
   | "Medical"
   | "VIP Block"
   | "Langar"
-    | "Guest-House";
+  | "Guest-House";
 
 const DEPARTMENT_OPTIONS: Exclude<Department, "">[] = [
   "Security",
@@ -50,44 +49,28 @@ const DEPARTMENT_OPTIONS: Exclude<Department, "">[] = [
   "Guest-House",
 ];
 
-// ✅ Image payload (compressed)
 type ImgData = {
-  /** data URL like: data:image/webp;base64,... */
   dataUrl: string;
-  /** original filename (optional) */
   filename?: string;
-  /** mime of compressed output (image/webp or image/jpeg) */
   mime: string;
-  /** bytes of compressed blob */
   size: number;
 } | null;
 
 type FormState = {
   name: string;
-
-  badgeNo: string; // one of badge/aadhaar required
-  adhaarNumber: string; // digits only (max 12)
-
-  fatherOrHusbandName: string; // required
-  gender: Gender; // required
-
-  // ✅ NEW: Date of Birth instead of Age input
-  dob: string; // YYYY-MM-DD (required)
-
-  address: string; // required
-  mobile: string; // required digits
-
-  // ✅ Department
+  badgeNo: string;
+  adhaarNumber: string;
+  fatherOrHusbandName: string;
+  gender: Gender;
+  dob: string;
+  address: string;
+  mobile: string;
   department: Department;
-
   blacklisted: Blacklisted;
-
   emergencyNumber: string;
-  medicalDate: string; // YYYY-MM-DD
+  medicalDate: string;
   notes: string;
-
-  // ✅ NEW: Photos (compressed client-side)
-  passportPhoto: ImgData; // passport size photo
+  passportPhoto: ImgData;
   aadhaarFrontPhoto: ImgData;
   aadhaarBackPhoto: ImgData;
   medicalPhoto: ImgData;
@@ -123,10 +106,21 @@ function digitsOnly(s: string) {
   return (s || "").replace(/\D/g, "");
 }
 
-// ✅ NEW: Badge validation (last 4 chars must be 4 digits)
+function hasSpaceOrHyphen(s: string) {
+  return /[\s-]/.test(String(s || ""));
+}
+
+function toUpperText(s: string) {
+  return String(s || "").toUpperCase();
+}
+
+function toUpperTrim(s: string) {
+  return String(s || "").trim().toUpperCase();
+}
+
 function badgeLast4Valid(badgeNo: string) {
   const s = (badgeNo || "").trim();
-  if (!s) return true; // badge optional (aadhaar can be used)
+  if (!s) return true;
   if (s.length < 4) return false;
   return /^\d{4}$/.test(s.slice(-4));
 }
@@ -143,7 +137,6 @@ function formatBytes(bytes: number) {
   return `${v.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
 }
 
-// ✅ NEW: Calculate age from DOB (full years)
 function calcAgeFromDob(dobYmd: string) {
   const s = String(dobYmd || "").trim();
   if (!s) return null;
@@ -161,19 +154,12 @@ function calcAgeFromDob(dobYmd: string) {
   return age;
 }
 
-/**
- * Compress image in-browser using canvas:
- * - Resize to fit within maxW x maxH
- * - Convert to WebP (if supported) else JPEG
- * - Quality controls size a lot
- */
 async function compressImageToDataUrl(
   file: File,
   opts: { maxW: number; maxH: number; quality: number }
 ): Promise<ImgData> {
   if (!file) return null;
 
-  // ✅ allow all common image formats (mime can be unreliable for HEIC/HEIF)
   const name = (file.name || "").toLowerCase();
   const looksLikeImage =
     file.type.startsWith("image/") ||
@@ -257,22 +243,16 @@ export default function Home() {
     name: "",
     badgeNo: "",
     adhaarNumber: "",
-
     fatherOrHusbandName: "",
     gender: "",
     dob: "",
-
     address: "",
     mobile: "",
-
     department: "",
-
     blacklisted: "No",
-
     emergencyNumber: "",
     medicalDate: "",
     notes: "",
-
     passportPhoto: null,
     aadhaarFrontPhoto: null,
     aadhaarBackPhoto: null,
@@ -301,8 +281,9 @@ export default function Home() {
     const e: Record<string, string> = {};
 
     if (!form.name.trim()) e.name = "Name is required.";
-    if (!form.fatherOrHusbandName.trim())
+    if (!form.fatherOrHusbandName.trim()) {
       e.fatherOrHusbandName = "Father/Husband Name is required.";
+    }
     if (!form.gender) e.gender = "Gender is required.";
     if (!form.address.trim()) e.address = "Address is required.";
 
@@ -310,7 +291,6 @@ export default function Home() {
     if (!mobileDigits) e.mobile = "Mobile is required.";
     else if (mobileDigits.length !== 10) e.mobile = "Mobile must be exactly 10 digits.";
 
-    // ✅ DOB required + age calculation
     if (!form.dob.trim()) e.dob = "Date of Birth is required.";
     else {
       const age = calcAgeFromDob(form.dob);
@@ -320,29 +300,36 @@ export default function Home() {
 
     const badge = form.badgeNo.trim();
     const aadhaar = digitsOnly(form.adhaarNumber);
+
     if (!badge && !aadhaar) {
       e.badgeNo = "Either Badge No or Aadhaar is required.";
       e.adhaarNumber = "Either Aadhaar or Badge No is required.";
     }
 
-    // ✅ validate badge last 4 digits (only if badge is provided)
-    if (badge && !badgeLast4Valid(badge)) {
-      e.badgeNo =
-        "Badge No last 4 digits must be exactly 4 numbers (e.g., XXXX1234).";
+    if (badge && hasSpaceOrHyphen(form.badgeNo)) {
+      e.badgeNo = "No spacing or - is allowed in Badge No.";
+    } else if (badge && !badgeLast4Valid(badge)) {
+      e.badgeNo = "Badge No last 4 digits must be exactly 4 numbers (e.g., XXXX1234).";
     }
 
-    if (aadhaar && aadhaar.length !== 12)
+    if (form.adhaarNumber.trim() && hasSpaceOrHyphen(form.adhaarNumber)) {
+      e.adhaarNumber = "No spacing or - is allowed in Aadhaar.";
+    } else if (aadhaar && aadhaar.length !== 12) {
       e.adhaarNumber = "Aadhaar must be exactly 12 digits (if provided).";
+    }
 
     const emergencyDigits = digitsOnly(form.emergencyNumber);
-    if (emergencyDigits && emergencyDigits.length < 7)
+    if (emergencyDigits && emergencyDigits.length < 7) {
       e.emergencyNumber = "Emergency number looks too short.";
+    }
 
-    if (form.blacklisted && !["Yes", "No"].includes(form.blacklisted))
+    if (form.blacklisted && !["Yes", "No"].includes(form.blacklisted)) {
       e.blacklisted = "Blacklisted must be Yes or No.";
+    }
 
-    if (form.department && !DEPARTMENT_OPTIONS.includes(form.department as any))
+    if (form.department && !DEPARTMENT_OPTIONS.includes(form.department as any)) {
       e.department = "Invalid Department.";
+    }
 
     setErrors(e);
     return Object.keys(e).length === 0;
@@ -366,13 +353,13 @@ export default function Home() {
     try {
       let opts = { maxW: 900, maxH: 900, quality: 0.6 };
       if (key === "passportPhoto") opts = { maxW: 600, maxH: 600, quality: 0.6 };
-      if (key === "aadhaarFrontPhoto" || key === "aadhaarBackPhoto")
+      if (key === "aadhaarFrontPhoto" || key === "aadhaarBackPhoto") {
         opts = { maxW: 1200, maxH: 800, quality: 0.6 };
+      }
       if (key === "medicalPhoto") opts = { maxW: 900, maxH: 900, quality: 0.6 };
 
       const compressed = await compressImageToDataUrl(file, opts);
 
-      // If still big, try once more at lower quality
       if (compressed && compressed.size > 300 * 1024) {
         const compressed2 = await compressImageToDataUrl(file, {
           ...opts,
@@ -401,8 +388,6 @@ export default function Home() {
     }
 
     const age = calcAgeFromDob(form.dob);
-
-    // Safety (validate() already ensures)
     if (age === null) {
       setStatus({ type: "err", msg: "Invalid Date of Birth." });
       return;
@@ -411,27 +396,20 @@ export default function Home() {
     setSaving(true);
     try {
       const payload = {
-        name: form.name.trim(),
-        badgeNo: form.badgeNo.trim(),
-        fatherOrHusbandName: form.fatherOrHusbandName.trim(),
+        name: toUpperTrim(form.name),
+        badgeNo: toUpperTrim(form.badgeNo),
+        fatherOrHusbandName: toUpperTrim(form.fatherOrHusbandName),
         gender: form.gender,
-
-        // ✅ send computed age to backend (other pages remain unchanged)
         age,
-
-        // ✅ send DOB too (so Customers list can show DOB)
         dob: form.dob ? String(form.dob).slice(0, 10) : null,
-
-        address: form.address.trim(),
+        address: toUpperTrim(form.address),
         mobile: digitsOnly(form.mobile).slice(0, 10),
         adhaarNumber: digitsOnly(form.adhaarNumber).slice(0, 12),
         department: form.department,
         blacklisted: form.blacklisted || "No",
         emergencyNumber: digitsOnly(form.emergencyNumber),
         medicalDate: form.medicalDate ? form.medicalDate : null,
-        notes: form.notes.trim(),
-
-        // ✅ images
+        notes: toUpperTrim(form.notes),
         passportPhoto: form.passportPhoto,
         aadhaarFrontPhoto: form.aadhaarFrontPhoto,
         aadhaarBackPhoto: form.aadhaarBackPhoto,
@@ -483,7 +461,6 @@ export default function Home() {
 
   return (
     <div className="app-page">
-      {/* ✅ Center overlay for save / error (over old screen) */}
       {status.type !== "idle" && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
@@ -547,11 +524,9 @@ export default function Home() {
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <Field label="Name *" error={errors.name}>
                 <input
-                  className={`app-input ${
-                    errors.name ? "border-red-400 focus:border-red-500" : ""
-                  }`}
+                  className={`app-input ${errors.name ? "border-red-400 focus:border-red-500" : ""}`}
                   value={form.name}
-                  onChange={(e) => setField("name", e.target.value)}
+                  onChange={(e) => setField("name", toUpperText(e.target.value))}
                   placeholder="Full name"
                   required
                 />
@@ -559,26 +534,18 @@ export default function Home() {
 
               <Field label="Badge No" error={errors.badgeNo}>
                 <input
-                  className={`app-input ${
-                    errors.badgeNo ? "border-red-400 focus:border-red-500" : ""
-                  }`}
+                  className={`app-input ${errors.badgeNo ? "border-red-400 focus:border-red-500" : ""}`}
                   value={form.badgeNo}
-                  onChange={(e) => setField("badgeNo", e.target.value)}
+                  onChange={(e) => setField("badgeNo", toUpperText(e.target.value))}
                   placeholder="Badge No"
                 />
               </Field>
 
               <Field label="Aadhaar" error={errors.adhaarNumber}>
                 <input
-                  className={`app-input ${
-                    errors.adhaarNumber
-                      ? "border-red-400 focus:border-red-500"
-                      : ""
-                  }`}
+                  className={`app-input ${errors.adhaarNumber ? "border-red-400 focus:border-red-500" : ""}`}
                   value={form.adhaarNumber}
-                  onChange={(e) =>
-                    setField("adhaarNumber", digitsOnly(e.target.value).slice(0, 12))
-                  }
+                  onChange={(e) => setField("adhaarNumber", e.target.value)}
                   inputMode="numeric"
                   placeholder="Aadhaar"
                 />
@@ -589,13 +556,9 @@ export default function Home() {
                 error={errors.fatherOrHusbandName}
               >
                 <input
-                  className={`app-input ${
-                    errors.fatherOrHusbandName
-                      ? "border-red-400 focus:border-red-500"
-                      : ""
-                  }`}
+                  className={`app-input ${errors.fatherOrHusbandName ? "border-red-400 focus:border-red-500" : ""}`}
                   value={form.fatherOrHusbandName}
-                  onChange={(e) => setField("fatherOrHusbandName", e.target.value)}
+                  onChange={(e) => setField("fatherOrHusbandName", toUpperText(e.target.value))}
                   placeholder="Father/Husband Name"
                   required
                 />
@@ -603,9 +566,7 @@ export default function Home() {
 
               <Field label="Gender *" error={errors.gender}>
                 <select
-                  className={`app-input ${
-                    errors.gender ? "border-red-400 focus:border-red-500" : ""
-                  }`}
+                  className={`app-input ${errors.gender ? "border-red-400 focus:border-red-500" : ""}`}
                   value={form.gender}
                   onChange={(e) => setField("gender", e.target.value as Gender)}
                   required
@@ -617,33 +578,22 @@ export default function Home() {
                 </select>
               </Field>
 
-              {/* ✅ NEW: DOB input + computed age */}
               <Field label="Date of Birth *" error={errors.dob}>
                 <input
                   type="date"
-                  className={`app-input ${
-                    errors.dob ? "border-red-400 focus:border-red-500" : ""
-                  }`}
+                  className={`app-input ${errors.dob ? "border-red-400 focus:border-red-500" : ""}`}
                   value={form.dob}
                   onChange={(e) => setField("dob", e.target.value)}
                   required
                 />
                 <div className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
-                  Age (auto):{" "}
-                  <span className="font-semibold">
-                    {computedAge === null ? "-" : computedAge}
-                  </span>
+                  Age (auto): <span className="font-semibold">{computedAge === null ? "-" : computedAge}</span>
                 </div>
               </Field>
 
-              {/* ✅ UPDATED Department */}
               <Field label="Department" error={errors.department}>
                 <select
-                  className={`app-input ${
-                    errors.department
-                      ? "border-red-400 focus:border-red-500"
-                      : ""
-                  }`}
+                  className={`app-input ${errors.department ? "border-red-400 focus:border-red-500" : ""}`}
                   value={form.department}
                   onChange={(e) => setField("department", e.target.value as Department)}
                 >
@@ -658,15 +608,9 @@ export default function Home() {
 
               <Field label="Blacklisted" error={errors.blacklisted}>
                 <select
-                  className={`app-input ${
-                    errors.blacklisted
-                      ? "border-red-400 focus:border-red-500"
-                      : ""
-                  }`}
+                  className={`app-input ${errors.blacklisted ? "border-red-400 focus:border-red-500" : ""}`}
                   value={form.blacklisted}
-                  onChange={(e) =>
-                    setField("blacklisted", e.target.value as Blacklisted)
-                  }
+                  onChange={(e) => setField("blacklisted", e.target.value as Blacklisted)}
                 >
                   <option value="No">No</option>
                   <option value="Yes">Yes</option>
@@ -688,7 +632,6 @@ export default function Home() {
             </div>
           </div>
 
-          {/* ✅ NEW: Photos section */}
           <div className="mt-5 rounded-2xl border border-black/5 p-4 dark:border-white/10 sm:p-5">
             <div className="mb-4">
               <div className="text-sm font-semibold">Photos</div>
@@ -703,9 +646,7 @@ export default function Home() {
                   type="file"
                   accept="image/*"
                   className="app-input"
-                  onChange={(e) =>
-                    handleImagePick("passportPhoto", e.target.files?.[0] || null)
-                  }
+                  onChange={(e) => handleImagePick("passportPhoto", e.target.files?.[0] || null)}
                 />
                 {form.passportPhoto && (
                   <div className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
@@ -719,9 +660,7 @@ export default function Home() {
                   type="file"
                   accept="image/*"
                   className="app-input"
-                  onChange={(e) =>
-                    handleImagePick("aadhaarFrontPhoto", e.target.files?.[0] || null)
-                  }
+                  onChange={(e) => handleImagePick("aadhaarFrontPhoto", e.target.files?.[0] || null)}
                 />
                 {form.aadhaarFrontPhoto && (
                   <div className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
@@ -735,9 +674,7 @@ export default function Home() {
                   type="file"
                   accept="image/*"
                   className="app-input"
-                  onChange={(e) =>
-                    handleImagePick("aadhaarBackPhoto", e.target.files?.[0] || null)
-                  }
+                  onChange={(e) => handleImagePick("aadhaarBackPhoto", e.target.files?.[0] || null)}
                 />
                 {form.aadhaarBackPhoto && (
                   <div className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
@@ -751,9 +688,7 @@ export default function Home() {
                   type="file"
                   accept="image/*"
                   className="app-input"
-                  onChange={(e) =>
-                    handleImagePick("medicalPhoto", e.target.files?.[0] || null)
-                  }
+                  onChange={(e) => handleImagePick("medicalPhoto", e.target.files?.[0] || null)}
                 />
                 {form.medicalPhoto && (
                   <div className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
@@ -767,17 +702,13 @@ export default function Home() {
           <div className="mt-5 rounded-2xl border border-black/5 p-4 dark:border-white/10 sm:p-5">
             <div className="mb-4">
               <div className="text-sm font-semibold">Contact</div>
-              <div className="text-xs text-zinc-600 dark:text-zinc-400">
-                Phone numbers
-              </div>
+              <div className="text-xs text-zinc-600 dark:text-zinc-400">Phone numbers</div>
             </div>
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <Field label="Mobile *" error={errors.mobile}>
                 <input
-                  className={`app-input ${
-                    errors.mobile ? "border-red-400 focus:border-red-500" : ""
-                  }`}
+                  className={`app-input ${errors.mobile ? "border-red-400 focus:border-red-500" : ""}`}
                   value={form.mobile}
                   onChange={(e) => setField("mobile", digitsOnly(e.target.value))}
                   inputMode="numeric"
@@ -788,15 +719,9 @@ export default function Home() {
 
               <Field label="Emergency Number" error={errors.emergencyNumber}>
                 <input
-                  className={`app-input ${
-                    errors.emergencyNumber
-                      ? "border-red-400 focus:border-red-500"
-                      : ""
-                  }`}
+                  className={`app-input ${errors.emergencyNumber ? "border-red-400 focus:border-red-500" : ""}`}
                   value={form.emergencyNumber}
-                  onChange={(e) =>
-                    setField("emergencyNumber", digitsOnly(e.target.value))
-                  }
+                  onChange={(e) => setField("emergencyNumber", digitsOnly(e.target.value))}
                   inputMode="numeric"
                   placeholder="Emergency Number"
                 />
@@ -804,11 +729,9 @@ export default function Home() {
 
               <Field label="Address *" error={errors.address}>
                 <input
-                  className={`app-input ${
-                    errors.address ? "border-red-400 focus:border-red-500" : ""
-                  }`}
+                  className={`app-input ${errors.address ? "border-red-400 focus:border-red-500" : ""}`}
                   value={form.address}
-                  onChange={(e) => setField("address", e.target.value)}
+                  onChange={(e) => setField("address", toUpperText(e.target.value))}
                   placeholder="Address"
                   required
                 />
@@ -819,9 +742,7 @@ export default function Home() {
           <div className="mt-5 rounded-2xl border border-black/5 p-4 dark:border-white/10 sm:p-5">
             <div className="mb-4">
               <div className="text-sm font-semibold">Additional Information</div>
-              <div className="text-xs text-zinc-600 dark:text-zinc-400">
-                Notes
-              </div>
+              <div className="text-xs text-zinc-600 dark:text-zinc-400">Notes</div>
             </div>
 
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
@@ -831,7 +752,7 @@ export default function Home() {
                     className="app-textarea"
                     rows={4}
                     value={form.notes}
-                    onChange={(e) => setField("notes", e.target.value)}
+                    onChange={(e) => setField("notes", toUpperText(e.target.value))}
                   />
                 </Field>
               </div>
@@ -869,11 +790,7 @@ export default function Home() {
               Clear
             </button>
 
-            <button
-              type="submit"
-              disabled={saving}
-              className="app-btn app-btn-primary"
-            >
+            <button type="submit" disabled={saving} className="app-btn app-btn-primary">
               {saving ? "Saving..." : "Save"}
             </button>
           </div>
