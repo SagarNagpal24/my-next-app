@@ -10,7 +10,6 @@ function toNum(v: any) {
 }
 
 function toNumNullable(v: any) {
-  // returns number | null
   if (v === undefined || v === null || v === "") return null;
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
@@ -20,7 +19,15 @@ function cleanStr(v: any) {
   return String(v ?? "").trim();
 }
 
-// ✅ Excel serial date (e.g., 46052) or string -> YYYY-MM-DD
+function normalizeSeat(v: any) {
+  return String(v ?? "").trim().toUpperCase();
+}
+
+function escapeRegex(s: string) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// Excel serial date or string -> YYYY-MM-DD
 function toISODate10(v: any) {
   if (v === undefined || v === null) return "";
   if (typeof v === "number" && Number.isFinite(v)) {
@@ -36,7 +43,7 @@ function toISODate10(v: any) {
   return s.slice(0, 10);
 }
 
-// ✅ Excel time fraction (e.g., 0.4166667) -> HH:MM, else keep string
+// Excel time fraction -> HH:MM, else keep string
 function toTrainTime(v: any) {
   if (v === undefined || v === null) return "";
   if (typeof v === "number" && Number.isFinite(v)) {
@@ -59,7 +66,7 @@ function normalizeGender(g: string) {
   if (/^male$/i.test(s)) return "M";
   if (/^female$/i.test(s)) return "F";
   if (/^other$/i.test(s)) return "Other";
-  return s; // keep as-is (will be validated)
+  return s;
 }
 
 export async function GET(req: Request) {
@@ -68,15 +75,17 @@ export async function GET(req: Request) {
 
     const q = cleanStr(searchParams.get("q"));
     const name = cleanStr(searchParams.get("name"));
-    const seatNumber = cleanStr(searchParams.get("seatNumber")); // ✅ no uppercase rule
+    const seatNumber = cleanStr(searchParams.get("seatNumber"));
     const pnrNumber = cleanStr(searchParams.get("pnrNumber"));
     const trainName = cleanStr(searchParams.get("trainName"));
     const route = cleanStr(searchParams.get("route"));
     const boardingStation = cleanStr(searchParams.get("boardingStation"));
     const gender = normalizeGender(cleanStr(searchParams.get("gender")));
-    const travelDate = toISODate10(searchParams.get("travelDate"));
 
-    // optional fare filters
+    const travelDate = toISODate10(searchParams.get("travelDate"));
+    const travelDateFrom = toISODate10(searchParams.get("travelDateFrom"));
+    const travelDateTo = toISODate10(searchParams.get("travelDateTo"));
+
     const fareMin = toNum(searchParams.get("fareMin"));
     const fareMax = toNum(searchParams.get("fareMax"));
 
@@ -85,17 +94,22 @@ export async function GET(req: Request) {
 
     const filter: any = {};
 
-    if (name) filter.name = { $regex: name, $options: "i" };
-    if (seatNumber) filter.seatNumber = { $regex: seatNumber, $options: "i" }; // ✅ contains match
-    if (pnrNumber) filter.pnrNumber = { $regex: pnrNumber, $options: "i" };
-
-    if (trainName) filter.trainName = { $regex: trainName, $options: "i" };
+    if (name) filter.name = { $regex: escapeRegex(name), $options: "i" };
+    if (seatNumber) filter.seatNumber = { $regex: escapeRegex(seatNumber), $options: "i" };
+    if (pnrNumber) filter.pnrNumber = { $regex: escapeRegex(pnrNumber), $options: "i" };
+    if (trainName) filter.trainName = { $regex: escapeRegex(trainName), $options: "i" };
     if (route) filter.route = route;
-    if (boardingStation) filter.boardingStation = { $regex: boardingStation, $options: "i" };
+    if (boardingStation) filter.boardingStation = { $regex: escapeRegex(boardingStation), $options: "i" };
     if (gender) filter.gender = gender;
-    if (travelDate) filter.travelDate = travelDate;
 
-    // fare range (note: rows with missing fare won't match range — that's expected)
+    if (travelDate) {
+      filter.travelDate = travelDate;
+    } else if (travelDateFrom || travelDateTo) {
+      filter.travelDate = {};
+      if (travelDateFrom) filter.travelDate.$gte = travelDateFrom;
+      if (travelDateTo) filter.travelDate.$lte = travelDateTo;
+    }
+
     if (fareMin !== undefined || fareMax !== undefined) {
       filter.fare = {};
       if (fareMin !== undefined) filter.fare.$gte = fareMin;
@@ -103,14 +117,15 @@ export async function GET(req: Request) {
     }
 
     if (q) {
+      const safeQ = escapeRegex(q);
       filter.$or = [
-        { name: { $regex: q, $options: "i" } },
-        { seatNumber: { $regex: q, $options: "i" } },
-        { pnrNumber: { $regex: q, $options: "i" } },
-        { trainName: { $regex: q, $options: "i" } },
-        { route: { $regex: q, $options: "i" } },
-        { boardingStation: { $regex: q, $options: "i" } },
-        { travelDate: { $regex: q, $options: "i" } },
+        { name: { $regex: safeQ, $options: "i" } },
+        { seatNumber: { $regex: safeQ, $options: "i" } },
+        { pnrNumber: { $regex: safeQ, $options: "i" } },
+        { trainName: { $regex: safeQ, $options: "i" } },
+        { route: { $regex: safeQ, $options: "i" } },
+        { boardingStation: { $regex: safeQ, $options: "i" } },
+        { travelDate: { $regex: safeQ, $options: "i" } },
       ];
     }
 
@@ -120,6 +135,7 @@ export async function GET(req: Request) {
     const safe = items.map((x: any) => ({
       ...x,
       _id: x._id.toString(),
+      seatNumber: normalizeSeat(x.seatNumber),
       travelDate: toISODate10(x.travelDate),
       trainTime: toTrainTime(x.trainTime),
     }));
@@ -137,20 +153,13 @@ export async function POST(req: Request) {
     const name = cleanStr(body.name);
     const age = toNumNullable(body.age);
     const gender = normalizeGender(cleanStr(body.gender));
-
-    // ✅ No seat-number rules; store any string
-    const seatNumber = cleanStr(body.seatNumber);
+    const seatNumber = normalizeSeat(body.seatNumber);
     const pnrNumber = cleanStr(body.pnrNumber);
-
-    // ✅ Free text fields
     const trainName = cleanStr(body.trainName);
     const route = cleanStr(body.route);
     const trainTime = toTrainTime(body.trainTime);
     const boardingStation = cleanStr(body.boardingStation);
-
     const travelDate = toISODate10(body.travelDate);
-
-    // fare optional
     const fare = toNumNullable(body.fare);
 
     if (!name) return NextResponse.json({ error: "Name is required" }, { status: 400 });
@@ -165,8 +174,6 @@ export async function POST(req: Request) {
     }
 
     if (!seatNumber) return NextResponse.json({ error: "Seat number is required" }, { status: 400 });
-    // ❌ removed seat format validation
-
     if (!pnrNumber) return NextResponse.json({ error: "PNR is required" }, { status: 400 });
     if (!trainName) return NextResponse.json({ error: "Train name is required" }, { status: 400 });
     if (!route) return NextResponse.json({ error: "Route is required" }, { status: 400 });
@@ -174,9 +181,22 @@ export async function POST(req: Request) {
     if (!boardingStation) return NextResponse.json({ error: "Boarding station is required" }, { status: 400 });
     if (!travelDate) return NextResponse.json({ error: "Travel date is required" }, { status: 400 });
 
-    // validate fare if provided
     if (fare !== null && fare < 0) {
       return NextResponse.json({ error: "Fare must be a valid non-negative number" }, { status: 400 });
+    }
+
+    const db = await getDb();
+
+    const existing = await db.collection(COLLECTION).findOne({
+      seatNumber,
+      travelDate,
+    });
+
+    if (existing) {
+      return NextResponse.json(
+        { error: "Duplicate record not allowed. Same Seat Number and Travel Date already exists." },
+        { status: 409 }
+      );
     }
 
     const doc = {
@@ -190,16 +210,21 @@ export async function POST(req: Request) {
       trainTime,
       boardingStation,
       travelDate,
-      fare, // number | null
+      fare,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
 
-    const db = await getDb();
     const result = await db.collection(COLLECTION).insertOne(doc);
 
     return NextResponse.json({ ok: true, id: result.insertedId.toString() }, { status: 201 });
   } catch (e: any) {
+    if (e?.code === 11000) {
+      return NextResponse.json(
+        { error: "Duplicate record not allowed. Same Seat Number and Travel Date already exists." },
+        { status: 409 }
+      );
+    }
     return NextResponse.json({ error: e?.message || "Server error" }, { status: 500 });
   }
 }

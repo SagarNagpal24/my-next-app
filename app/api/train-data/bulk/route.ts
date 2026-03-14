@@ -3,9 +3,9 @@ import { getDb } from "../../../lib/mongodb";
 
 const COLLECTION = "trainData";
 
-// ✅ No seat-number rules; store exactly as user provides (trim only)
+// keep existing behavior intent, but normalize for duplicate-safe storage/check
 function cleanSeat(v: any) {
-  return String(v ?? "").trim();
+  return String(v ?? "").trim().toUpperCase();
 }
 
 function toISODate10(v: any) {
@@ -47,6 +47,9 @@ function toTrainTime(v: any) {
   return s; // already "HH:MM" or "06:40 AM"
 }
 
+function makeDuplicateKey(seatNumber: any, travelDate: any) {
+  return `${cleanSeat(seatNumber)}__${toISODate10(travelDate)}`;
+}
 
 type RowErr = { row: number; field: string; message: string };
 
@@ -62,6 +65,9 @@ export async function POST(req: Request) {
     const errors: RowErr[] = [];
     const docs: any[] = [];
 
+    // duplicate check inside uploaded file
+    const seenRowByKey = new Map<string, number>();
+
     rows.forEach((r: any, idx: number) => {
       const rowNumber = idx + 2; // excel data row (header=1)
 
@@ -72,16 +78,14 @@ export async function POST(req: Request) {
       const seatNumber = cleanSeat(r.seatNumber);
       const pnrNumber = String(r.pnrNumber ?? "").trim();
 
-      // ✅ Free text for trainName/boardingStation/trainTime (no dropdown restrictions)
       const trainName = String(r.trainName ?? "").trim();
       const route = String(r.route ?? "").trim();
-      const trainTime = toTrainTime(r.trainTime); // can be "HH:MM" from time picker OR any string
+      const trainTime = toTrainTime(r.trainTime);
       const boardingStation = String(r.boardingStation ?? "").trim();
 
       const travelDate = toISODate10(r.travelDate);
       const fare = toNumRequired(r.fare);
 
-      // REQUIRED validations
       if (!name) errors.push({ row: rowNumber, field: "Name", message: "Name is required." });
 
       if (age === null || age <= 0) {
@@ -98,15 +102,14 @@ export async function POST(req: Request) {
       }
 
       if (!seatNumber) errors.push({ row: rowNumber, field: "Seat Number", message: "Seat Number is required." });
-      // ✅ removed seat format validation (A1/B12 etc.)
-
       if (!pnrNumber) errors.push({ row: rowNumber, field: "PNR", message: "PNR is required." });
 
       if (!trainName) errors.push({ row: rowNumber, field: "Train Name", message: "Train Name is required." });
       if (!route) errors.push({ row: rowNumber, field: "Route", message: "Route is required." });
       if (!trainTime) errors.push({ row: rowNumber, field: "Train Time", message: "Train Time is required." });
-      if (!boardingStation)
+      if (!boardingStation) {
         errors.push({ row: rowNumber, field: "Boarding Station", message: "Boarding Station is required." });
+      }
 
       if (!travelDate) errors.push({ row: rowNumber, field: "Travel Date", message: "Travel Date is required." });
       if (travelDate) {
@@ -120,7 +123,21 @@ export async function POST(req: Request) {
         errors.push({ row: rowNumber, field: "Fare", message: "Fare is required and must be a valid number." });
       }
 
-      // if this row has any errors, skip doc build
+      // duplicate within same uploaded file
+      if (seatNumber && travelDate) {
+        const dupKey = makeDuplicateKey(seatNumber, travelDate);
+        const firstSeenAt = seenRowByKey.get(dupKey);
+        if (firstSeenAt) {
+          errors.push({
+            row: rowNumber,
+            field: "Duplicate",
+            message: `Duplicate row found in file. Same Seat Number and Travel Date already appears at row ${firstSeenAt}.`,
+          });
+        } else {
+          seenRowByKey.set(dupKey, rowNumber);
+        }
+      }
+
       const hasRowErrors = errors.some((e) => e.row === rowNumber);
       if (hasRowErrors) return;
 
@@ -134,8 +151,8 @@ export async function POST(req: Request) {
         route,
         trainTime,
         boardingStation,
-        travelDate, // "YYYY-MM-DD"
-        fare, // number
+        travelDate,
+        fare,
         createdAt: new Date(),
         updatedAt: new Date(),
       });
@@ -155,8 +172,52 @@ export async function POST(req: Request) {
       );
     }
 
-    // Insert
     const db = await getDb();
+
+    // duplicate check against existing DB records
+    if (docs.length) {
+      const orFilters = docs.map((d) => ({
+        seatNumber: d.seatNumber,
+        travelDate: d.travelDate,
+      }));
+
+      const existing = await db
+        .collection(COLLECTION)
+        .find({ $or: orFilters })
+        .project({ seatNumber: 1, travelDate: 1 })
+        .toArray();
+
+      if (existing.length) {
+        const existingSet = new Set(
+          existing.map((x: any) => makeDuplicateKey(x.seatNumber, x.travelDate))
+        );
+
+        docs.forEach((d, idx) => {
+          const rowNumber = idx + 2;
+          const key = makeDuplicateKey(d.seatNumber, d.travelDate);
+          if (existingSet.has(key)) {
+            errors.push({
+              row: rowNumber,
+              field: "Duplicate",
+              message: "Duplicate record already exists with same Seat Number and Travel Date.",
+            });
+          }
+        });
+      }
+    }
+
+    if (errors.length) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Validation failed. Fix the errors and upload again.",
+          errors: errors.slice(0, 500),
+          totalErrors: errors.length,
+          insertedCount: 0,
+        },
+        { status: 400 }
+      );
+    }
 
     try {
       const result = await db.collection(COLLECTION).insertMany(docs, { ordered: true });
@@ -169,7 +230,16 @@ export async function POST(req: Request) {
         { status: 201 }
       );
     } catch (mongoErr: any) {
-      // give readable error (duplicate key etc.)
+      if (mongoErr?.code === 11000) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "Duplicate record not allowed. Same Seat Number and Travel Date already exists.",
+          },
+          { status: 409 }
+        );
+      }
+
       return NextResponse.json(
         {
           ok: false,

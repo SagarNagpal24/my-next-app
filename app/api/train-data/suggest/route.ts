@@ -7,7 +7,11 @@ function cleanStr(v: any) {
   return String(v ?? "").trim();
 }
 
-// ✅ Excel time fraction (e.g., 0.4166667) -> HH:MM, else keep string
+function escapeRegex(s: string) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// Excel time fraction (e.g., 0.4166667) -> HH:MM, else keep string
 function toTrainTime(v: any) {
   if (v === undefined || v === null) return "";
   if (typeof v === "number" && Number.isFinite(v)) {
@@ -30,6 +34,7 @@ export async function GET(req: Request) {
 
     if (!q) return NextResponse.json({ suggestions: [] });
 
+    const safeQ = escapeRegex(q);
     const db = await getDb();
 
     const docs = await db
@@ -37,13 +42,13 @@ export async function GET(req: Request) {
       .find(
         {
           $or: [
-            { name: { $regex: q, $options: "i" } },
-            { seatNumber: { $regex: q, $options: "i" } }, // ✅ no uppercase assumptions
-            { trainName: { $regex: q, $options: "i" } },
-            { boardingStation: { $regex: q, $options: "i" } },
-            { route: { $regex: q, $options: "i" } },
-            { pnrNumber: { $regex: q, $options: "i" } },
-            { trainTime: { $regex: q, $options: "i" } }, // ✅ include time too
+            { name: { $regex: safeQ, $options: "i" } },
+            { seatNumber: { $regex: safeQ, $options: "i" } },
+            { trainName: { $regex: safeQ, $options: "i" } },
+            { boardingStation: { $regex: safeQ, $options: "i" } },
+            { route: { $regex: safeQ, $options: "i" } },
+            { pnrNumber: { $regex: safeQ, $options: "i" } },
+            { trainTime: { $regex: safeQ, $options: "i" } },
           ],
         },
         {

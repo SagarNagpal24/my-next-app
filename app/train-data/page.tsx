@@ -21,7 +21,7 @@ type TrainRow = {
   trainTime: string; // REQUIRED
   boardingStation: BoardingStation | string; // REQUIRED
   travelDate: string | null; // REQUIRED
-  fare: number; // ✅ REQUIRED
+  fare: number; // REQUIRED
   createdAt?: string | null;
 };
 
@@ -36,7 +36,7 @@ type FormState = {
   trainTime: string;
   boardingStation: BoardingStation;
   travelDate: string;
-  fare: string; // keep string for input, convert to number
+  fare: string;
 };
 
 const ROUTE_OPTIONS: RouteType[] = ["DELHI-BEAS", "BEAS-DELHI"];
@@ -59,25 +59,21 @@ function pad2(n: number) {
   return String(n).padStart(2, "0");
 }
 
-// ✅ Excel serial date (e.g., 46052) -> YYYY-MM-DD (Windows Excel)
 function excelSerialToISODate10(v: any): string {
   if (v === null || v === undefined) return "";
   if (typeof v === "number" && Number.isFinite(v)) {
-    // Excel date serial starts at 1899-12-30
-    const ms = Math.round((v - 25569) * 86400 * 1000); // 25569 = days between 1899-12-30 and 1970-01-01
+    const ms = Math.round((v - 25569) * 86400 * 1000);
     const d = new Date(ms);
     if (Number.isNaN(d.getTime())) return "";
     return d.toISOString().slice(0, 10);
   }
   const s = String(v).trim();
   if (!s) return "";
-  // numeric string
   const n = Number(s);
   if (Number.isFinite(n) && /^[0-9]+(\.[0-9]+)?$/.test(s)) return excelSerialToISODate10(n);
   return s.slice(0, 10);
 }
 
-// ✅ Excel time fraction (e.g., 0.4166667) -> HH:MM
 function excelTimeToHHMM(v: any): string {
   if (v === null || v === undefined) return "";
   if (typeof v === "number" && Number.isFinite(v)) {
@@ -88,10 +84,9 @@ function excelTimeToHHMM(v: any): string {
   }
   const s = String(v).trim();
   if (!s) return "";
-  // numeric string
   const n = Number(s);
   if (Number.isFinite(n) && /^[0-9]+(\.[0-9]+)?$/.test(s)) return excelTimeToHHMM(n);
-  return s; // already "HH:MM" or "06:40 AM"
+  return s;
 }
 
 function todayISO() {
@@ -140,6 +135,18 @@ function pickAny(row: any, keys: string[]) {
   return "";
 }
 
+function normalizeSeat(v: any) {
+  return String(v || "").trim().toUpperCase();
+}
+
+function normalizeTravelDate(v: any) {
+  return String(v || "").slice(0, 10);
+}
+
+function makeDuplicateKey(row: { seatNumber: any; travelDate: any }) {
+  return `${normalizeSeat(row.seatNumber)}__${normalizeTravelDate(row.travelDate)}`;
+}
+
 function validateSingle(payload: FormState): string | null {
   const name = payload.name.trim();
   const age = toNumStrict(payload.age);
@@ -186,7 +193,6 @@ function validateExcelRow(clean: any, rowNumber: number): RowErr[] {
   if (!travelDate) errs.push({ row: rowNumber, field: "Travel Date", message: "Travel Date is required." });
   if (fare === null || fare < 0) errs.push({ row: rowNumber, field: "Fare", message: "Fare is required and must be a valid number." });
 
-  // travelDate format check
   if (travelDate) {
     const d = new Date(travelDate);
     if (Number.isNaN(d.getTime())) errs.push({ row: rowNumber, field: "Travel Date", message: "Invalid Travel Date." });
@@ -199,7 +205,6 @@ export default function TrainDataPage() {
   const [items, setItems] = React.useState<TrainRow[]>([]);
   const [loading, setLoading] = React.useState(true);
 
-  // ✅ Form (all required)
   const [form, setForm] = React.useState<FormState>({
     name: "",
     age: "",
@@ -214,48 +219,38 @@ export default function TrainDataPage() {
     fare: "",
   });
 
-  // edit
   const [editing, setEditing] = React.useState<TrainRow | null>(null);
   const [saving, setSaving] = React.useState(false);
 
-  // selection
   const [selectedIds, setSelectedIds] = React.useState<Record<string, boolean>>({});
 
-  // filters + search
   const [q, setQ] = React.useState("");
   const [fTrain, setFTrain] = React.useState<string>("");
   const [fRoute, setFRoute] = React.useState<RouteType>("");
   const [fBoarding, setFBoarding] = React.useState<string>("");
   const [fGender, setFGender] = React.useState<Gender>("");
-  const [fTravelDate, setFTravelDate] = React.useState("");
+  const [fTravelDateFrom, setFTravelDateFrom] = React.useState("");
+  const [fTravelDateTo, setFTravelDateTo] = React.useState("");
 
-  // suggestions
   const [suggestions, setSuggestions] = React.useState<string[]>([]);
   const [sugOpen, setSugOpen] = React.useState(false);
   const [highlightIndex, setHighlightIndex] = React.useState(-1);
   const sugBoxRef = React.useRef<HTMLDivElement | null>(null);
 
-  // pagination
   const [page, setPage] = React.useState(1);
   const [pageSize, setPageSize] = React.useState(25);
 
-  // export/print/bulk
   const [exporting, setExporting] = React.useState<"filtered" | "all" | null>(null);
   const [printing, setPrinting] = React.useState(false);
   const [bulkLoading, setBulkLoading] = React.useState(false);
 
-  // ✅ Bulk UI report (ALL OR NOTHING)
   const [bulkStatus, setBulkStatus] = React.useState<{ type: "idle" | "ok" | "err"; msg: string }>({
     type: "idle",
     msg: "",
   });
   const [bulkErrors, setBulkErrors] = React.useState<RowErr[]>([]);
   const [bulkTotalErrors, setBulkTotalErrors] = React.useState(0);
-
-  // ✅ NEW: allow user to close report (errors OR success)
   const [showBulkReport, setShowBulkReport] = React.useState(true);
-
-  // ✅ NEW: file clear support
   const bulkInputRef = React.useRef<HTMLInputElement | null>(null);
 
   function resetForm() {
@@ -283,7 +278,8 @@ export default function TrainDataPage() {
       if (fRoute) params.set("route", fRoute);
       if (fBoarding) params.set("boardingStation", fBoarding);
       if (fGender) params.set("gender", fGender);
-      if (fTravelDate) params.set("travelDate", fTravelDate);
+      if (fTravelDateFrom) params.set("travelDateFrom", fTravelDateFrom);
+      if (fTravelDateTo) params.set("travelDateTo", fTravelDateTo);
 
       const res = await fetch(`/api/train-data?${params.toString()}`, { cache: "no-store" });
       const data = await res.json().catch(() => ({}));
@@ -311,7 +307,6 @@ export default function TrainDataPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // suggestions debounce
   React.useEffect(() => {
     const term = q.trim();
     setHighlightIndex(-1);
@@ -387,17 +382,31 @@ export default function TrainDataPage() {
       return;
     }
 
+    const normalizedSeatNumber = normalizeSeat(form.seatNumber);
+    const normalizedTravelDate = normalizeTravelDate(form.travelDate);
+
+    const duplicateExists = items.some(
+      (r) =>
+        normalizeSeat(r.seatNumber) === normalizedSeatNumber &&
+        normalizeTravelDate(r.travelDate) === normalizedTravelDate
+    );
+
+    if (duplicateExists) {
+      alert("Duplicate record not allowed: same Seat Number and Travel Date already exists.");
+      return;
+    }
+
     const payload = {
       name: form.name.trim(),
       age: Number(form.age),
       gender: form.gender,
-      seatNumber: form.seatNumber.trim(),
+      seatNumber: normalizedSeatNumber,
       pnrNumber: form.pnrNumber.trim(),
       trainName: form.trainName,
       route: form.route,
       trainTime: form.trainTime.trim(),
       boardingStation: form.boardingStation,
-      travelDate: String(form.travelDate || "").slice(0, 10),
+      travelDate: normalizedTravelDate,
       fare: Number(form.fare),
     };
 
@@ -450,7 +459,6 @@ export default function TrainDataPage() {
       return;
     }
 
-    // ✅ all required in edit
     const editCheck: FormState = {
       name: String(editing.name || ""),
       age: String(editing.age ?? ""),
@@ -470,17 +478,32 @@ export default function TrainDataPage() {
       return;
     }
 
+    const normalizedSeatNumber = normalizeSeat(editing.seatNumber);
+    const normalizedTravelDate = normalizeTravelDate(editing.travelDate);
+
+    const duplicateExists = items.some(
+      (r) =>
+        r._id !== editing._id &&
+        normalizeSeat(r.seatNumber) === normalizedSeatNumber &&
+        normalizeTravelDate(r.travelDate) === normalizedTravelDate
+    );
+
+    if (duplicateExists) {
+      alert("Duplicate record not allowed: same Seat Number and Travel Date already exists.");
+      return;
+    }
+
     const payload = {
       name: String(editing.name || "").trim(),
       age: Number(editing.age),
       gender: String(editing.gender || "").trim(),
-      seatNumber: String(editing.seatNumber || "").trim(),
+      seatNumber: normalizedSeatNumber,
       pnrNumber: String(editing.pnrNumber || "").trim(),
       trainName: String(editing.trainName || "").trim(),
       route: String(editing.route || "").trim(),
       trainTime: String(editing.trainTime || "").trim(),
       boardingStation: String(editing.boardingStation || "").trim(),
-      travelDate: String(editing.travelDate || "").slice(0, 10),
+      travelDate: normalizedTravelDate,
       fare: Number((editing as any).fare),
     };
 
@@ -505,7 +528,6 @@ export default function TrainDataPage() {
     }
   }
 
-  // pagination
   const total = items.length;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   React.useEffect(() => {
@@ -519,6 +541,7 @@ export default function TrainDataPage() {
   function toggleOne(id: string, checked: boolean) {
     setSelectedIds((prev) => ({ ...prev, [id]: checked }));
   }
+
   function toggleAllOnPage(checked: boolean) {
     setSelectedIds((prev) => {
       const next = { ...prev };
@@ -526,6 +549,7 @@ export default function TrainDataPage() {
       return next;
     });
   }
+
   const allCheckedOnPage = pageItems.length > 0 && pageItems.every((r) => selectedIds[r._id]);
 
   function selectedRows(): TrainRow[] {
@@ -533,7 +557,6 @@ export default function TrainDataPage() {
     return sel.length ? sel : items;
   }
 
-  // excel export
   async function exportToExcel(rows: TrainRow[], filename: string) {
     const XLSX = await import("xlsx");
 
@@ -601,27 +624,25 @@ export default function TrainDataPage() {
     }
   }
 
+  function ordinal(n: number) {
+    const s = ["th", "st", "nd", "rd"];
+    const v = n % 100;
+    return n + (s[(v - 20) % 10] || s[v] || s[0]);
+  }
 
-function ordinal(n: number) {
-  const s = ["th", "st", "nd", "rd"];
-  const v = n % 100;
-  return n + (s[(v - 20) % 10] || s[v] || s[0]);
-}
+  function formatPrettyDate(d: any) {
+    if (!d) return "-";
+    const s = String(d).trim();
+    const dt = /^\d{4}-\d{2}-\d{2}$/.test(s)
+      ? new Date(s + "T00:00:00.000Z")
+      : new Date(s);
+    if (Number.isNaN(dt.getTime())) return s;
+    const day = ordinal(dt.getUTCDate());
+    const month = dt.toLocaleString("en-GB", { month: "short", timeZone: "UTC" });
+    const year = dt.getUTCFullYear();
+    return `${day} ${month} ${year}`;
+  }
 
-function formatPrettyDate(d: any) {
-  if (!d) return "-";
-  const s = String(d).trim();
-  const dt = /^\d{4}-\d{2}-\d{2}$/.test(s)
-    ? new Date(s + "T00:00:00.000Z")
-    : new Date(s);
-  if (Number.isNaN(dt.getTime())) return s;
-  const day = ordinal(dt.getUTCDate());
-  const month = dt.toLocaleString("en-GB", { month: "short", timeZone: "UTC" });
-  const year = dt.getUTCFullYear();
-  return `${day} ${month} ${year}`;
-}
-
-  // ---------- MULTI-PAGE PRINT (6 per A4 page) ----------
   function buildTicketsMultiPageHtml(rows: TrainRow[]) {
     const chunkSize = 6;
     const pages: string[] = [];
@@ -642,7 +663,6 @@ function formatPrettyDate(d: any) {
               </div>
 
               <div class="row"><span class="label">Name:</span><span class="value">${escapeHtml(p.name)}</span></div>
-              
               <div class="row"><span class="label">Seat:</span><span class="value">${escapeHtml(p.seatNumber || "-")}</span></div>
               <div class="row"><span class="label">PNR:</span><span class="value">${escapeHtml(p.pnrNumber || "-")}</span></div>
               <div class="row"><span class="label">Train:</span><span class="value">${escapeHtml(p.trainName || "-")}</span></div>
@@ -650,11 +670,11 @@ function formatPrettyDate(d: any) {
               <div class="row"><span class="label">Time:</span><span class="value">${escapeHtml(p.trainTime || "-")}</span></div>
               <div class="row"><span class="label">Boarding:</span><span class="value">${escapeHtml(p.boardingStation || "-")}</span></div>
               <div class="row"><span class="label">Fare:</span><span class="value">${escapeHtml((p as any).fare ?? "-")}</span></div>
-                            <div class="foot">
-  <div class="footline">Travel Date: ${escapeHtml(dateStr)}</div>
-  <div class="footline">Contact: Gurjeet Kaur: 9999934357</div>
-  <div class="footline">Pulkit Sethi: 9871331688</div>
-</div>
+              <div class="foot">
+                <div class="footline">Travel Date: ${escapeHtml(dateStr)}</div>
+                <div class="footline">Contact: Gurjeet Kaur: 9999934357</div>
+                <div class="footline">Pulkit Sethi: 9871331688</div>
+              </div>
             </div>
           `;
         })
@@ -699,29 +719,22 @@ html, body {
 .grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-
-  /* ✅ lock 3 rows to equal height so overlap never happens */
   grid-template-rows: repeat(3, 1fr);
-
-  gap: 3mm;               /* smaller gap saves space */
+  gap: 3mm;
   width: 100%;
   height: 100%;
-  padding: 3mm;           /* tiny page padding */
+  padding: 3mm;
   box-sizing: border-box;
 }
 
 .ticket {
   border: 1.1px solid #111;
   border-radius: 7px;
-
-  /* ✅ reduce padding slightly */
   padding: 3.6mm;
-
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-
-  overflow: hidden;       /* ✅ prevent text pushing outside */
+  overflow: hidden;
 }
 
 .ticket-empty { border: 0; }
@@ -734,21 +747,21 @@ html, body {
 }
 
 .title {
-  font-size: 14.5pt;      /* ✅ bigger */
+  font-size: 14.5pt;
   font-weight: 800;
 }
 
 .sn {
-  font-size: 11pt;        /* ✅ bigger */
+  font-size: 11pt;
   font-weight: 700;
 }
 
 .row {
   display: flex;
   gap: 6px;
-  margin: 1.1mm 0;        /* ✅ smaller vertical gaps */
-  font-size: 11.5pt;      /* ✅ bigger */
-  line-height: 1.1;       /* ✅ tighter */
+  margin: 1.1mm 0;
+  font-size: 11.5pt;
+  line-height: 1.1;
 }
 
 .label { width: 38%; font-weight: 700; }
@@ -758,12 +771,12 @@ html, body {
   margin-top: auto;
   border-top: 1px dashed #999;
   padding-top: 1.6mm;
-  font-size: 10.8pt;      /* ✅ slightly bigger */
+  font-size: 10.8pt;
   font-weight: 700;
   line-height: 1.15;
 }
 
-  .foot .footline { margin: 0.8mm 0 0 0; }
+.foot .footline { margin: 0.8mm 0 0 0; }
 </style>
       </head>
       <body>
@@ -797,7 +810,6 @@ html, body {
     }
   }
 
-  // sample excel download
   async function downloadSampleExcel() {
     const XLSX = await import("xlsx");
 
@@ -842,11 +854,8 @@ html, body {
     setBulkTotalErrors(0);
   }
 
-  // ✅ Bulk upload: validate ALL rows first, show report, upload ONLY when no errors
   async function onBulkUpload(file: File) {
-    // open the report panel for new attempt
     setShowBulkReport(true);
-
     setBulkStatus({ type: "idle", msg: "" });
     setBulkErrors([]);
     setBulkTotalErrors(0);
@@ -864,7 +873,6 @@ html, body {
         return;
       }
 
-      // normalize headers
       const normalized = rows.map((r) => ({
         name: pickAny(r, ["name", "Name"]),
         age: pickAny(r, ["age", "Age"]),
@@ -879,25 +887,91 @@ html, body {
         fare: pickAny(r, ["fare", "Fare"]),
       }));
 
-      // ✅ Validate ALL rows locally (NO upload if any errors)
       const errs: RowErr[] = [];
-      normalized.forEach((r, idx) => {
-        const rowNumber = idx + 2; // header is row 1
+
+      const cleanedRows = normalized.map((r) => ({
+        ...r,
+        seatNumber: normalizeSeat(r.seatNumber),
+        travelDate: excelSerialToISODate10(r.travelDate),
+        trainTime: excelTimeToHHMM(r.trainTime),
+      }));
+
+      cleanedRows.forEach((r, idx) => {
+        const rowNumber = idx + 2;
         errs.push(...validateExcelRow(r, rowNumber));
       });
+
+      const duplicateErrs: RowErr[] = [];
+      const seen = new Map<string, number>();
+
+      cleanedRows.forEach((r, idx) => {
+        const rowNumber = idx + 2;
+        const seat = normalizeSeat(r.seatNumber);
+        const travelDate = normalizeTravelDate(r.travelDate);
+
+        if (!seat || !travelDate) return;
+
+        const key = makeDuplicateKey({ seatNumber: seat, travelDate });
+
+        if (seen.has(key)) {
+          duplicateErrs.push({
+            row: rowNumber,
+            field: "Duplicate",
+            message: `Duplicate row found in file. Same Seat Number and Travel Date already appears at row ${seen.get(key)}.`,
+          });
+        } else {
+          seen.set(key, rowNumber);
+        }
+      });
+
+      const existingKeys = new Set(
+        items.map((r) =>
+          makeDuplicateKey({
+            seatNumber: r.seatNumber,
+            travelDate: r.travelDate,
+          })
+        )
+      );
+
+      cleanedRows.forEach((r, idx) => {
+        const rowNumber = idx + 2;
+        const seat = normalizeSeat(r.seatNumber);
+        const travelDate = normalizeTravelDate(r.travelDate);
+
+        if (!seat || !travelDate) return;
+
+        const key = makeDuplicateKey({ seatNumber: seat, travelDate });
+
+        if (existingKeys.has(key)) {
+          duplicateErrs.push({
+            row: rowNumber,
+            field: "Duplicate",
+            message: "Duplicate record already exists with same Seat Number and Travel Date.",
+          });
+        }
+      });
+
+      errs.push(...duplicateErrs);
 
       if (errs.length) {
         setBulkErrors(errs);
         setBulkTotalErrors(errs.length);
         setBulkStatus({ type: "err", msg: "Validation failed. Fix the errors below and upload again." });
-        return; // ✅ STOP - nothing uploaded
+        return;
       }
 
-      // ✅ Now upload (backend should still validate)
+      const payloadRows = cleanedRows.map((r) => ({
+        ...r,
+        name: String(r.name || "").trim(),
+        seatNumber: normalizeSeat(r.seatNumber),
+        travelDate: normalizeTravelDate(r.travelDate),
+        trainTime: String(r.trainTime || "").trim(),
+      }));
+
       const res = await fetch(`/api/train-data/bulk`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rows: normalized }),
+        body: JSON.stringify({ rows: payloadRows }),
       });
 
       const json = await res.json().catch(() => ({}));
@@ -909,7 +983,6 @@ html, body {
         return;
       }
 
-      // ✅ SUCCESS MESSAGE ON SCREEN
       const inserted = Number(json?.insertedCount ?? json?.inserted ?? 0);
       setBulkStatus({
         type: "ok",
@@ -918,12 +991,10 @@ html, body {
       setBulkErrors([]);
       setBulkTotalErrors(0);
 
-      // optional: clear file input after success
       if (bulkInputRef.current) bulkInputRef.current.value = "";
 
       await load(true);
     } finally {
-      // ✅ allow selecting the same file again even after errors
       if (bulkInputRef.current) bulkInputRef.current.value = "";
       setBulkLoading(false);
     }
@@ -945,7 +1016,6 @@ html, body {
               Download Sample Excel
             </button>
 
-            {/* ✅ CLEAR FILE BUTTON + UPLOAD */}
             <button
               type="button"
               onClick={clearSelectedBulkFile}
@@ -965,7 +1035,6 @@ html, body {
                 className="hidden"
                 onChange={(e) => {
                   const f = e.target.files?.[0];
-                  // reopen report for every new selection
                   setShowBulkReport(true);
                   if (f) onBulkUpload(f);
                 }}
@@ -986,7 +1055,6 @@ html, body {
           </div>
         </div>
 
-        {/* ✅ Bulk status + error report (closable) */}
         {showBulkReport && bulkStatus.type !== "idle" && (
           <div
             className={[
@@ -1046,7 +1114,6 @@ html, body {
           </div>
         )}
 
-        {/* FORM (all required) */}
         <form onSubmit={onCreate} className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <input className="app-input app-input-sm" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Name *" required />
 
@@ -1066,7 +1133,7 @@ html, body {
             <option value="Other">Other</option>
           </select>
 
-          <input className="app-input app-input-sm" value={form.seatNumber} onChange={(e) => setForm({ ...form, seatNumber: e.target.value })} placeholder="Seat Number *" required />
+          <input className="app-input app-input-sm" value={form.seatNumber} onChange={(e) => setForm({ ...form, seatNumber: e.target.value.toUpperCase() })} placeholder="Seat Number *" required />
 
           <input className="app-input app-input-sm" value={form.pnrNumber} onChange={(e) => setForm({ ...form, pnrNumber: e.target.value })} placeholder="PNR *" required />
 
@@ -1105,7 +1172,6 @@ html, body {
 
           <input type="date" className="app-input app-input-sm" value={form.travelDate} onChange={(e) => setForm({ ...form, travelDate: e.target.value })} required />
 
-          {/* ✅ NEW Fare */}
           <input
             className="app-input app-input-sm"
             value={form.fare}
@@ -1125,8 +1191,7 @@ html, body {
           </div>
         </form>
 
-        {/* FILTERS */}
-        <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-6">
+        <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-7">
           <div className="relative" ref={sugBoxRef}>
             <div className="app-label">Search (with suggestions)</div>
             <input
@@ -1202,8 +1267,23 @@ html, body {
           </div>
 
           <div>
-            <div className="app-label">Travel Date</div>
-            <input type="date" className="app-input app-input-sm" value={fTravelDate} onChange={(e) => setFTravelDate(e.target.value)} />
+            <div className="app-label">Travel Date From</div>
+            <input
+              type="date"
+              className="app-input app-input-sm"
+              value={fTravelDateFrom}
+              onChange={(e) => setFTravelDateFrom(e.target.value)}
+            />
+          </div>
+
+          <div>
+            <div className="app-label">Travel Date To</div>
+            <input
+              type="date"
+              className="app-input app-input-sm"
+              value={fTravelDateTo}
+              onChange={(e) => setFTravelDateTo(e.target.value)}
+            />
           </div>
         </div>
 
@@ -1216,7 +1296,8 @@ html, body {
               setFRoute("");
               setFBoarding("");
               setFGender("");
-              setFTravelDate("");
+              setFTravelDateFrom("");
+              setFTravelDateTo("");
               load(true);
             }}
             type="button"
@@ -1229,7 +1310,6 @@ html, body {
           </button>
         </div>
 
-        {/* PAGINATION */}
         <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
           <div className="text-sm text-zinc-600 dark:text-zinc-400">
             Total: <span className="font-semibold">{total}</span>
@@ -1268,7 +1348,6 @@ html, body {
           </div>
         </div>
 
-        {/* TABLE */}
         <div className="w-full overflow-x-auto mt-4">
           <table className="min-w-[1750px] table-fixed border-collapse text-xs">
             <thead className="thead">
@@ -1319,7 +1398,7 @@ html, body {
                           type="button"
                           className="rounded-lg px-2 py-1 hover:bg-zinc-100 dark:hover:bg-zinc-900/40"
                           title="Click to edit"
-                          onClick={() => setEditing({ ...r, travelDate: toDateInputValue(r.travelDate) })}
+                          onClick={() => setEditing({ ...r, travelDate: toDateInputValue(r.travelDate), seatNumber: normalizeSeat(r.seatNumber) })}
                         >
                           {serial}
                         </button>
@@ -1339,7 +1418,7 @@ html, body {
 
                       <td className="td px-2 py-2 whitespace-nowrap">
                         <div className="flex items-center gap-1">
-                          <button className="app-btn app-btn-secondary h-8 px-2 text-[11px]" type="button" onClick={() => setEditing({ ...r, travelDate: toDateInputValue(r.travelDate) })}>
+                          <button className="app-btn app-btn-secondary h-8 px-2 text-[11px]" type="button" onClick={() => setEditing({ ...r, travelDate: toDateInputValue(r.travelDate), seatNumber: normalizeSeat(r.seatNumber) })}>
                             Edit
                           </button>
                           <button
@@ -1360,7 +1439,6 @@ html, body {
         </div>
       </div>
 
-      {/* EDIT MODAL */}
       {editing && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-3xl rounded-2xl bg-white p-6 shadow-lg dark:bg-zinc-950">
@@ -1390,7 +1468,7 @@ html, body {
                 <option value="Other">Other</option>
               </select>
 
-              <input className="app-input app-input-sm" value={editing.seatNumber || ""} onChange={(e) => setEditing({ ...editing, seatNumber: e.target.value })} placeholder="Seat Number *" required />
+              <input className="app-input app-input-sm" value={editing.seatNumber || ""} onChange={(e) => setEditing({ ...editing, seatNumber: e.target.value.toUpperCase() })} placeholder="Seat Number *" required />
 
               <input className="app-input app-input-sm" value={editing.pnrNumber || ""} onChange={(e) => setEditing({ ...editing, pnrNumber: e.target.value })} placeholder="PNR *" required />
 
@@ -1429,7 +1507,6 @@ html, body {
 
               <input type="date" className="app-input app-input-sm" value={(editing.travelDate as any) || ""} onChange={(e) => setEditing({ ...editing, travelDate: e.target.value })} required />
 
-              {/* ✅ Fare in edit */}
               <input
                 className="app-input app-input-sm"
                 value={String((editing as any).fare ?? "")}
