@@ -91,8 +91,6 @@ type NominalLadooRow = {
   adhaarNumber?: string;
 
   department?: string;
-
-  // ✅ Sangat
   sangat?: YesNo;
 
   mode: Mode | string;
@@ -106,14 +104,34 @@ type NominalLadooRow = {
   payment: string;
 
   jathaDateId: string;
-  jathaDate: string; // we store START date as string (YYYY-MM-DD)
+  jathaDate: string;
 
-  travelStartDate: string; // YYYY-MM-DD
-  travelEndDate: string; // YYYY-MM-DD
+  travelStartDate: string;
+  travelEndDate: string;
   notes: string;
 
   createdAt?: string;
   updatedAt?: string;
+
+  __groupFirstId?: string;
+  __groupLastId?: string;
+  __groupRowIds?: string[];
+  __groupLabel?: string;
+  __needDB?: boolean;
+  __needBD?: boolean;
+  __firstRow?: NominalLadooRow;
+  __lastRow?: NominalLadooRow;
+};
+
+type PendingTicketGroupRow = NominalLadooRow & {
+  __groupFirstId: string;
+  __groupLastId: string;
+  __groupRowIds: string[];
+  __groupLabel: string;
+  __needDB: boolean;
+  __needBD: boolean;
+  __firstRow: NominalLadooRow;
+  __lastRow: NominalLadooRow;
 };
 
 function normalizeId(x: any) {
@@ -715,14 +733,20 @@ export default function LadooNominalRollPage() {
 
   // ✅ filtered lists for easier mapping (Create) + cap
   const unassignedTrainDliBeasFiltered = React.useMemo(() => {
-    const list = unassignedTrainDliBeas.filter((t) => ticketMatches(t, ticketSearchDB));
+    const start = iso10(travelStartDate);
+    const list = unassignedTrainDliBeas.filter(
+      (t) => (!start || iso10(t.travelDate) === start) && ticketMatches(t, ticketSearchDB)
+    );
     return list.slice(0, 400);
-  }, [unassignedTrainDliBeas, ticketSearchDB]);
+  }, [unassignedTrainDliBeas, ticketSearchDB, travelStartDate]);
 
   const unassignedTrainBeasDliFiltered = React.useMemo(() => {
-    const list = unassignedTrainBeasDli.filter((t) => ticketMatches(t, ticketSearchBD));
+    const end = iso10(travelEndDate);
+    const list = unassignedTrainBeasDli.filter(
+      (t) => (!end || iso10(t.travelDate) === end) && ticketMatches(t, ticketSearchBD)
+    );
     return list.slice(0, 400);
-  }, [unassignedTrainBeasDli, ticketSearchBD]);
+  }, [unassignedTrainBeasDli, ticketSearchBD, travelEndDate]);
 
   const assignedTrainDliBeasFiltered = React.useMemo(() => {
     const list = assignedTrainDliBeas.filter((t) => ticketMatches(t, ticketSearchDB));
@@ -736,14 +760,28 @@ export default function LadooNominalRollPage() {
 
   // ✅ filtered lists for easier mapping (Edit) + cap
   const editTrainDliBeasFiltered = React.useMemo(() => {
-    const list = editTrainDliBeas.filter((t: any) => ticketMatches(t, editTicketSearchDB));
+    const start = iso10(editing?.travelStartDate);
+    const current = String(editing?.ticketDelhiBeas || "").trim();
+    const list = editTrainDliBeas.filter(
+      (t: any) =>
+        ((current && t._id === current) || !t.__disabled) &&
+        (!start || iso10(t.travelDate) === start) &&
+        ticketMatches(t, editTicketSearchDB)
+    );
     return list.slice(0, 600);
-  }, [editTrainDliBeas, editTicketSearchDB]);
+  }, [editTrainDliBeas, editTicketSearchDB, editing?.travelStartDate, editing?.ticketDelhiBeas]);
 
   const editTrainBeasDliFiltered = React.useMemo(() => {
-    const list = editTrainBeasDli.filter((t: any) => ticketMatches(t, editTicketSearchBD));
+    const end = iso10(editing?.travelEndDate);
+    const current = String(editing?.ticketBeasDelhi || "").trim();
+    const list = editTrainBeasDli.filter(
+      (t: any) =>
+        ((current && t._id === current) || !t.__disabled) &&
+        (!end || iso10(t.travelDate) === end) &&
+        ticketMatches(t, editTicketSearchBD)
+    );
     return list.slice(0, 600);
-  }, [editTrainBeasDli, editTicketSearchBD]);
+  }, [editTrainBeasDli, editTicketSearchBD, editing?.travelEndDate, editing?.ticketBeasDelhi]);
 
   // Ticket map + labels
   const ticketById = React.useMemo(() => {
@@ -1103,23 +1141,17 @@ export default function LadooNominalRollPage() {
     function isDuplicateNominal(args: {
     customerName: string;
     jathaDateId: string;
-    travelStartDate: string;
-    travelEndDate: string;
     excludeId?: string;
   }) {
     const name = String(args.customerName || "").trim().toLowerCase();
     const jathaId = String(args.jathaDateId || "").trim();
-    const start = iso10(args.travelStartDate);
-    const end = iso10(args.travelEndDate);
     const excludeId = String(args.excludeId || "").trim();
 
     return items.some((r) => {
       if (excludeId && String(r._id || "").trim() === excludeId) return false;
       return (
         String(r.customerName || "").trim().toLowerCase() === name &&
-        String(r.jathaDateId || "").trim() === jathaId &&
-        iso10(r.travelStartDate) === start &&
-        iso10(r.travelEndDate) === end
+        String(r.jathaDateId || "").trim() === jathaId
       );
     });
   }
@@ -1186,12 +1218,10 @@ function validateCreate(selectedIds: string[]) {
         isDuplicateNominal({
           customerName: selectedCustomer!.name,
           jathaDateId: oneId,
-          travelStartDate,
-          travelEndDate,
         })
       ) {
         const label = jathaLabelById.get(oneId) || oneId;
-        return alert(`Duplicate not allowed. Same customer, Jatha Date (${label}) and Travel Dates already exist.`);
+        return alert(`Duplicate not allowed. Same customer and Jatha Date (${label}) already exist.`);
       }
     }
 
@@ -1302,13 +1332,11 @@ function validateCreate(selectedIds: string[]) {
       const dup = isDuplicateNominal({
         customerName: editing.customerName,
         jathaDateId: oneId,
-        travelStartDate: editing.travelStartDate,
-        travelEndDate: editing.travelEndDate,
         excludeId: i === 0 ? editing._id : "",
       });
       if (dup) {
         const label = jathaLabelById.get(oneId) || oneId;
-        return alert(`Duplicate not allowed. Same customer, Jatha Date (${label}) and Travel Dates already exist.`);
+        return alert(`Duplicate not allowed. Same customer and Jatha Date (${label}) already exist.`);
       }
     }
 
@@ -1404,25 +1432,107 @@ function validateCreate(selectedIds: string[]) {
     }
   }
 
-  // ✅ Pending ticket booking list
-  const pendingTicketItems = React.useMemo(() => {
-    const raw = items.filter((r) => {
-      if (String(r.mode) !== "Train") return false;
+  function areRowsContinuous(prev: NominalLadooRow, next: NominalLadooRow) {
+    const prevEnd = iso10(prev.travelEndDate);
+    const nextStart = iso10(next.travelStartDate);
+    if (!prevEnd || !nextStart) return false;
+    return prevEnd === nextStart;
+  }
 
-      const needDB = String(r.bookingReqDelhiBeas || "") === "Yes" && !String(r.ticketDelhiBeas || "").trim();
-      const needBD = String(r.bookingReqBeasDelhi || "") === "Yes" && !String(r.ticketBeasDelhi || "").trim();
-      return needDB || needBD;
+  function buildPendingGroupLabel(group: NominalLadooRow[]) {
+    const first = group[0];
+    const last = group[group.length - 1];
+    if (!first || !last) return "-";
+    return fmtRangeLabel(iso10(first.travelStartDate), iso10(last.travelEndDate));
+  }
+
+ const pendingTicketItems = React.useMemo(() => {
+  const raw = items
+    .filter((r) => String(r.mode) === "Train")
+    .slice()
+    .sort((a, b) => {
+      const an = String(a.customerName || "").trim().toLowerCase();
+      const bn = String(b.customerName || "").trim().toLowerCase();
+      if (an !== bn) return an.localeCompare(bn);
+
+      const as = iso10(a.travelStartDate);
+      const bs = iso10(b.travelStartDate);
+      if (as !== bs) return as.localeCompare(bs);
+
+      return iso10(a.travelEndDate).localeCompare(iso10(b.travelEndDate));
     });
 
-    const seen = new Set<string>();
-    return raw.filter((r) => {
-      const key = `${String(r.customerName || "").trim().toLowerCase()}__${iso10(r.travelStartDate)}__${iso10(r.travelEndDate)}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-  }, [items]);
+  // ✅ REMOVE EXACT DUPLICATES FIRST
+  const deduped: NominalLadooRow[] = [];
+  const seen = new Set<string>();
 
+  for (const r of raw) {
+    const key = [
+      String(r.customerName || "").trim().toLowerCase(),
+      iso10(r.travelStartDate),
+      iso10(r.travelEndDate),
+    ].join("__");
+
+    if (seen.has(key)) continue;
+
+    seen.add(key);
+    deduped.push(r);
+  }
+
+  const groups: PendingTicketGroupRow[] = [];
+  let i = 0;
+
+  while (i < deduped.length) {
+    const base = deduped[i];
+    const chain: NominalLadooRow[] = [base];
+    let j = i + 1;
+
+    while (j < deduped.length) {
+      const prev = chain[chain.length - 1];
+      const next = deduped[j];
+
+      const sameName =
+        String(prev.customerName || "").trim().toLowerCase() ===
+        String(next.customerName || "").trim().toLowerCase();
+
+      if (!sameName || !areRowsContinuous(prev, next)) break;
+
+      chain.push(next);
+      j++;
+    }
+
+    const first = chain[0];
+    const last = chain[chain.length - 1];
+
+    const needDB =
+      String(first.bookingReqDelhiBeas || "") === "Yes" &&
+      !String(first.ticketDelhiBeas || "").trim();
+
+    const needBD =
+      String(last.bookingReqBeasDelhi || "") === "Yes" &&
+      !String(last.ticketBeasDelhi || "").trim();
+
+    if (needDB || needBD) {
+      groups.push({
+        ...first,
+        travelStartDate: iso10(first.travelStartDate),
+        travelEndDate: iso10(last.travelEndDate),
+        __groupFirstId: String(first._id || "").trim(),
+        __groupLastId: String(last._id || "").trim(),
+        __groupRowIds: chain.map((x) => String(x._id || "").trim()),
+        __groupLabel: buildPendingGroupLabel(chain),
+        __needDB: needDB,
+        __needBD: needBD,
+        __firstRow: first,
+        __lastRow: last,
+      });
+    }
+
+    i = j;
+  }
+
+  return groups;
+}, [items]);
 
   // ==============================
   // ✅ Pending inline assign + bulk
@@ -1468,95 +1578,109 @@ function validateCreate(selectedIds: string[]) {
     };
   }, [pendingTicketItems, ticketById]);
 
-  async function savePendingRowTickets(row: NominalLadooRow, nextDB: string, nextBD: string) {
-    const rowId = String(row._id || "").trim();
-    if (!rowId) return;
+  async function savePendingRowTickets(row: PendingTicketGroupRow, nextDB: string, nextBD: string) {
+    const firstRow = row.__firstRow || row;
+    const lastRow = row.__lastRow || row;
+    const firstId = String(firstRow._id || "").trim();
+    const lastId = String(lastRow._id || "").trim();
+    if (!firstId) return;
 
-    // Only update if something is provided
-    const needDB = String(row.bookingReqDelhiBeas || "") === "Yes" && !String(row.ticketDelhiBeas || "").trim();
-    const needBD = String(row.bookingReqBeasDelhi || "") === "Yes" && !String(row.ticketBeasDelhi || "").trim();
+    const needDB = !!row.__needDB;
+    const needBD = !!row.__needBD;
 
-    const db = needDB ? String(nextDB || "").trim() : String(row.ticketDelhiBeas || "").trim();
-    const bd = needBD ? String(nextBD || "").trim() : String(row.ticketBeasDelhi || "").trim();
+    const db = needDB ? String(nextDB || "").trim() : String(firstRow.ticketDelhiBeas || "").trim();
+    const bd = needBD ? String(nextBD || "").trim() : String(lastRow.ticketBeasDelhi || "").trim();
 
     if (needDB && !db && needBD && !bd) {
       alert("Pick at least one ticket (Delhi–Beas and/or Beas–Delhi) before saving.");
       return;
     }
 
-    // Mismatch check for Delhi–Beas only if selected
     const okMismatch = confirmIfDelhiBeasDateMismatch({
       travelStartDate: row.travelStartDate,
       ticketId: db,
-      allow: String(row.mode) === "Train" && row.bookingReqDelhiBeas === "Yes" && !!db,
+      allow: String(firstRow.mode) === "Train" && firstRow.bookingReqDelhiBeas === "Yes" && !!db,
     });
     if (!okMismatch) return;
 
-    patchPendingState(rowId, { saving: true });
+    patchPendingState(firstId, { saving: true });
     try {
-      const realId = encodeURIComponent(rowId);
-      const jd = jathaDates.find((x) => x._id === row.jathaDateId);
-      const jStart = jd ? getJathaStart(jd) : "";
+      const saveOne = async (target: NominalLadooRow, patch: { ticketDelhiBeas?: string; ticketBeasDelhi?: string }) => {
+        const realId = encodeURIComponent(String(target._id || "").trim());
+        const jd = jathaDates.find((x) => x._id === target.jathaDateId);
+        const jStart = jd ? getJathaStart(jd) : "";
 
-      const res = await fetch(`/api/nominal-roll/ladoo/${realId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          department: String(row.department || "").trim(),
-          sangat: String(row.sangat || "").trim(),
+        const res = await fetch(`/api/nominal-roll/ladoo/${realId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            department: String(target.department || "").trim(),
+            sangat: String(target.sangat || "").trim(),
+            mode: target.mode,
+            bookingReqDelhiBeas: String(target.mode) === "Train" ? target.bookingReqDelhiBeas : "",
+            bookingReqBeasDelhi: String(target.mode) === "Train" ? target.bookingReqBeasDelhi : "",
+            ticketDelhiBeas:
+              String(target.mode) === "Train" && target.bookingReqDelhiBeas === "Yes"
+                ? String(patch.ticketDelhiBeas ?? target.ticketDelhiBeas ?? "").trim()
+                : "",
+            ticketBeasDelhi:
+              String(target.mode) === "Train" && target.bookingReqBeasDelhi === "Yes"
+                ? String(patch.ticketBeasDelhi ?? target.ticketBeasDelhi ?? "").trim()
+                : "",
+            payment: String(target.payment || "").trim(),
+            jathaDateId: target.jathaDateId,
+            jathaDate: jStart || "",
+            travelStartDate: iso10(target.travelStartDate),
+            travelEndDate: iso10(target.travelEndDate),
+            notes: String(target.notes || "").trim(),
+          }),
+        });
 
-          mode: row.mode,
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data?.error || `Save failed (${res.status})`);
+        }
+      };
 
-          bookingReqDelhiBeas: String(row.mode) === "Train" ? row.bookingReqDelhiBeas : "",
-          bookingReqBeasDelhi: String(row.mode) === "Train" ? row.bookingReqBeasDelhi : "",
-
-          ticketDelhiBeas: String(row.mode) === "Train" && row.bookingReqDelhiBeas === "Yes" ? db : "",
-          ticketBeasDelhi: String(row.mode) === "Train" && row.bookingReqBeasDelhi === "Yes" ? bd : "",
-
-          payment: String(row.payment || "").trim(),
-
-          jathaDateId: row.jathaDateId,
-          jathaDate: jStart || "",
-
-          travelStartDate: iso10(row.travelStartDate),
-          travelEndDate: iso10(row.travelEndDate),
-          notes: String(row.notes || "").trim(),
-        }),
-      });
-
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        alert(`Save failed (${res.status}). ${data?.error || "Error"}`);
-        return;
+      if (firstId === lastId) {
+        await saveOne(firstRow, { ticketDelhiBeas: db, ticketBeasDelhi: bd });
+      } else {
+        if (needDB || db) {
+          await saveOne(firstRow, { ticketDelhiBeas: db });
+        }
+        if (needBD || bd) {
+          await saveOne(lastRow, { ticketBeasDelhi: bd });
+        }
       }
 
-      // Clear picks for this row (so UI resets)
-      patchPendingState(rowId, { pickDB: "", pickBD: "" });
+      patchPendingState(firstId, { pickDB: "", pickBD: "" });
       await loadNominal();
+    } catch (err: any) {
+      alert(err?.message || "Save failed.");
     } finally {
-      patchPendingState(rowId, { saving: false });
+      patchPendingState(firstId, { saving: false });
     }
   }
 
-  function bulkSmartAssign(rows: NominalLadooRow[]) {
+  function bulkSmartAssign(rows: PendingTicketGroupRow[]) {
     for (const r of rows) {
       const id = String(r._id || "").trim();
       if (!id) continue;
 
       const st = getPendingState(id);
 
-      const needDB = String(r.bookingReqDelhiBeas || "") === "Yes" && !String(r.ticketDelhiBeas || "").trim();
-      const needBD = String(r.bookingReqBeasDelhi || "") === "Yes" && !String(r.ticketBeasDelhi || "").trim();
+      const needDB = !!r.__needDB;
+      const needBD = !!r.__needBD;
 
       const qDB = st.qDB || `${r.customerName || ""} ${iso10(r.travelStartDate)}`.trim();
-      const qBD = st.qBD || `${r.customerName || ""} ${iso10(r.travelStartDate)}`.trim();
+      const qBD = st.qBD || `${r.customerName || ""} ${iso10(r.travelEndDate)}`.trim();
 
       let pickDB = st.pickDB;
       let pickBD = st.pickBD;
 
       if (needDB && !pickDB) {
         pickDB = findSmartTicketId({
-          list: unassignedTrainDliBeas,
+          list: unassignedTrainDliBeas.filter((t) => !iso10(r.travelStartDate) || iso10(t.travelDate) === iso10(r.travelStartDate)),
           searchText: qDB,
           travelStartDate: r.travelStartDate,
           travelEndDate: r.travelEndDate,
@@ -1567,9 +1691,9 @@ function validateCreate(selectedIds: string[]) {
 
       if (needBD && !pickBD) {
         pickBD = findSmartTicketId({
-          list: unassignedTrainBeasDli,
+          list: unassignedTrainBeasDli.filter((t) => !iso10(r.travelEndDate) || iso10(t.travelDate) === iso10(r.travelEndDate)),
           searchText: qBD,
-          travelStartDate: r.travelStartDate,
+          travelStartDate: r.travelEndDate,
           travelEndDate: r.travelEndDate,
           customerName: r.customerName || "",
           expectedRoute: "BEAS-DLI",
@@ -1580,7 +1704,7 @@ function validateCreate(selectedIds: string[]) {
     }
   }
 
-  async function bulkSaveSelected(rows: NominalLadooRow[]) {
+  async function bulkSaveSelected(rows: PendingTicketGroupRow[]) {
     setPendingBulkBusy(true);
     try {
       for (const r of rows) {
@@ -1588,8 +1712,8 @@ function validateCreate(selectedIds: string[]) {
         if (!id) continue;
         const st = getPendingState(id);
 
-        const needDB = String(r.bookingReqDelhiBeas || "") === "Yes" && !String(r.ticketDelhiBeas || "").trim();
-        const needBD = String(r.bookingReqBeasDelhi || "") === "Yes" && !String(r.ticketBeasDelhi || "").trim();
+        const needDB = !!r.__needDB;
+        const needBD = !!r.__needBD;
 
         const nextDB = needDB ? String(st.pickDB || "").trim() : "";
         const nextBD = needBD ? String(st.pickBD || "").trim() : "";
@@ -1855,12 +1979,8 @@ function validateCreate(selectedIds: string[]) {
   className="app-btn app-btn-secondary h-9 px-3 text-xs"
   onClick={() => {
     const rows = pendingTicketItems.map((r, i) => {
-      const needDB =
-        String(r.bookingReqDelhiBeas || "") === "Yes" &&
-        !String(r.ticketDelhiBeas || "").trim();
-      const needBD =
-        String(r.bookingReqBeasDelhi || "") === "Yes" &&
-        !String(r.ticketBeasDelhi || "").trim();
+      const needDB = !!r.__needDB;
+      const needBD = !!r.__needBD;
 
       const pendingSide = [
         needDB ? "Delhi–Beas" : "",
@@ -1880,7 +2000,7 @@ function validateCreate(selectedIds: string[]) {
         Aadhaar: r.adhaarNumber || "",
         Badge: r.badgeNo || "",
         Department: r.department || "",
-        "Jatha Date": formatJathaLabelFromRow(r),
+        "Jatha Date": (r as any).__groupLabel || formatJathaLabelFromRow(r),
         "Travel Start": formatPrettyDate(r.travelStartDate),
         "Travel End": formatPrettyDate(r.travelEndDate),
         "REQ D-B": r.bookingReqDelhiBeas || "",
@@ -2031,11 +2151,15 @@ function validateCreate(selectedIds: string[]) {
                     const id = String(r._id || "").trim();
                     const st = getPendingState(id);
 
-                    const needDB = String(r.bookingReqDelhiBeas || "") === "Yes" && !String(r.ticketDelhiBeas || "").trim();
-                    const needBD = String(r.bookingReqBeasDelhi || "") === "Yes" && !String(r.ticketBeasDelhi || "").trim();
+                    const needDB = !!r.__needDB;
+                    const needBD = !!r.__needBD;
 
-                    const candDB = unassignedTrainDliBeas.filter((t) => ticketMatches(t, st.qDB)).slice(0, 200);
-                    const candBD = unassignedTrainBeasDli.filter((t) => ticketMatches(t, st.qBD)).slice(0, 200);
+                    const candDB = unassignedTrainDliBeas
+                      .filter((t) => (!iso10(r.travelStartDate) || iso10(t.travelDate) === iso10(r.travelStartDate)) && ticketMatches(t, st.qDB))
+                      .slice(0, 200);
+                    const candBD = unassignedTrainBeasDli
+                      .filter((t) => (!iso10(r.travelEndDate) || iso10(t.travelDate) === iso10(r.travelEndDate)) && ticketMatches(t, st.qBD))
+                      .slice(0, 200);
 
                     return (
                       <tr key={r._id} className={[["row", idx % 2 === 0 ? "row-alt" : "row-alt2"].join(" ")].join(" ")}>
@@ -2059,7 +2183,7 @@ function validateCreate(selectedIds: string[]) {
                           <div>{r.customerName || "-"}</div>
                           <div className="text-xs text-zinc-600 dark:text-zinc-400">{r.mobile || "-"} • {r.department || "-"}</div>
                         </td>
-                        <td className="td">{formatJathaLabelFromRow(r)}</td>
+                        <td className="td">{r.__groupLabel || formatJathaLabelFromRow(r)}</td>
                         <td className="td">{formatPrettyDate(r.travelStartDate)}</td>
                         <td className="td">{formatPrettyDate(r.travelEndDate)}</td>
 
@@ -2083,7 +2207,7 @@ function validateCreate(selectedIds: string[]) {
                                   onClick={() => {
                                     const q = st.qDB || `${r.customerName || ""} ${iso10(r.travelStartDate)}`.trim();
                                     const pick = findSmartTicketId({
-                                      list: unassignedTrainDliBeas,
+                                      list: unassignedTrainDliBeasFiltered,
                                       searchText: q,
                                       travelStartDate: r.travelStartDate,
                                       travelEndDate: r.travelEndDate,
@@ -2134,11 +2258,11 @@ function validateCreate(selectedIds: string[]) {
                                   type="button"
                                   className="app-btn app-btn-secondary h-9 px-3 text-xs"
                                   onClick={() => {
-                                    const q = st.qBD || `${r.customerName || ""} ${iso10(r.travelStartDate)}`.trim();
+                                    const q = st.qBD || `${r.customerName || ""} ${iso10(r.travelEndDate)}`.trim();
                                     const pick = findSmartTicketId({
-                                      list: unassignedTrainBeasDli,
+                                      list: candBD,
                                       searchText: q,
-                                      travelStartDate: r.travelStartDate,
+                                      travelStartDate: r.travelEndDate,
                                       travelEndDate: r.travelEndDate,
                                       customerName: r.customerName || "",
                                       expectedRoute: "BEAS-DLI",
@@ -2566,9 +2690,9 @@ function validateCreate(selectedIds: string[]) {
                                   className="text-xs font-semibold text-zinc-600 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-white"
                                   onClick={() => {
                                     const id = findSmartTicketId({
-                                      list: unassignedTrainBeasDli,
+                                      list: unassignedTrainBeasDliFiltered,
                                       searchText: ticketSearchBD,
-                                      travelStartDate,
+                                      travelStartDate: travelEndDate,
                                       travelEndDate,
                                       customerName: selectedCustomer?.name || "",
                                       expectedRoute: "BEAS-DLI",
@@ -2875,7 +2999,7 @@ function validateCreate(selectedIds: string[]) {
                         <td className="td">{paid === null ? "-" : paid}</td>
                         <td className="td font-semibold">{pending === null ? "-" : pending}</td>
 
-                        <td className="td">{formatJathaLabelFromRow(r)}</td>
+                        <td className="td">{r.__groupLabel || formatJathaLabelFromRow(r)}</td>
 
                         <td className="td">{formatPrettyDate(r.travelStartDate)}</td>
                         <td className="td">{formatPrettyDate(r.travelEndDate)}</td>
@@ -3055,7 +3179,7 @@ function validateCreate(selectedIds: string[]) {
                                   className="text-xs font-semibold text-zinc-600 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-white"
                                   onClick={() => {
                                     const id = findSmartTicketId({
-                                      list: editSelectableDliBeas as any,
+                                      list: editTrainDliBeasFiltered as any,
                                       searchText: editTicketSearchDB,
                                       travelStartDate: editing.travelStartDate,
                                       travelEndDate: editing.travelEndDate,
@@ -3119,9 +3243,9 @@ function validateCreate(selectedIds: string[]) {
                                   className="text-xs font-semibold text-zinc-600 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-white"
                                   onClick={() => {
                                     const id = findSmartTicketId({
-                                      list: editSelectableBeasDli as any,
+                                      list: editTrainBeasDliFiltered as any,
                                       searchText: editTicketSearchBD,
-                                      travelStartDate: editing.travelStartDate,
+                                      travelStartDate: editing.travelEndDate,
                                       travelEndDate: editing.travelEndDate,
                                       customerName: editing.customerName || "",
                                       expectedRoute: "BEAS-DLI",

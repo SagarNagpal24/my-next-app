@@ -15,12 +15,28 @@ function toYMD(v: any) {
   return "";
 }
 
+function normalizeNameKey(v: any) {
+  return String(v || "").trim().replace(/\s+/g, " ").toUpperCase();
+}
+
+function escapeRegExp(v: string) {
+  return String(v || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 // Ensure indexes exist (idempotent) — BUT do not crash GET if duplicates exist
 async function ensureIndexes(db: any) {
-  // customer duplicate protection
-  await db
-    .collection(COLLECTION)
-    .createIndex({ customerId: 1, jathaDateId: 1 }, { unique: true, name: "uniq_customer_jathadate" });
+  // ✅ duplicate protection by same NAME + same JATHA DATE
+  await db.collection(COLLECTION).createIndex(
+    { customerNameKey: 1, jathaDateId: 1 },
+    {
+      unique: true,
+      name: "uniq_customername_jathadate",
+      partialFilterExpression: {
+        customerNameKey: { $type: "string", $ne: "" },
+        jathaDateId: { $type: "string", $ne: "" },
+      },
+    }
+  );
 
   // ticket locking (unique only when non-empty string)
   await db.collection(COLLECTION).createIndex(
@@ -61,7 +77,7 @@ export async function GET() {
 
       // ✅ safe strings
       department: String(x.department || "").trim(),
-      sangat: String(x.sangat || "").trim(), // ✅ NEW
+      sangat: String(x.sangat || "").trim(),
 
       // ✅ safe formatting whether stored as Date or string
       jathaDate: toYMD(x.jathaDate),
@@ -97,6 +113,8 @@ export async function POST(req: Request) {
     // snapshot customer data
     const customerId = String(body.customerId || "").trim();
     const customerName = String(body.customerName || "").trim();
+    const customerNameKey = normalizeNameKey(customerName);
+
     const badgeNo = String(body.badgeNo || "").trim();
     const fatherOrHusbandName = String(body.fatherOrHusbandName || "").trim();
     const gender = String(body.gender || "").trim();
@@ -107,7 +125,7 @@ export async function POST(req: Request) {
 
     // ✅ department + sangat (editable)
     const department = String(body.department || "").trim();
-    const sangat = String(body.sangat || "").trim(); // ✅ NEW (Yes/No or "")
+    const sangat = String(body.sangat || "").trim();
 
     // user fields
     const mode = String(body.mode || "").trim();
@@ -135,8 +153,6 @@ export async function POST(req: Request) {
 
     if (!mode) return NextResponse.json({ error: "Mode is required" }, { status: 400 });
 
-    // ✅ Sangat validation (optional — if you want required, uncomment)
-    // if (!sangat) return NextResponse.json({ error: "Sangat is required" }, { status: 400 });
     if (sangat && !["Yes", "No"].includes(sangat)) {
       return NextResponse.json({ error: "Sangat must be Yes or No" }, { status: 400 });
     }
@@ -151,17 +167,48 @@ export async function POST(req: Request) {
 
     // ✅ If Train => booking required
     if (mode === "Train") {
-      if (!bookingReqDelhiBeas) return NextResponse.json({ error: "Booking REQ (Delhi–Beas) required" }, { status: 400 });
-      if (!bookingReqBeasDelhi) return NextResponse.json({ error: "Booking REQ (Beas–Delhi) required" }, { status: 400 });
+      if (!bookingReqDelhiBeas) {
+        return NextResponse.json({ error: "Booking REQ (Delhi–Beas) required" }, { status: 400 });
+      }
+      if (!bookingReqBeasDelhi) {
+        return NextResponse.json({ error: "Booking REQ (Beas–Delhi) required" }, { status: 400 });
+      }
+
+      // ✅ if booking is No, clear ticket for that side
+      if (bookingReqDelhiBeas !== "Yes") ticketDelhiBeas = "";
+      if (bookingReqBeasDelhi !== "Yes") ticketBeasDelhi = "";
     }
 
     if (!payment) return NextResponse.json({ error: "Payment required" }, { status: 400 });
     if (!travelStartDate) return NextResponse.json({ error: "Travel start date required" }, { status: 400 });
     if (!travelEndDate) return NextResponse.json({ error: "Travel end date required" }, { status: 400 });
 
+    // ✅ duplicate prevention by SAME NAME + SAME JATHA DATE
+    const existing = await db.collection(COLLECTION).findOne({
+      jathaDateId,
+      $or: [
+        { customerNameKey },
+        {
+          customerName: {
+            $regex: `^${escapeRegExp(customerName)}$`,
+            $options: "i",
+          },
+        },
+      ],
+    });
+
+    if (existing) {
+      return NextResponse.json(
+        { error: "This customer name is already added for the selected Jatha Date (duplicate not allowed)." },
+        { status: 409 }
+      );
+    }
+
     const doc = {
       customerId,
       customerName,
+      customerNameKey,
+
       badgeNo,
       fatherOrHusbandName,
       gender,
@@ -170,7 +217,6 @@ export async function POST(req: Request) {
       mobile,
       adhaarNumber,
 
-      // ✅ NEW
       department,
       sangat,
 
@@ -208,8 +254,14 @@ export async function POST(req: Request) {
         if (msg.includes("uniq_ticket_beas_delhi")) {
           return NextResponse.json({ error: "Ticket (Beas–Delhi) is already assigned to someone else." }, { status: 409 });
         }
+        if (msg.includes("uniq_customername_jathadate")) {
+          return NextResponse.json(
+            { error: "This customer name is already added for the selected Jatha Date (duplicate not allowed)." },
+            { status: 409 }
+          );
+        }
         return NextResponse.json(
-          { error: "This customer is already added for the selected Jatha Date (duplicate not allowed)." },
+          { error: "Duplicate record not allowed." },
           { status: 409 }
         );
       }

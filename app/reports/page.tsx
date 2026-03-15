@@ -1087,11 +1087,7 @@ React.useEffect(() => {
 
               <div class="row"><span class="label">Name:</span><span class="value">${name}</span></div>
               <div class="row"><span class="label">Mobile:</span><span class="value">${mobile}</span></div>
-              <div class="row"><span class="label">Badge:</span><span class="value">${badge}</span></div>
-              <div class="row"><span class="label">Mode:</span><span class="value">${modeStr}</span></div>
-              <div class="row"><span class="label">Dept:</span><span class="value">${dept}</span></div>
-              <div class="row"><span class="label">Sangat:</span><span class="value">${sangatStr}</span></div>
-
+             
               <div class="sep"></div>
 
               <div class="row"><span class="label">Jatha:</span><span class="value">${jdStart} → ${jdEnd}</span></div>

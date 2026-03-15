@@ -18,11 +18,27 @@ function isNonEmptyTicket(v: string) {
   return !!(v && v.trim());
 }
 
+function normalizeNameKey(v: any) {
+  return String(v || "").trim().replace(/\s+/g, " ").toUpperCase();
+}
+
+function escapeRegExp(v: string) {
+  return String(v || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 // Ensure indexes exist (idempotent)
 async function ensureIndexes(db: any) {
+  // ✅ duplicate protection by same NAME + same JATHA DATE
   await db.collection(COLLECTION).createIndex(
-    { customerId: 1, jathaDateId: 1 },
-    { unique: true, name: "uniq_customer_jathadate" }
+    { customerNameKey: 1, jathaDateId: 1 },
+    {
+      unique: true,
+      name: "uniq_customername_jathadate",
+      partialFilterExpression: {
+        customerNameKey: { $type: "string", $ne: "" },
+        jathaDateId: { $type: "string", $ne: "" },
+      },
+    }
   );
 
   await db.collection(COLLECTION).createIndex(
@@ -85,7 +101,7 @@ export async function PUT(req: Request, ctx: Ctx) {
     const body = await req.json();
 
     const department = asString(body.department);
-    const sangat = asString(body.sangat); // ✅ NEW
+    const sangat = asString(body.sangat);
 
     const mode = asString(body.mode);
 
@@ -109,7 +125,6 @@ export async function PUT(req: Request, ctx: Ctx) {
 
     if (!mode) return NextResponse.json({ error: "Mode is required" }, { status: 400 });
 
-    // ✅ Sangat validation (optional, but keep clean)
     if (sangat && !["Yes", "No"].includes(sangat)) {
       return NextResponse.json({ error: "Sangat must be Yes or No" }, { status: 400 });
     }
@@ -124,8 +139,16 @@ export async function PUT(req: Request, ctx: Ctx) {
 
     // ✅ If Train => booking required
     if (mode === "Train") {
-      if (!bookingReqDelhiBeas) return NextResponse.json({ error: "REQ (Delhi–Beas) required" }, { status: 400 });
-      if (!bookingReqBeasDelhi) return NextResponse.json({ error: "REQ (Beas–Delhi) required" }, { status: 400 });
+      if (!bookingReqDelhiBeas) {
+        return NextResponse.json({ error: "REQ (Delhi–Beas) required" }, { status: 400 });
+      }
+      if (!bookingReqBeasDelhi) {
+        return NextResponse.json({ error: "REQ (Beas–Delhi) required" }, { status: 400 });
+      }
+
+      // ✅ if booking is No, clear ticket for that side
+      if (bookingReqDelhiBeas !== "Yes") ticketDelhiBeas = "";
+      if (bookingReqBeasDelhi !== "Yes") ticketBeasDelhi = "";
     }
 
     if (!payment) return NextResponse.json({ error: "Payment required" }, { status: 400 });
@@ -133,6 +156,37 @@ export async function PUT(req: Request, ctx: Ctx) {
     if (!travelEndDate) return NextResponse.json({ error: "Travel end date required" }, { status: 400 });
 
     const oid = new ObjectId(id);
+
+    // ✅ fetch current row for duplicate-name check
+    const current = await db.collection(COLLECTION).findOne({ _id: oid });
+    if (!current) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+
+    const currentName = String(current.customerName || "").trim();
+    const customerNameKey = normalizeNameKey(currentName);
+
+    // ✅ duplicate prevention by SAME NAME + SAME JATHA DATE, excluding current row
+    const existingDuplicate = await db.collection(COLLECTION).findOne({
+      _id: { $ne: oid },
+      jathaDateId,
+      $or: [
+        { customerNameKey },
+        {
+          customerName: {
+            $regex: `^${escapeRegExp(currentName)}$`,
+            $options: "i",
+          },
+        },
+      ],
+    });
+
+    if (existingDuplicate) {
+      return NextResponse.json(
+        { error: "This customer name is already added for the selected Jatha Date (duplicate not allowed)." },
+        { status: 409 }
+      );
+    }
 
     // ✅ Ticket locking (exclude this record)
     if (mode === "Train") {
@@ -142,7 +196,7 @@ export async function PUT(req: Request, ctx: Ctx) {
 
     const update = {
       department,
-      sangat, // ✅ NEW
+      sangat,
 
       mode,
 
@@ -162,6 +216,9 @@ export async function PUT(req: Request, ctx: Ctx) {
 
       notes,
 
+      // ✅ keep normalized key aligned for old rows that may not have it
+      customerNameKey,
+
       updatedAt: new Date(),
     };
 
@@ -179,8 +236,14 @@ export async function PUT(req: Request, ctx: Ctx) {
         if (msg.includes("uniq_ticket_beas_delhi")) {
           return NextResponse.json({ error: "Ticket (Beas–Delhi) is already assigned to someone else." }, { status: 409 });
         }
+        if (msg.includes("uniq_customername_jathadate")) {
+          return NextResponse.json(
+            { error: "This customer name is already added for the selected Jatha Date (duplicate not allowed)." },
+            { status: 409 }
+          );
+        }
         return NextResponse.json(
-          { error: "This customer is already added for the selected Jatha Date (duplicate not allowed)." },
+          { error: "Duplicate record not allowed." },
           { status: 409 }
         );
       }
