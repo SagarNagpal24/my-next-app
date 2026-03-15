@@ -265,9 +265,10 @@ async function exportToExcel(rows: any[], filename: string) {
     "GENDER",
     "AGE",
     "MOBILE",
-    "AADHAAR",
+   
     "ADDRESS",
     "BADGE",
+     "AADHAAR",
     "MODE",
     "DEPARTMENT",
     "SANGAT",
@@ -301,9 +302,10 @@ async function exportToExcel(rows: any[], filename: string) {
       upper(r.gender || ""),
       r.age ?? "",
       upper(r.mobile || ""),
-      upper(r.adhaarNumber || ""),
+     
       upper(r.address || ""),
       upper(r.badgeNo || ""),
+       upper(r.adhaarNumber || ""),
       upper(r.mode || ""),
       upper(r.department || ""),
       upper(r.sangat || ""),
@@ -1542,10 +1544,10 @@ React.useEffect(() => {
                 <th className="th w-24 px-2 py-2">Gender</th>
                 <th className="th w-16 px-2 py-2">Age</th>
                 <th className="th w-32 px-2 py-2">Mobile</th>
-                <th className="th w-36 px-2 py-2">Aadhaar</th>
+               
                 <th className="th w-72 px-2 py-2">Address</th>
                 <th className="th w-28 px-2 py-2">Badge</th>
-
+                 <th className="th w-36 px-2 py-2">Aadhaar</th>
                 <th className="th w-20 px-2 py-2">Mode</th>
                 <th className="th w-40 px-2 py-2">Department</th>
                 <th className="th w-20 px-2 py-2">Sangat</th>
@@ -1611,10 +1613,10 @@ React.useEffect(() => {
                       <td className="td px-2 py-2">{r.gender || "-"}</td>
                       <td className="td px-2 py-2">{r.age ?? "-"}</td>
                       <td className="td px-2 py-2">{r.mobile || "-"}</td>
-                      <td className="td px-2 py-2">{r.adhaarNumber || "-"}</td>
+                     
                       <td className="td px-2 py-2 whitespace-normal break-words">{r.address || "-"}</td>
                       <td className="td px-2 py-2">{r.badgeNo || "-"}</td>
-
+                       <td className="td px-2 py-2">{r.adhaarNumber || "-"}</td>
                       <td className="td px-2 py-2">{r.mode || "-"}</td>
                       <td className="td px-2 py-2 whitespace-normal break-words">{r.department || "-"}</td>
                       <td className="td px-2 py-2">{r.sangat || "-"}</td>
