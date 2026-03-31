@@ -91,8 +91,6 @@ type NominalLadooRow = {
   adhaarNumber?: string;
 
   department?: string;
-
-  // ✅ Sangat
   sangat?: YesNo;
 
   mode: Mode | string;
@@ -106,14 +104,34 @@ type NominalLadooRow = {
   payment: string;
 
   jathaDateId: string;
-  jathaDate: string; // we store START date as string (YYYY-MM-DD)
+  jathaDate: string;
 
-  travelStartDate: string; // YYYY-MM-DD
-  travelEndDate: string; // YYYY-MM-DD
+  travelStartDate: string;
+  travelEndDate: string;
   notes: string;
 
   createdAt?: string;
   updatedAt?: string;
+
+  __groupFirstId?: string;
+  __groupLastId?: string;
+  __groupRowIds?: string[];
+  __groupLabel?: string;
+  __needDB?: boolean;
+  __needBD?: boolean;
+  __firstRow?: NominalLadooRow;
+  __lastRow?: NominalLadooRow;
+};
+
+type PendingTicketGroupRow = NominalLadooRow & {
+  __groupFirstId: string;
+  __groupLastId: string;
+  __groupRowIds: string[];
+  __groupLabel: string;
+  __needDB: boolean;
+  __needBD: boolean;
+  __firstRow: NominalLadooRow;
+  __lastRow: NominalLadooRow;
 };
 
 function normalizeId(x: any) {
@@ -496,9 +514,9 @@ export default function ParanthaNominalRollPage() {
   const [department, setDepartment] = React.useState("");
   const [sangat, setSangat] = React.useState<YesNo>("");
 
-  // ✅ MULTI JATHA SAVE
-  const [multiJatha, setMultiJatha] = React.useState(false);
-  const [jathaDateIds, setJathaDateIds] = React.useState<string[]>([]); // ✅ multi selected ids
+  // ✅ Jatha multi-select via dropdown checkboxes
+  const [jathaDateIds, setJathaDateIds] = React.useState<string[]>([]);
+  const [createJathaOpen, setCreateJathaOpen] = React.useState(false);
 
   const [bookingDelhiBeas, setBookingDelhiBeas] = React.useState<YesNo>("");
   const [bookingBeasDelhi, setBookingBeasDelhi] = React.useState<YesNo>("");
@@ -524,6 +542,8 @@ export default function ParanthaNominalRollPage() {
   const [loading, setLoading] = React.useState(true);
   const [editing, setEditing] = React.useState<NominalLadooRow | null>(null);
   const [saving, setSaving] = React.useState(false);
+  const [editJathaDateIds, setEditJathaDateIds] = React.useState<string[]>([]);
+  const [editJathaOpen, setEditJathaOpen] = React.useState(false);
 
   // ✅ Ticket search fields (Edit)
   const [editTicketSearchDB, setEditTicketSearchDB] = React.useState("");
@@ -546,6 +566,8 @@ export default function ParanthaNominalRollPage() {
 
   // ✅ NEW: show only upto last Jatha month by default
   const [showFullData, setShowFullData] = React.useState(false);
+  const createJathaRef = React.useRef<HTMLDivElement | null>(null);
+  const editJathaRef = React.useRef<HTMLDivElement | null>(null);
 
   const isTrainMode = mode === "Train";
   const isEditTrainMode = String(editing?.mode || "") === "Train";
@@ -567,7 +589,11 @@ export default function ParanthaNominalRollPage() {
 
   // ✅ close edit if user switches tab
   React.useEffect(() => {
-    if (tab !== "ladoo") setEditing(null);
+    if (tab !== "ladoo") {
+      setEditing(null);
+      setEditJathaDateIds([]);
+      setEditJathaOpen(false);
+    }
   }, [tab]);
 
   // ✅ reset edit ticket search when opening edit modal
@@ -575,6 +601,20 @@ export default function ParanthaNominalRollPage() {
     setEditTicketSearchDB("");
     setEditTicketSearchBD("");
   }, [editing?._id]);
+
+
+  React.useEffect(() => {
+    function onDocClick(e: MouseEvent) {
+      if (createJathaRef.current && !createJathaRef.current.contains(e.target as Node)) {
+        setCreateJathaOpen(false);
+      }
+      if (editJathaRef.current && !editJathaRef.current.contains(e.target as Node)) {
+        setEditJathaOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, []);
 
   // ✅ Auto-suggest while typing (debounced) + department filtering + exclude blacklisted
   React.useEffect(() => {
@@ -693,14 +733,20 @@ export default function ParanthaNominalRollPage() {
 
   // ✅ filtered lists for easier mapping (Create) + cap
   const unassignedTrainDliBeasFiltered = React.useMemo(() => {
-    const list = unassignedTrainDliBeas.filter((t) => ticketMatches(t, ticketSearchDB));
+    const start = iso10(travelStartDate);
+    const list = unassignedTrainDliBeas.filter(
+      (t) => (!start || iso10(t.travelDate) === start) && ticketMatches(t, ticketSearchDB)
+    );
     return list.slice(0, 400);
-  }, [unassignedTrainDliBeas, ticketSearchDB]);
+  }, [unassignedTrainDliBeas, ticketSearchDB, travelStartDate]);
 
   const unassignedTrainBeasDliFiltered = React.useMemo(() => {
-    const list = unassignedTrainBeasDli.filter((t) => ticketMatches(t, ticketSearchBD));
+    const end = iso10(travelEndDate);
+    const list = unassignedTrainBeasDli.filter(
+      (t) => (!end || iso10(t.travelDate) === end) && ticketMatches(t, ticketSearchBD)
+    );
     return list.slice(0, 400);
-  }, [unassignedTrainBeasDli, ticketSearchBD]);
+  }, [unassignedTrainBeasDli, ticketSearchBD, travelEndDate]);
 
   const assignedTrainDliBeasFiltered = React.useMemo(() => {
     const list = assignedTrainDliBeas.filter((t) => ticketMatches(t, ticketSearchDB));
@@ -714,14 +760,28 @@ export default function ParanthaNominalRollPage() {
 
   // ✅ filtered lists for easier mapping (Edit) + cap
   const editTrainDliBeasFiltered = React.useMemo(() => {
-    const list = editTrainDliBeas.filter((t: any) => ticketMatches(t, editTicketSearchDB));
+    const start = iso10(editing?.travelStartDate);
+    const current = String(editing?.ticketDelhiBeas || "").trim();
+    const list = editTrainDliBeas.filter(
+      (t: any) =>
+        ((current && t._id === current) || !t.__disabled) &&
+        (!start || iso10(t.travelDate) === start) &&
+        ticketMatches(t, editTicketSearchDB)
+    );
     return list.slice(0, 600);
-  }, [editTrainDliBeas, editTicketSearchDB]);
+  }, [editTrainDliBeas, editTicketSearchDB, editing?.travelStartDate, editing?.ticketDelhiBeas]);
 
   const editTrainBeasDliFiltered = React.useMemo(() => {
-    const list = editTrainBeasDli.filter((t: any) => ticketMatches(t, editTicketSearchBD));
+    const end = iso10(editing?.travelEndDate);
+    const current = String(editing?.ticketBeasDelhi || "").trim();
+    const list = editTrainBeasDli.filter(
+      (t: any) =>
+        ((current && t._id === current) || !t.__disabled) &&
+        (!end || iso10(t.travelDate) === end) &&
+        ticketMatches(t, editTicketSearchBD)
+    );
     return list.slice(0, 600);
-  }, [editTrainBeasDli, editTicketSearchBD]);
+  }, [editTrainBeasDli, editTicketSearchBD, editing?.travelEndDate, editing?.ticketBeasDelhi]);
 
   // Ticket map + labels
   const ticketById = React.useMemo(() => {
@@ -887,6 +947,14 @@ export default function ParanthaNominalRollPage() {
     return m;
   }, [jathaDates]);
 
+
+  function selectedJathaLabel(ids: string[]) {
+    const valid = Array.from(new Set(ids.map((x) => String(x).trim()).filter(Boolean)));
+    if (!valid.length) return "Select Jatha date(s)";
+    if (valid.length === 1) return jathaLabelById.get(valid[0]) || "1 selected";
+    return `${valid.length} selected`;
+  }
+
   // ✅ Default list window: show data only up to the month of the LAST Jatha (by end date)
   const visibleCutoffISO = React.useMemo(() => {
     if (!jathaDates.length) return "";
@@ -1049,8 +1117,8 @@ export default function ParanthaNominalRollPage() {
     setDepartment("");
     setSangat("");
 
-    setMultiJatha(false);
     setJathaDateIds([]);
+    setCreateJathaOpen(false);
 
     setBookingDelhiBeas("");
     setBookingBeasDelhi("");
@@ -1070,7 +1138,37 @@ export default function ParanthaNominalRollPage() {
     setEndTouched(false);
   }
 
-  function validateCreate(selectedIds: string[]) {
+    function isDuplicateNominal(args: {
+    customerName: string;
+    jathaDateId: string;
+    excludeId?: string;
+  }) {
+    const name = String(args.customerName || "").trim().toLowerCase();
+    const jathaId = String(args.jathaDateId || "").trim();
+    const excludeId = String(args.excludeId || "").trim();
+
+    return items.some((r) => {
+      if (excludeId && String(r._id || "").trim() === excludeId) return false;
+      return (
+        String(r.customerName || "").trim().toLowerCase() === name &&
+        String(r.jathaDateId || "").trim() === jathaId
+      );
+    });
+  }
+
+  function openEditRow(r: NominalLadooRow) {
+    setEditing({
+      ...r,
+      travelStartDate: iso10(r.travelStartDate),
+      travelEndDate: iso10(r.travelEndDate),
+      department: String(r.department || "").trim(),
+      sangat: (String(r.sangat || "").trim() as any) || "",
+    });
+    setEditJathaDateIds(r.jathaDateId ? [String(r.jathaDateId).trim()] : []);
+    setEditJathaOpen(false);
+  }
+
+function validateCreate(selectedIds: string[]) {
     if (!selectedCustomer?._id) return "Please search and select a customer first.";
     if (!selectedIds.length) return "Jatha date is required (select at least 1).";
     if (!mode) return "Mode is required.";
@@ -1114,6 +1212,18 @@ export default function ParanthaNominalRollPage() {
       allow: mode === "Train" && bookingDelhiBeas === "Yes" && !!String(ticketDelhiBeas || "").trim(),
     });
     if (!okMismatch) return;
+
+    for (const oneId of selectedIds) {
+      if (
+        isDuplicateNominal({
+          customerName: selectedCustomer!.name,
+          jathaDateId: oneId,
+        })
+      ) {
+        const label = jathaLabelById.get(oneId) || oneId;
+        return alert(`Duplicate not allowed. Same customer and Jatha Date (${label}) already exist.`);
+      }
+    }
 
     setSaving(true);
     try {
@@ -1194,13 +1304,13 @@ export default function ParanthaNominalRollPage() {
     e.preventDefault();
     if (!editing) return;
 
-    if (!editing.jathaDateId) return alert("Jatha date is required.");
+    const selectedIds = Array.from(new Set(editJathaDateIds.map((x) => String(x).trim()).filter(Boolean)));
+    if (!selectedIds.length) return alert("Jatha date is required.");
     if (!editing.mode) return alert("Mode is required.");
 
     if (String(editing.mode) === "Train") {
       if (!editing.bookingReqDelhiBeas) return alert("Booking REQ (Delhi–Beas) is required.");
       if (!editing.bookingReqBeasDelhi) return alert("Booking REQ (Beas–Delhi) is required.");
-      // ✅ tickets not mandatory
     }
 
     if (!editing.payment.trim()) return alert("Payment is required.");
@@ -1210,7 +1320,6 @@ export default function ParanthaNominalRollPage() {
     const okDates = confirmIfEndBeforeStart(editing.travelStartDate, editing.travelEndDate);
     if (!okDates) return;
 
-    // ✅ mismatch check only if ticket selected (Delhi–Beas)
     const okMismatch = confirmIfDelhiBeasDateMismatch({
       travelStartDate: editing.travelStartDate,
       ticketId: String(editing.ticketDelhiBeas || ""),
@@ -1218,25 +1327,35 @@ export default function ParanthaNominalRollPage() {
     });
     if (!okMismatch) return;
 
-    const realId = encodeURIComponent(String(editing._id).trim());
-    const jd = jathaDates.find((x) => x._id === editing.jathaDateId);
-    const jStart = jd ? getJathaStart(jd) : "";
+    for (let i = 0; i < selectedIds.length; i++) {
+      const oneId = selectedIds[i];
+      const dup = isDuplicateNominal({
+        customerName: editing.customerName,
+        jathaDateId: oneId,
+        excludeId: i === 0 ? editing._id : "",
+      });
+      if (dup) {
+        const label = jathaLabelById.get(oneId) || oneId;
+        return alert(`Duplicate not allowed. Same customer and Jatha Date (${label}) already exist.`);
+      }
+    }
 
+    const realId = encodeURIComponent(String(editing._id).trim());
     setSaving(true);
     try {
+      const firstId = selectedIds[0];
+      const jd = jathaDates.find((x) => x._id === firstId);
+      const jStart = jd ? getJathaStart(jd) : "";
+
       const res = await fetch(`/api/nominal-roll/parantha/${realId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           department: String(editing.department || "").trim(),
           sangat: String(editing.sangat || "").trim(),
-
           mode: editing.mode,
-
           bookingReqDelhiBeas: String(editing.mode) === "Train" ? editing.bookingReqDelhiBeas : "",
           bookingReqBeasDelhi: String(editing.mode) === "Train" ? editing.bookingReqBeasDelhi : "",
-
-          // ✅ ticket optional even if booking Yes
           ticketDelhiBeas:
             String(editing.mode) === "Train" && editing.bookingReqDelhiBeas === "Yes"
               ? String(editing.ticketDelhiBeas || "").trim()
@@ -1245,12 +1364,9 @@ export default function ParanthaNominalRollPage() {
             String(editing.mode) === "Train" && editing.bookingReqBeasDelhi === "Yes"
               ? String(editing.ticketBeasDelhi || "").trim()
               : "",
-
           payment: editing.payment.trim(),
-
-          jathaDateId: editing.jathaDateId,
+          jathaDateId: firstId,
           jathaDate: jStart || "",
-
           travelStartDate: String(editing.travelStartDate).slice(0, 10),
           travelEndDate: String(editing.travelEndDate).slice(0, 10),
           notes: (editing.notes || "").trim(),
@@ -1263,24 +1379,160 @@ export default function ParanthaNominalRollPage() {
         return;
       }
 
+      if (selectedIds.length > 1) {
+        for (const extraId of selectedIds.slice(1)) {
+          const extraJd = jathaDates.find((x) => x._id === extraId);
+          const extraJStart = extraJd ? getJathaStart(extraJd) : "";
+
+          const payload = {
+            customerId: editing.customerId,
+            customerName: editing.customerName,
+            badgeNo: editing.badgeNo || "",
+            fatherOrHusbandName: editing.fatherOrHusbandName || "",
+            gender: editing.gender || "",
+            age: editing.age ?? null,
+            address: editing.address || "",
+            mobile: editing.mobile || "",
+            adhaarNumber: editing.adhaarNumber || "",
+            department: String(editing.department || "").trim(),
+            sangat: String(editing.sangat || "").trim(),
+            mode: editing.mode,
+            bookingReqDelhiBeas: "",
+            bookingReqBeasDelhi: "",
+            ticketDelhiBeas: "",
+            ticketBeasDelhi: "",
+            payment: editing.payment.trim(),
+            jathaDateId: extraId,
+            jathaDate: extraJStart || "",
+            travelStartDate: String(editing.travelStartDate).slice(0, 10),
+            travelEndDate: String(editing.travelEndDate).slice(0, 10),
+            notes: (editing.notes || "").trim(),
+          };
+
+          const extraRes = await fetch("/api/nominal-roll/parantha", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+
+          const extraData = await extraRes.json().catch(() => ({}));
+          if (!extraRes.ok) {
+            alert(`Extra save failed (${extraRes.status}). ${extraData?.error || "Error"}`);
+            return;
+          }
+        }
+      }
+
       setEditing(null);
+      setEditJathaDateIds([]);
+      setEditJathaOpen(false);
       await loadNominal();
     } finally {
       setSaving(false);
     }
   }
 
-  // ✅ Pending ticket booking list
-  const pendingTicketItems = React.useMemo(() => {
-    return items.filter((r) => {
-      if (String(r.mode) !== "Train") return false;
+  function areRowsContinuous(prev: NominalLadooRow, next: NominalLadooRow) {
+    const prevEnd = iso10(prev.travelEndDate);
+    const nextStart = iso10(next.travelStartDate);
+    if (!prevEnd || !nextStart) return false;
+    return prevEnd === nextStart;
+  }
 
-      const needDB = String(r.bookingReqDelhiBeas || "") === "Yes" && !String(r.ticketDelhiBeas || "").trim();
-      const needBD = String(r.bookingReqBeasDelhi || "") === "Yes" && !String(r.ticketBeasDelhi || "").trim();
-      return needDB || needBD;
+  function buildPendingGroupLabel(group: NominalLadooRow[]) {
+    const first = group[0];
+    const last = group[group.length - 1];
+    if (!first || !last) return "-";
+    return fmtRangeLabel(iso10(first.travelStartDate), iso10(last.travelEndDate));
+  }
+
+ const pendingTicketItems = React.useMemo(() => {
+  const raw = items
+    .filter((r) => String(r.mode) === "Train")
+    .slice()
+    .sort((a, b) => {
+      const an = String(a.customerName || "").trim().toLowerCase();
+      const bn = String(b.customerName || "").trim().toLowerCase();
+      if (an !== bn) return an.localeCompare(bn);
+
+      const as = iso10(a.travelStartDate);
+      const bs = iso10(b.travelStartDate);
+      if (as !== bs) return as.localeCompare(bs);
+
+      return iso10(a.travelEndDate).localeCompare(iso10(b.travelEndDate));
     });
-  }, [items]);
 
+  // ✅ REMOVE EXACT DUPLICATES FIRST
+  const deduped: NominalLadooRow[] = [];
+  const seen = new Set<string>();
+
+  for (const r of raw) {
+    const key = [
+      String(r.customerName || "").trim().toLowerCase(),
+      iso10(r.travelStartDate),
+      iso10(r.travelEndDate),
+    ].join("__");
+
+    if (seen.has(key)) continue;
+
+    seen.add(key);
+    deduped.push(r);
+  }
+
+  const groups: PendingTicketGroupRow[] = [];
+  let i = 0;
+
+  while (i < deduped.length) {
+    const base = deduped[i];
+    const chain: NominalLadooRow[] = [base];
+    let j = i + 1;
+
+    while (j < deduped.length) {
+      const prev = chain[chain.length - 1];
+      const next = deduped[j];
+
+      const sameName =
+        String(prev.customerName || "").trim().toLowerCase() ===
+        String(next.customerName || "").trim().toLowerCase();
+
+      if (!sameName || !areRowsContinuous(prev, next)) break;
+
+      chain.push(next);
+      j++;
+    }
+
+    const first = chain[0];
+    const last = chain[chain.length - 1];
+
+    const needDB =
+      String(first.bookingReqDelhiBeas || "") === "Yes" &&
+      !String(first.ticketDelhiBeas || "").trim();
+
+    const needBD =
+      String(last.bookingReqBeasDelhi || "") === "Yes" &&
+      !String(last.ticketBeasDelhi || "").trim();
+
+    if (needDB || needBD) {
+      groups.push({
+        ...first,
+        travelStartDate: iso10(first.travelStartDate),
+        travelEndDate: iso10(last.travelEndDate),
+        __groupFirstId: String(first._id || "").trim(),
+        __groupLastId: String(last._id || "").trim(),
+        __groupRowIds: chain.map((x) => String(x._id || "").trim()),
+        __groupLabel: buildPendingGroupLabel(chain),
+        __needDB: needDB,
+        __needBD: needBD,
+        __firstRow: first,
+        __lastRow: last,
+      });
+    }
+
+    i = j;
+  }
+
+  return groups;
+}, [items]);
 
   // ==============================
   // ✅ Pending inline assign + bulk
@@ -1326,95 +1578,109 @@ export default function ParanthaNominalRollPage() {
     };
   }, [pendingTicketItems, ticketById]);
 
-  async function savePendingRowTickets(row: NominalLadooRow, nextDB: string, nextBD: string) {
-    const rowId = String(row._id || "").trim();
-    if (!rowId) return;
+  async function savePendingRowTickets(row: PendingTicketGroupRow, nextDB: string, nextBD: string) {
+    const firstRow = row.__firstRow || row;
+    const lastRow = row.__lastRow || row;
+    const firstId = String(firstRow._id || "").trim();
+    const lastId = String(lastRow._id || "").trim();
+    if (!firstId) return;
 
-    // Only update if something is provided
-    const needDB = String(row.bookingReqDelhiBeas || "") === "Yes" && !String(row.ticketDelhiBeas || "").trim();
-    const needBD = String(row.bookingReqBeasDelhi || "") === "Yes" && !String(row.ticketBeasDelhi || "").trim();
+    const needDB = !!row.__needDB;
+    const needBD = !!row.__needBD;
 
-    const db = needDB ? String(nextDB || "").trim() : String(row.ticketDelhiBeas || "").trim();
-    const bd = needBD ? String(nextBD || "").trim() : String(row.ticketBeasDelhi || "").trim();
+    const db = needDB ? String(nextDB || "").trim() : String(firstRow.ticketDelhiBeas || "").trim();
+    const bd = needBD ? String(nextBD || "").trim() : String(lastRow.ticketBeasDelhi || "").trim();
 
     if (needDB && !db && needBD && !bd) {
       alert("Pick at least one ticket (Delhi–Beas and/or Beas–Delhi) before saving.");
       return;
     }
 
-    // Mismatch check for Delhi–Beas only if selected
     const okMismatch = confirmIfDelhiBeasDateMismatch({
       travelStartDate: row.travelStartDate,
       ticketId: db,
-      allow: String(row.mode) === "Train" && row.bookingReqDelhiBeas === "Yes" && !!db,
+      allow: String(firstRow.mode) === "Train" && firstRow.bookingReqDelhiBeas === "Yes" && !!db,
     });
     if (!okMismatch) return;
 
-    patchPendingState(rowId, { saving: true });
+    patchPendingState(firstId, { saving: true });
     try {
-      const realId = encodeURIComponent(rowId);
-      const jd = jathaDates.find((x) => x._id === row.jathaDateId);
-      const jStart = jd ? getJathaStart(jd) : "";
+      const saveOne = async (target: NominalLadooRow, patch: { ticketDelhiBeas?: string; ticketBeasDelhi?: string }) => {
+        const realId = encodeURIComponent(String(target._id || "").trim());
+        const jd = jathaDates.find((x) => x._id === target.jathaDateId);
+        const jStart = jd ? getJathaStart(jd) : "";
 
-      const res = await fetch(`/api/nominal-roll/parantha/${realId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          department: String(row.department || "").trim(),
-          sangat: String(row.sangat || "").trim(),
+        const res = await fetch(`/api/nominal-roll/parantha/${realId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            department: String(target.department || "").trim(),
+            sangat: String(target.sangat || "").trim(),
+            mode: target.mode,
+            bookingReqDelhiBeas: String(target.mode) === "Train" ? target.bookingReqDelhiBeas : "",
+            bookingReqBeasDelhi: String(target.mode) === "Train" ? target.bookingReqBeasDelhi : "",
+            ticketDelhiBeas:
+              String(target.mode) === "Train" && target.bookingReqDelhiBeas === "Yes"
+                ? String(patch.ticketDelhiBeas ?? target.ticketDelhiBeas ?? "").trim()
+                : "",
+            ticketBeasDelhi:
+              String(target.mode) === "Train" && target.bookingReqBeasDelhi === "Yes"
+                ? String(patch.ticketBeasDelhi ?? target.ticketBeasDelhi ?? "").trim()
+                : "",
+            payment: String(target.payment || "").trim(),
+            jathaDateId: target.jathaDateId,
+            jathaDate: jStart || "",
+            travelStartDate: iso10(target.travelStartDate),
+            travelEndDate: iso10(target.travelEndDate),
+            notes: String(target.notes || "").trim(),
+          }),
+        });
 
-          mode: row.mode,
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data?.error || `Save failed (${res.status})`);
+        }
+      };
 
-          bookingReqDelhiBeas: String(row.mode) === "Train" ? row.bookingReqDelhiBeas : "",
-          bookingReqBeasDelhi: String(row.mode) === "Train" ? row.bookingReqBeasDelhi : "",
-
-          ticketDelhiBeas: String(row.mode) === "Train" && row.bookingReqDelhiBeas === "Yes" ? db : "",
-          ticketBeasDelhi: String(row.mode) === "Train" && row.bookingReqBeasDelhi === "Yes" ? bd : "",
-
-          payment: String(row.payment || "").trim(),
-
-          jathaDateId: row.jathaDateId,
-          jathaDate: jStart || "",
-
-          travelStartDate: iso10(row.travelStartDate),
-          travelEndDate: iso10(row.travelEndDate),
-          notes: String(row.notes || "").trim(),
-        }),
-      });
-
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        alert(`Save failed (${res.status}). ${data?.error || "Error"}`);
-        return;
+      if (firstId === lastId) {
+        await saveOne(firstRow, { ticketDelhiBeas: db, ticketBeasDelhi: bd });
+      } else {
+        if (needDB || db) {
+          await saveOne(firstRow, { ticketDelhiBeas: db });
+        }
+        if (needBD || bd) {
+          await saveOne(lastRow, { ticketBeasDelhi: bd });
+        }
       }
 
-      // Clear picks for this row (so UI resets)
-      patchPendingState(rowId, { pickDB: "", pickBD: "" });
+      patchPendingState(firstId, { pickDB: "", pickBD: "" });
       await loadNominal();
+    } catch (err: any) {
+      alert(err?.message || "Save failed.");
     } finally {
-      patchPendingState(rowId, { saving: false });
+      patchPendingState(firstId, { saving: false });
     }
   }
 
-  function bulkSmartAssign(rows: NominalLadooRow[]) {
+  function bulkSmartAssign(rows: PendingTicketGroupRow[]) {
     for (const r of rows) {
       const id = String(r._id || "").trim();
       if (!id) continue;
 
       const st = getPendingState(id);
 
-      const needDB = String(r.bookingReqDelhiBeas || "") === "Yes" && !String(r.ticketDelhiBeas || "").trim();
-      const needBD = String(r.bookingReqBeasDelhi || "") === "Yes" && !String(r.ticketBeasDelhi || "").trim();
+      const needDB = !!r.__needDB;
+      const needBD = !!r.__needBD;
 
       const qDB = st.qDB || `${r.customerName || ""} ${iso10(r.travelStartDate)}`.trim();
-      const qBD = st.qBD || `${r.customerName || ""} ${iso10(r.travelStartDate)}`.trim();
+      const qBD = st.qBD || `${r.customerName || ""} ${iso10(r.travelEndDate)}`.trim();
 
       let pickDB = st.pickDB;
       let pickBD = st.pickBD;
 
       if (needDB && !pickDB) {
         pickDB = findSmartTicketId({
-          list: unassignedTrainDliBeas,
+          list: unassignedTrainDliBeas.filter((t) => !iso10(r.travelStartDate) || iso10(t.travelDate) === iso10(r.travelStartDate)),
           searchText: qDB,
           travelStartDate: r.travelStartDate,
           travelEndDate: r.travelEndDate,
@@ -1425,9 +1691,9 @@ export default function ParanthaNominalRollPage() {
 
       if (needBD && !pickBD) {
         pickBD = findSmartTicketId({
-          list: unassignedTrainBeasDli,
+          list: unassignedTrainBeasDli.filter((t) => !iso10(r.travelEndDate) || iso10(t.travelDate) === iso10(r.travelEndDate)),
           searchText: qBD,
-          travelStartDate: r.travelStartDate,
+          travelStartDate: r.travelEndDate,
           travelEndDate: r.travelEndDate,
           customerName: r.customerName || "",
           expectedRoute: "BEAS-DLI",
@@ -1438,7 +1704,7 @@ export default function ParanthaNominalRollPage() {
     }
   }
 
-  async function bulkSaveSelected(rows: NominalLadooRow[]) {
+  async function bulkSaveSelected(rows: PendingTicketGroupRow[]) {
     setPendingBulkBusy(true);
     try {
       for (const r of rows) {
@@ -1446,8 +1712,8 @@ export default function ParanthaNominalRollPage() {
         if (!id) continue;
         const st = getPendingState(id);
 
-        const needDB = String(r.bookingReqDelhiBeas || "") === "Yes" && !String(r.ticketDelhiBeas || "").trim();
-        const needBD = String(r.bookingReqBeasDelhi || "") === "Yes" && !String(r.ticketBeasDelhi || "").trim();
+        const needDB = !!r.__needDB;
+        const needBD = !!r.__needBD;
 
         const nextDB = needDB ? String(st.pickDB || "").trim() : "";
         const nextBD = needBD ? String(st.pickBD || "").trim() : "";
@@ -1663,7 +1929,7 @@ export default function ParanthaNominalRollPage() {
       </datalist>
 
       <h2 className="text-lg font-semibold">Parantha</h2>
-      <p className="app-subtitle mt-1">Search customer → select → fill details → save.</p>
+      <p className="app-subtitle mt-1">Search Sangat → select → fill details → save.</p>
 
       {/* Tabs */}
       <div className="mt-3 flex flex-wrap gap-2">
@@ -1708,17 +1974,13 @@ export default function ParanthaNominalRollPage() {
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-             <button
+              <button
   type="button"
   className="app-btn app-btn-secondary h-9 px-3 text-xs"
   onClick={() => {
     const rows = pendingTicketItems.map((r, i) => {
-      const needDB =
-        String(r.bookingReqDelhiBeas || "") === "Yes" &&
-        !String(r.ticketDelhiBeas || "").trim();
-      const needBD =
-        String(r.bookingReqBeasDelhi || "") === "Yes" &&
-        !String(r.ticketBeasDelhi || "").trim();
+      const needDB = !!r.__needDB;
+      const needBD = !!r.__needBD;
 
       const pendingSide = [
         needDB ? "Delhi–Beas" : "",
@@ -1738,7 +2000,7 @@ export default function ParanthaNominalRollPage() {
         Aadhaar: r.adhaarNumber || "",
         Badge: r.badgeNo || "",
         Department: r.department || "",
-        "Jatha Date": formatJathaLabelFromRow(r),
+        "Jatha Date": (r as any).__groupLabel || formatJathaLabelFromRow(r),
         "Travel Start": formatPrettyDate(r.travelStartDate),
         "Travel End": formatPrettyDate(r.travelEndDate),
         "REQ D-B": r.bookingReqDelhiBeas || "",
@@ -1889,11 +2151,15 @@ export default function ParanthaNominalRollPage() {
                     const id = String(r._id || "").trim();
                     const st = getPendingState(id);
 
-                    const needDB = String(r.bookingReqDelhiBeas || "") === "Yes" && !String(r.ticketDelhiBeas || "").trim();
-                    const needBD = String(r.bookingReqBeasDelhi || "") === "Yes" && !String(r.ticketBeasDelhi || "").trim();
+                    const needDB = !!r.__needDB;
+                    const needBD = !!r.__needBD;
 
-                    const candDB = unassignedTrainDliBeas.filter((t) => ticketMatches(t, st.qDB)).slice(0, 200);
-                    const candBD = unassignedTrainBeasDli.filter((t) => ticketMatches(t, st.qBD)).slice(0, 200);
+                    const candDB = unassignedTrainDliBeas
+                      .filter((t) => (!iso10(r.travelStartDate) || iso10(t.travelDate) === iso10(r.travelStartDate)) && ticketMatches(t, st.qDB))
+                      .slice(0, 200);
+                    const candBD = unassignedTrainBeasDli
+                      .filter((t) => (!iso10(r.travelEndDate) || iso10(t.travelDate) === iso10(r.travelEndDate)) && ticketMatches(t, st.qBD))
+                      .slice(0, 200);
 
                     return (
                       <tr key={r._id} className={[["row", idx % 2 === 0 ? "row-alt" : "row-alt2"].join(" ")].join(" ")}>
@@ -1917,7 +2183,7 @@ export default function ParanthaNominalRollPage() {
                           <div>{r.customerName || "-"}</div>
                           <div className="text-xs text-zinc-600 dark:text-zinc-400">{r.mobile || "-"} • {r.department || "-"}</div>
                         </td>
-                        <td className="td">{formatJathaLabelFromRow(r)}</td>
+                        <td className="td">{r.__groupLabel || formatJathaLabelFromRow(r)}</td>
                         <td className="td">{formatPrettyDate(r.travelStartDate)}</td>
                         <td className="td">{formatPrettyDate(r.travelEndDate)}</td>
 
@@ -1941,7 +2207,7 @@ export default function ParanthaNominalRollPage() {
                                   onClick={() => {
                                     const q = st.qDB || `${r.customerName || ""} ${iso10(r.travelStartDate)}`.trim();
                                     const pick = findSmartTicketId({
-                                      list: unassignedTrainDliBeas,
+                                      list: unassignedTrainDliBeasFiltered,
                                       searchText: q,
                                       travelStartDate: r.travelStartDate,
                                       travelEndDate: r.travelEndDate,
@@ -1992,11 +2258,11 @@ export default function ParanthaNominalRollPage() {
                                   type="button"
                                   className="app-btn app-btn-secondary h-9 px-3 text-xs"
                                   onClick={() => {
-                                    const q = st.qBD || `${r.customerName || ""} ${iso10(r.travelStartDate)}`.trim();
+                                    const q = st.qBD || `${r.customerName || ""} ${iso10(r.travelEndDate)}`.trim();
                                     const pick = findSmartTicketId({
-                                      list: unassignedTrainBeasDli,
+                                      list: candBD,
                                       searchText: q,
-                                      travelStartDate: r.travelStartDate,
+                                      travelStartDate: r.travelEndDate,
                                       travelEndDate: r.travelEndDate,
                                       customerName: r.customerName || "",
                                       expectedRoute: "BEAS-DLI",
@@ -2097,7 +2363,7 @@ export default function ParanthaNominalRollPage() {
         </div>
       )}
 
-      {/* Ladoo tab */}
+      {/* Parantha tab */}
       {tab === "ladoo" && (
         <>
           <form onSubmit={onCreate} className="mt-6 rounded-2xl border border-black/5 p-4 dark:border-white/10 sm:p-5">
@@ -2106,7 +2372,7 @@ export default function ParanthaNominalRollPage() {
               <div className="lg:col-span-5">
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                   <div className="sm:col-span-2">
-                    <div className="app-label">Search Customer (Name / Mobile / Aadhaar)</div>
+                    <div className="app-label">Search Sangat (Name / Mobile / Aadhaar)</div>
                     <div className="flex gap-2">
                       <input
                         className={inputCls()}
@@ -2204,69 +2470,26 @@ export default function ParanthaNominalRollPage() {
               {/* Right: Main controls */}
               <div className="lg:col-span-7">
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {/* ✅ Multi-jatha toggle */}
-                  <div className="lg:col-span-3 sm:col-span-2">
-                    <div className="flex items-center justify-between rounded-xl border border-black/5 bg-zinc-50 px-3 py-2 text-sm dark:border-white/10 dark:bg-black/30">
-                      <div>
-                        <div className="font-semibold">Save for multiple Jatha dates</div>
-                        <div className="text-xs text-zinc-600 dark:text-zinc-400">Select 1..N dates and save in one click.</div>
-                      </div>
-                      <label className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={multiJatha}
-                          onChange={(e) => {
-                            const v = e.target.checked;
-                            setMultiJatha(v);
-                            setJathaDateIds([]);
-                            setStartTouched(false);
-                            setEndTouched(false);
-                          }}
-                        />
-                        <span className="text-sm font-semibold">Multi</span>
-                      </label>
-                    </div>
-                  </div>
+                  <div className="lg:col-span-3 sm:col-span-2" ref={createJathaRef}>
+                    <div className="app-label">Jatha Date(s) *</div>
+                    <button
+                      type="button"
+                      className={[inputCls(), "flex w-full items-center justify-between"].join(" ")}
+                      onClick={() => setCreateJathaOpen((v) => !v)}
+                      disabled={loadingJatha}
+                    >
+                      <span>{loadingJatha ? "Loading..." : selectedJathaLabel(jathaDateIds)}</span>
+                      <span>{createJathaOpen ? "▲" : "▼"}</span>
+                    </button>
 
-                  {/* ✅ Jatha date selection */}
-                  {!multiJatha ? (
-                    <div>
-                      <div className="app-label">Jatha Date (Parantha) *</div>
-                      <select
-                        className={inputCls()}
-                        value={jathaDateIds[0] || ""}
-                        onChange={(e) => {
-                          setJathaDateIds(e.target.value ? [e.target.value] : []);
-                          setStartTouched(false);
-                          setEndTouched(false);
-                        }}
-                        disabled={loadingJatha}
-                      >
-                        <option value="">{loadingJatha ? "Loading..." : "Select date range"}</option>
-                        {jathaDates.map((d) => {
-                          const js = getJathaStart(d);
-                          const je = getJathaEnd(d);
-                          return (
-                            <option key={d._id} value={d._id}>
-                              {fmtRangeLabel(js, je)}
-                            </option>
-                          );
-                        })}
-                      </select>
-                    </div>
-                  ) : (
-                    <div className="lg:col-span-3 sm:col-span-2">
-                      <div className="app-label">Jatha Dates (Multi-select) *</div>
-                      <div className="max-h-44 overflow-auto rounded-xl border border-black/5 bg-white p-2 dark:border-white/10 dark:bg-zinc-950">
-                        {loadingJatha ? (
-                          <div className="px-2 py-2 text-sm text-zinc-600 dark:text-zinc-400">Loading...</div>
-                        ) : jathaDates.length === 0 ? (
+                    {createJathaOpen && !loadingJatha && (
+                      <div className="mt-2 max-h-56 overflow-auto rounded-xl border border-black/5 bg-white p-2 dark:border-white/10 dark:bg-zinc-950">
+                        {jathaDates.length === 0 ? (
                           <div className="px-2 py-2 text-sm text-zinc-600 dark:text-zinc-400">No Jatha dates found.</div>
                         ) : (
                           jathaDates.map((d) => {
                             const js = getJathaStart(d);
                             const je = getJathaEnd(d);
-                            const label = fmtRangeLabel(js, je);
                             const checked = jathaDateIds.includes(d._id);
                             return (
                               <label
@@ -2288,17 +2511,17 @@ export default function ParanthaNominalRollPage() {
                                     setEndTouched(false);
                                   }}
                                 />
-                                <span className="text-sm">{label}</span>
+                                <span className="text-sm">{fmtRangeLabel(js, je)}</span>
                               </label>
                             );
                           })
                         )}
                       </div>
-                      <div className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
-                        Selected: <span className="font-semibold">{jathaDateIds.length}</span>
-                      </div>
+                    )}
+                    <div className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
+                      Selected: <span className="font-semibold">{jathaDateIds.length}</span>
                     </div>
-                  )}
+                  </div>
 
                   <div>
                     <div className="app-label">Mode *</div>
@@ -2453,7 +2676,7 @@ export default function ParanthaNominalRollPage() {
                                 </optgroup>
                               )}
 
-                              
+                             
                             </select>
                           </div>
 
@@ -2467,9 +2690,9 @@ export default function ParanthaNominalRollPage() {
                                   className="text-xs font-semibold text-zinc-600 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-white"
                                   onClick={() => {
                                     const id = findSmartTicketId({
-                                      list: unassignedTrainBeasDli,
+                                      list: unassignedTrainBeasDliFiltered,
                                       searchText: ticketSearchBD,
-                                      travelStartDate,
+                                      travelStartDate: travelEndDate,
                                       travelEndDate,
                                       customerName: selectedCustomer?.name || "",
                                       expectedRoute: "BEAS-DLI",
@@ -2550,7 +2773,7 @@ export default function ParanthaNominalRollPage() {
 
             <div className="mt-4 flex items-center gap-2">
               <button type="submit" disabled={saving} className="app-btn app-btn-primary h-10 px-4 disabled:opacity-60">
-                {saving ? "Saving..." : multiJatha ? "Save (All Selected Jatha Dates)" : "Save"}
+                {saving ? "Saving..." : jathaDateIds.length > 1 ? "Save (All Selected Jatha Dates)" : "Save"}
               </button>
               <button type="button" onClick={resetForm} className="app-btn app-btn-secondary h-10 px-4">
                 Clear
@@ -2750,7 +2973,11 @@ export default function ParanthaNominalRollPage() {
                     const pending = getPendingForRow(r);
 
                     return (
-                      <tr key={r._id} className={["row", idx % 2 === 0 ? "row-alt" : "row-alt2"].join(" ")}>
+                      <tr
+                        key={r._id}
+                        className={["row cursor-pointer hover:bg-zinc-50 dark:hover:bg-white/5", idx % 2 === 0 ? "row-alt" : "row-alt2"].join(" ")}
+                        onClick={() => openEditRow(r)}
+                      >
                         <td className="td">{idx + 1}</td>
                         <td className="td font-medium">{r.customerName || "-"}</td>
                         <td className="td">{r.department || "-"}</td>
@@ -2772,7 +2999,7 @@ export default function ParanthaNominalRollPage() {
                         <td className="td">{paid === null ? "-" : paid}</td>
                         <td className="td font-semibold">{pending === null ? "-" : pending}</td>
 
-                        <td className="td">{formatJathaLabelFromRow(r)}</td>
+                        <td className="td">{r.__groupLabel || formatJathaLabelFromRow(r)}</td>
 
                         <td className="td">{formatPrettyDate(r.travelStartDate)}</td>
                         <td className="td">{formatPrettyDate(r.travelEndDate)}</td>
@@ -2782,22 +3009,10 @@ export default function ParanthaNominalRollPage() {
                           <div className="flex items-center gap-2">
                             <button
                               type="button"
-                              className="app-btn app-btn-secondary h-9 px-3 text-xs"
-                              onClick={() =>
-                                setEditing({
-                                  ...r,
-                                  travelStartDate: iso10(r.travelStartDate),
-                                  travelEndDate: iso10(r.travelEndDate),
-                                  department: String(r.department || "").trim(),
-                                  sangat: (String(r.sangat || "").trim() as any) || "",
-                                })
-                              }
-                            >
-                              Edit
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => onDelete(r._id)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onDelete(r._id);
+                              }}
                               className="h-9 rounded-xl border border-red-200 bg-red-50 px-3 text-xs font-semibold text-red-700 hover:bg-red-100 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-200 dark:hover:bg-red-900/30"
                             >
                               Delete
@@ -2820,7 +3035,7 @@ export default function ParanthaNominalRollPage() {
                   <h3 className="text-lg font-semibold">Edit (Parantha Nominal Roll)</h3>
                   <button
                     type="button"
-                    onClick={() => setEditing(null)}
+                    onClick={() => { setEditing(null); setEditJathaDateIds([]); setEditJathaOpen(false); }}
                     className="rounded-lg px-3 py-1.5 text-sm hover:bg-zinc-100 dark:hover:bg-zinc-900/40"
                   >
                     ✕
@@ -2843,20 +3058,47 @@ export default function ParanthaNominalRollPage() {
                 </div>
 
                 <form onSubmit={onSaveEdit} className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  <div>
-                    <div className="app-label">Jatha Date *</div>
-                    <select className={inputCls()} value={editing.jathaDateId} onChange={(e) => setEditing({ ...editing, jathaDateId: e.target.value })}>
-                      <option value="">Select date range</option>
-                      {jathaDates.map((d) => {
-                        const js = getJathaStart(d);
-                        const je = getJathaEnd(d);
-                        return (
-                          <option key={d._id} value={d._id}>
-                            {fmtRangeLabel(js, je)}
-                          </option>
-                        );
-                      })}
-                    </select>
+                  <div className="lg:col-span-3 sm:col-span-2" ref={editJathaRef}>
+                    <div className="app-label">Jatha Date(s) *</div>
+                    <button
+                      type="button"
+                      className={[inputCls(), "flex w-full items-center justify-between"].join(" ")}
+                      onClick={() => setEditJathaOpen((v) => !v)}
+                    >
+                      <span>{selectedJathaLabel(editJathaDateIds)}</span>
+                      <span>{editJathaOpen ? "▲" : "▼"}</span>
+                    </button>
+
+                    {editJathaOpen && (
+                      <div className="mt-2 max-h-56 overflow-auto rounded-xl border border-black/5 bg-white p-2 dark:border-white/10 dark:bg-zinc-950">
+                        {jathaDates.map((d) => {
+                          const js = getJathaStart(d);
+                          const je = getJathaEnd(d);
+                          const checked = editJathaDateIds.includes(d._id);
+                          return (
+                            <label
+                              key={d._id}
+                              className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-zinc-50 dark:hover:bg-white/5"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={(e) => {
+                                  const on = e.target.checked;
+                                  setEditJathaDateIds((prev) => {
+                                    const s = new Set(prev);
+                                    if (on) s.add(d._id);
+                                    else s.delete(d._id);
+                                    return Array.from(s);
+                                  });
+                                }}
+                              />
+                              <span className="text-sm">{fmtRangeLabel(js, je)}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
 
                   <div>
@@ -2937,7 +3179,7 @@ export default function ParanthaNominalRollPage() {
                                   className="text-xs font-semibold text-zinc-600 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-white"
                                   onClick={() => {
                                     const id = findSmartTicketId({
-                                      list: editSelectableDliBeas as any,
+                                      list: editTrainDliBeasFiltered as any,
                                       searchText: editTicketSearchDB,
                                       travelStartDate: editing.travelStartDate,
                                       travelEndDate: editing.travelEndDate,
@@ -3001,9 +3243,9 @@ export default function ParanthaNominalRollPage() {
                                   className="text-xs font-semibold text-zinc-600 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-white"
                                   onClick={() => {
                                     const id = findSmartTicketId({
-                                      list: editSelectableBeasDli as any,
+                                      list: editTrainBeasDliFiltered as any,
                                       searchText: editTicketSearchBD,
-                                      travelStartDate: editing.travelStartDate,
+                                      travelStartDate: editing.travelEndDate,
                                       travelEndDate: editing.travelEndDate,
                                       customerName: editing.customerName || "",
                                       expectedRoute: "BEAS-DLI",
@@ -3071,11 +3313,11 @@ export default function ParanthaNominalRollPage() {
                   </div>
 
                   <div className="sm:col-span-2 lg:col-span-3 mt-2 flex items-center justify-end gap-2">
-                    <button type="button" onClick={() => setEditing(null)} className="app-btn app-btn-secondary h-10 px-4">
+                    <button type="button" onClick={() => { setEditing(null); setEditJathaDateIds([]); setEditJathaOpen(false); }} className="app-btn app-btn-secondary h-10 px-4">
                       Cancel
                     </button>
                     <button type="submit" disabled={saving} className="app-btn app-btn-primary h-10 px-4 disabled:opacity-60">
-                      {saving ? "Saving..." : "Save Changes"}
+                      {saving ? "Saving..." : editJathaDateIds.length > 1 ? "Save All Selected" : "Save Changes"}
                     </button>
                   </div>
                 </form>

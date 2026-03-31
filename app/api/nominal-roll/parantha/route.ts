@@ -18,6 +18,11 @@ function asString(v: any) {
   return String(v ?? "").trim();
 }
 
+function asYesNo(v: any): "" | "Yes" | "No" {
+  const s = String(v ?? "").trim();
+  return s === "Yes" || s === "No" ? s : "";
+}
+
 async function ensureIndexes(db: any) {
   await db.collection(COLLECTION).createIndex(
     { customerId: 1, jathaDateId: 1 },
@@ -54,7 +59,6 @@ export async function GET() {
   try {
     const db = await getDb();
 
-    // don’t break GET if duplicates exist
     try {
       await ensureIndexes(db);
     } catch (e: any) {
@@ -78,6 +82,10 @@ export async function GET() {
 
       ticketDelhiBeas: asString(x.ticketDelhiBeas),
       ticketBeasDelhi: asString(x.ticketBeasDelhi),
+
+      confirm: asYesNo(x.confirm),
+      ferry: asYesNo(x.ferry),
+      remarks: asString(x.remarks),
     }));
 
     return NextResponse.json({ items: safe });
@@ -133,16 +141,20 @@ export async function POST(req: Request) {
     const payment = asString(body.payment);
 
     const jathaDateId = asString(body.jathaDateId);
-    const jathaDate = asString(body.jathaDate); // START date
+    const jathaDate = asString(body.jathaDate);
 
     const travelStartDate = asString(body.travelStartDate);
     const travelEndDate = asString(body.travelEndDate);
 
     const notes = asString(body.notes);
 
-    /* ---------- validation ---------- */
+    const confirm = asYesNo(body.confirm);
+    const ferry = asYesNo(body.ferry);
+    const remarks = asString(body.remarks);
+
     if (!customerId)
       return NextResponse.json({ error: "Customer is required" }, { status: 400 });
+
     if (!customerName)
       return NextResponse.json(
         { error: "Customer name missing" },
@@ -154,6 +166,7 @@ export async function POST(req: Request) {
         { error: "Jatha date required" },
         { status: 400 }
       );
+
     if (!jathaDate)
       return NextResponse.json(
         { error: "Jatha date value missing" },
@@ -163,7 +176,6 @@ export async function POST(req: Request) {
     if (!mode)
       return NextResponse.json({ error: "Mode is required" }, { status: 400 });
 
-    /* ---------- mode logic ---------- */
     if (mode !== "Train") {
       bookingReqDelhiBeas = "";
       bookingReqBeasDelhi = "";
@@ -185,7 +197,6 @@ export async function POST(req: Request) {
         );
       }
 
-      // booking = No → ticket must be empty
       if (bookingReqDelhiBeas === "No") ticketDelhiBeas = "";
       if (bookingReqBeasDelhi === "No") ticketBeasDelhi = "";
     }
@@ -233,12 +244,16 @@ export async function POST(req: Request) {
       payment,
 
       jathaDateId,
-      jathaDate: new Date(jathaDate), // START date
+      jathaDate: new Date(jathaDate),
 
       travelStartDate: new Date(travelStartDate),
       travelEndDate: new Date(travelEndDate),
 
       notes,
+
+      confirm,
+      ferry,
+      remarks,
 
       createdAt: new Date(),
       updatedAt: new Date(),

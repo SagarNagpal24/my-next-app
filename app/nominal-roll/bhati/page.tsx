@@ -295,14 +295,14 @@ export default function BhatiNominalRollPage() {
   return (
     <div>
       <h2 className="text-lg font-semibold">Bhati</h2>
-      <p className="app-subtitle mt-1">Search customer → select → fill details → save.</p>
+      <p className="app-subtitle mt-1">Search Sangat → select → fill details → save.</p>
 
       {/* Create Form */}
       <form onSubmit={onCreate} className="mt-6 rounded-2xl border border-black/5 p-4 dark:border-white/10 sm:p-5">
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-12">
           {/* Search */}
           <div className="lg:col-span-6">
-            <div className="app-label">Search Customer (Name / Mobile / Aadhaar)</div>
+            <div className="app-label">Search Sangat (Name / Mobile / Aadhaar)</div>
             <div className="flex gap-2">
               <input className={inputCls()} value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Type name / mobile / aadhaar" />
               <button

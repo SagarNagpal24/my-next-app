@@ -1138,23 +1138,27 @@ export default function LadooNominalRollPage() {
     setEndTouched(false);
   }
 
-    function isDuplicateNominal(args: {
-    customerName: string;
-    jathaDateId: string;
-    excludeId?: string;
-  }) {
-    const name = String(args.customerName || "").trim().toLowerCase();
-    const jathaId = String(args.jathaDateId || "").trim();
-    const excludeId = String(args.excludeId || "").trim();
+   function isDuplicateNominal(args: {
+  customerName: string;
+  mobile?: string;
+  jathaDateId: string;
+  excludeId?: string;
+}) {
+  const name = String(args.customerName || "").trim().toLowerCase();
+  const mobile = String(args.mobile || "").trim();
+  const jathaId = String(args.jathaDateId || "").trim();
+  const excludeId = String(args.excludeId || "").trim();
 
-    return items.some((r) => {
-      if (excludeId && String(r._id || "").trim() === excludeId) return false;
-      return (
-        String(r.customerName || "").trim().toLowerCase() === name &&
-        String(r.jathaDateId || "").trim() === jathaId
-      );
-    });
-  }
+  return items.some((r) => {
+    if (excludeId && String(r._id || "").trim() === excludeId) return false;
+
+    return (
+      String(r.customerName || "").trim().toLowerCase() === name &&
+      String(r.mobile || "").trim() === mobile &&
+      String(r.jathaDateId || "").trim() === jathaId
+    );
+  });
+}
 
   function openEditRow(r: NominalLadooRow) {
     setEditing({
@@ -1215,10 +1219,11 @@ function validateCreate(selectedIds: string[]) {
 
     for (const oneId of selectedIds) {
       if (
-        isDuplicateNominal({
-          customerName: selectedCustomer!.name,
-          jathaDateId: oneId,
-        })
+      isDuplicateNominal({
+  customerName: selectedCustomer!.name,
+  mobile: selectedCustomer!.mobile || "",
+  jathaDateId: oneId,
+})
       ) {
         const label = jathaLabelById.get(oneId) || oneId;
         return alert(`Duplicate not allowed. Same customer and Jatha Date (${label}) already exist.`);
@@ -1280,6 +1285,13 @@ function validateCreate(selectedIds: string[]) {
 
       resetForm();
       await loadNominal();
+
+      alert(
+  selectedIds.length > 1
+    ? `${selectedCustomer!.name} added successfully for ${selectedIds.length} Jatha dates.`
+    : `${selectedCustomer!.name} added successfully.`
+);
+
     } finally {
       setSaving(false);
     }
@@ -1329,11 +1341,12 @@ function validateCreate(selectedIds: string[]) {
 
     for (let i = 0; i < selectedIds.length; i++) {
       const oneId = selectedIds[i];
-      const dup = isDuplicateNominal({
-        customerName: editing.customerName,
-        jathaDateId: oneId,
-        excludeId: i === 0 ? editing._id : "",
-      });
+     const dup = isDuplicateNominal({
+  customerName: editing.customerName,
+  mobile: editing.mobile || "",
+  jathaDateId: oneId,
+  excludeId: i === 0 ? editing._id : "",
+});
       if (dup) {
         const label = jathaLabelById.get(oneId) || oneId;
         return alert(`Duplicate not allowed. Same customer and Jatha Date (${label}) already exist.`);
@@ -1427,6 +1440,12 @@ function validateCreate(selectedIds: string[]) {
       setEditJathaDateIds([]);
       setEditJathaOpen(false);
       await loadNominal();
+
+      alert(
+  selectedIds.length > 1
+    ? `${editing.customerName} updated successfully for ${selectedIds.length} Jatha dates.`
+    : `${editing.customerName} updated successfully.`
+);
     } finally {
       setSaving(false);
     }
@@ -1463,21 +1482,22 @@ function validateCreate(selectedIds: string[]) {
     });
 
   // ✅ REMOVE EXACT DUPLICATES FIRST
-  const deduped: NominalLadooRow[] = [];
-  const seen = new Set<string>();
+const deduped: NominalLadooRow[] = [];
+const seen = new Set<string>();
 
-  for (const r of raw) {
-    const key = [
-      String(r.customerName || "").trim().toLowerCase(),
-      iso10(r.travelStartDate),
-      iso10(r.travelEndDate),
-    ].join("__");
+for (const r of raw) {
+  const key = [
+  String(r.customerName || "").trim().toLowerCase(),
+  String(r.mobile || "").trim(), // ✅ added mobile
+  iso10(r.travelStartDate),
+  iso10(r.travelEndDate),
+].join("__");
 
-    if (seen.has(key)) continue;
+  if (seen.has(key)) continue;
 
-    seen.add(key);
-    deduped.push(r);
-  }
+  seen.add(key);
+  deduped.push(r);
+}
 
   const groups: PendingTicketGroupRow[] = [];
   let i = 0;
@@ -1929,7 +1949,7 @@ function validateCreate(selectedIds: string[]) {
       </datalist>
 
       <h2 className="text-lg font-semibold">Ladoo</h2>
-      <p className="app-subtitle mt-1">Search customer → select → fill details → save.</p>
+      <p className="app-subtitle mt-1">Search Sangat → select → fill details → save.</p>
 
       {/* Tabs */}
       <div className="mt-3 flex flex-wrap gap-2">
@@ -2372,7 +2392,7 @@ function validateCreate(selectedIds: string[]) {
               <div className="lg:col-span-5">
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                   <div className="sm:col-span-2">
-                    <div className="app-label">Search Customer (Name / Mobile / Aadhaar)</div>
+                    <div className="app-label">Search Sangat (Name / Mobile / Aadhaar)</div>
                     <div className="flex gap-2">
                       <input
                         className={inputCls()}

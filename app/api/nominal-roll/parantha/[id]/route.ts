@@ -13,6 +13,11 @@ function asString(v: any) {
   return String(v ?? "").trim();
 }
 
+function asYesNo(v: any): "" | "Yes" | "No" {
+  const s = String(v ?? "").trim();
+  return s === "Yes" || s === "No" ? s : "";
+}
+
 function isNonEmptyTicket(v: string) {
   return !!(v && v.trim());
 }
@@ -65,11 +70,13 @@ export async function PUT(req: Request, ctx: Ctx) {
   try {
     const { id: rawId } = await ctx.params;
     const id = extractObjectId(rawId);
+
     if (!id || !ObjectId.isValid(id)) {
       return NextResponse.json({ error: "Invalid id" }, { status: 400 });
     }
 
     const db = await getDb();
+
     try {
       await ensureIndexes(db);
     } catch (e: any) {
@@ -91,17 +98,34 @@ export async function PUT(req: Request, ctx: Ctx) {
     const payment = asString(body.payment);
 
     const jathaDateId = asString(body.jathaDateId);
-    const jathaDate = asString(body.jathaDate); // START date
+    const jathaDate = asString(body.jathaDate);
 
     const travelStartDate = asString(body.travelStartDate);
     const travelEndDate = asString(body.travelEndDate);
+
     const notes = asString(body.notes);
 
-    if (!jathaDateId) return NextResponse.json({ error: "Jatha date required" }, { status: 400 });
-    if (!jathaDate) return NextResponse.json({ error: "Jatha date value missing" }, { status: 400 });
-    if (!mode) return NextResponse.json({ error: "Mode is required" }, { status: 400 });
+    // ✅ NEW FIELDS
+    const confirm = asYesNo(body.confirm);
+    const ferry = asYesNo(body.ferry);
+    const remarks = asString(body.remarks);
 
-    // 🔁 Mode logic
+    /* ---------- validations ---------- */
+
+    if (!jathaDateId)
+      return NextResponse.json({ error: "Jatha date required" }, { status: 400 });
+
+    if (!jathaDate)
+      return NextResponse.json(
+        { error: "Jatha date value missing" },
+        { status: 400 }
+      );
+
+    if (!mode)
+      return NextResponse.json({ error: "Mode is required" }, { status: 400 });
+
+    /* ---------- mode logic ---------- */
+
     if (mode !== "Train") {
       bookingReqDelhiBeas = "";
       bookingReqBeasDelhi = "";
@@ -111,28 +135,52 @@ export async function PUT(req: Request, ctx: Ctx) {
 
     if (mode === "Train") {
       if (!bookingReqDelhiBeas) {
-        return NextResponse.json({ error: "REQ (Delhi–Beas) required" }, { status: 400 });
-      }
-      if (!bookingReqBeasDelhi) {
-        return NextResponse.json({ error: "REQ (Beas–Delhi) required" }, { status: 400 });
+        return NextResponse.json(
+          { error: "REQ (Delhi–Beas) required" },
+          { status: 400 }
+        );
       }
 
-      // ✅ If booking = No → ticket must be empty
+      if (!bookingReqBeasDelhi) {
+        return NextResponse.json(
+          { error: "REQ (Beas–Delhi) required" },
+          { status: 400 }
+        );
+      }
+
+      // booking = No → clear ticket
       if (bookingReqDelhiBeas === "No") ticketDelhiBeas = "";
       if (bookingReqBeasDelhi === "No") ticketBeasDelhi = "";
     }
 
-    if (!payment) return NextResponse.json({ error: "Payment required" }, { status: 400 });
-    if (!travelStartDate) return NextResponse.json({ error: "Travel start date required" }, { status: 400 });
-    if (!travelEndDate) return NextResponse.json({ error: "Travel end date required" }, { status: 400 });
+    if (!payment)
+      return NextResponse.json(
+        { error: "Payment required" },
+        { status: 400 }
+      );
+
+    if (!travelStartDate)
+      return NextResponse.json(
+        { error: "Travel start date required" },
+        { status: 400 }
+      );
+
+    if (!travelEndDate)
+      return NextResponse.json(
+        { error: "Travel end date required" },
+        { status: 400 }
+      );
 
     const oid = new ObjectId(id);
 
-    // 🔐 Ticket uniqueness check
+    /* ---------- ticket uniqueness ---------- */
+
     if (mode === "Train") {
       await assertTicketFreeForUpdate(db, "ticketDelhiBeas", ticketDelhiBeas, oid);
       await assertTicketFreeForUpdate(db, "ticketBeasDelhi", ticketBeasDelhi, oid);
     }
+
+    /* ---------- update payload ---------- */
 
     const update = {
       department,
@@ -149,12 +197,17 @@ export async function PUT(req: Request, ctx: Ctx) {
       payment,
 
       jathaDateId,
-      jathaDate: new Date(jathaDate), // START date
+      jathaDate: new Date(jathaDate),
 
       travelStartDate: new Date(travelStartDate),
       travelEndDate: new Date(travelEndDate),
 
       notes,
+
+      // ✅ NEW FIELDS SAVED
+      confirm,
+      ferry,
+      remarks,
 
       updatedAt: new Date(),
     };
@@ -173,28 +226,33 @@ export async function PUT(req: Request, ctx: Ctx) {
     } catch (err: any) {
       if (err?.code === 11000) {
         const msg = String(err?.message || "");
+
         if (msg.includes("uniq_ticket_delhi_beas")) {
           return NextResponse.json(
             { error: "Ticket (Delhi–Beas) is already assigned to someone else." },
             { status: 409 }
           );
         }
+
         if (msg.includes("uniq_ticket_beas_delhi")) {
           return NextResponse.json(
             { error: "Ticket (Beas–Delhi) is already assigned to someone else." },
             { status: 409 }
           );
         }
+
         return NextResponse.json(
           { error: "This customer is already added for the selected Jatha Date." },
           { status: 409 }
         );
       }
+
       throw err;
     }
   } catch (e: any) {
     if (String(e?.message || "").startsWith("TICKET_TAKEN:")) {
       const which = String(e.message).split(":")[1];
+
       return NextResponse.json(
         {
           error:
@@ -205,7 +263,11 @@ export async function PUT(req: Request, ctx: Ctx) {
         { status: 409 }
       );
     }
-    return NextResponse.json({ error: e?.message || "Server error" }, { status: 500 });
+
+    return NextResponse.json(
+      { error: e?.message || "Server error" },
+      { status: 500 }
+    );
   }
 }
 
@@ -213,11 +275,13 @@ export async function DELETE(_: Request, ctx: Ctx) {
   try {
     const { id: rawId } = await ctx.params;
     const id = extractObjectId(rawId);
+
     if (!id || !ObjectId.isValid(id)) {
       return NextResponse.json({ error: "Invalid id" }, { status: 400 });
     }
 
     const db = await getDb();
+
     try {
       await ensureIndexes(db);
     } catch (e: any) {
@@ -234,6 +298,9 @@ export async function DELETE(_: Request, ctx: Ctx) {
 
     return NextResponse.json({ ok: true });
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message || "Server error" }, { status: 500 });
+    return NextResponse.json(
+      { error: e?.message || "Server error" },
+      { status: 500 }
+    );
   }
 }
