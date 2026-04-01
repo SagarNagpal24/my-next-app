@@ -5,6 +5,8 @@ import * as XLSX from "xlsx";
 
 type CallingCategory = "ladoo" | "parantha" | "bhati";
 type YesNo = "" | "Yes" | "No";
+type FrequencyFilter = "" | "new" | "repeat" | "frequent" | "very-frequent";
+type FrequencySort = "" | "highest" | "lowest";
 
 type JathaDate = {
   _id: string;
@@ -74,6 +76,17 @@ type TrainTicketRow = {
   route?: string;
   travelDate?: string;
   fare?: number | string | null;
+};
+
+type TravellerSummary = {
+  travellerKey: string;
+  ladooCount: number;
+  paranthaCount: number;
+  bhatiCount: number;
+  totalCount: number;
+  firstTravelDate: string;
+  lastTravelDate: string;
+  recentDates: string[];
 };
 
 function inputCls() {
@@ -189,6 +202,34 @@ function getItemsFromResponse(data: any): any[] {
   return [];
 }
 
+function normalizeText(v: any) {
+  return String(v || "").trim().toLowerCase();
+}
+
+function sortUniqueDates(dates: string[]) {
+  return Array.from(new Set(dates.filter(Boolean))).sort((a, b) => a.localeCompare(b));
+}
+
+function getTravellerTag(totalCount: number) {
+  if (totalCount >= 7) return "Very Frequent";
+  if (totalCount >= 4) return "Frequent";
+  if (totalCount >= 2) return "Repeat";
+  return "New";
+}
+
+function frequencyBadgeCls(totalCount: number) {
+  if (totalCount >= 7) {
+    return "inline-flex items-center rounded-full border border-purple-200 bg-purple-50 px-2 py-0.5 text-[11px] font-medium text-purple-700 dark:border-purple-900/50 dark:bg-purple-950/40 dark:text-purple-300";
+  }
+  if (totalCount >= 4) {
+    return "inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-300";
+  }
+  if (totalCount >= 2) {
+    return "inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-300";
+  }
+  return "inline-flex items-center rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-[11px] font-medium text-zinc-700 dark:border-white/10 dark:bg-white/5 dark:text-zinc-300";
+}
+
 export default function CallingPage() {
   const [loading, setLoading] = React.useState(true);
   const [rows, setRows] = React.useState<CallingRow[]>([]);
@@ -200,6 +241,8 @@ export default function CallingPage() {
   const [jathaDateFilter, setJathaDateFilter] = React.useState("");
   const [confirmFilter, setConfirmFilter] = React.useState<YesNo>("");
   const [ferryFilter, setFerryFilter] = React.useState<YesNo>("");
+  const [frequencyFilter, setFrequencyFilter] = React.useState<FrequencyFilter>("");
+  const [frequencySort, setFrequencySort] = React.useState<FrequencySort>("");
 
   const [draftMap, setDraftMap] = React.useState<Record<string, CallingRow>>({});
   const [selectedKeys, setSelectedKeys] = React.useState<string[]>([]);
@@ -518,6 +561,92 @@ export default function CallingPage() {
     };
   }
 
+  function getTravellerKey(row: CallingRow) {
+    const mobile = normalizeText(row.mobile);
+    if (mobile) return `m:${mobile}`;
+
+    const aadhaar = normalizeText(row.adhaarNumber);
+    if (aadhaar) return `a:${aadhaar}`;
+
+    const customerId = normalizeText(row.customerId);
+    if (customerId) return `c:${customerId}`;
+
+    const name = normalizeText(row.customerName);
+    const father = normalizeText(row.fatherOrHusbandName);
+    const age = String(row.age ?? "").trim();
+
+    return `n:${name}|f:${father}|age:${age}`;
+  }
+
+  const travellerSummaryMap = React.useMemo(() => {
+    const map = new Map<string, TravellerSummary & { allDates: string[] }>();
+
+    for (const row of rows) {
+      const travellerKey = getTravellerKey(row);
+      const jatha = getJathaRange(row);
+      const tripDate =
+        jatha.start ||
+        toYMD(row.travelStartDate || "") ||
+        toYMD(row.travelEndDate || "") ||
+        toYMD(row.jathaDate || "");
+
+      if (!map.has(travellerKey)) {
+        map.set(travellerKey, {
+          travellerKey,
+          ladooCount: 0,
+          paranthaCount: 0,
+          bhatiCount: 0,
+          totalCount: 0,
+          firstTravelDate: "",
+          lastTravelDate: "",
+          recentDates: [],
+          allDates: [],
+        });
+      }
+
+      const item = map.get(travellerKey)!;
+
+      if (row.sourceType === "ladoo") item.ladooCount += 1;
+      if (row.sourceType === "parantha") item.paranthaCount += 1;
+      if (row.sourceType === "bhati") item.bhatiCount += 1;
+
+      item.totalCount += 1;
+
+      if (tripDate) item.allDates.push(tripDate);
+    }
+
+    const finalMap = new Map<string, TravellerSummary>();
+
+    for (const [key, value] of map.entries()) {
+      const sortedDates = sortUniqueDates(value.allDates);
+      finalMap.set(key, {
+        travellerKey: value.travellerKey,
+        ladooCount: value.ladooCount,
+        paranthaCount: value.paranthaCount,
+        bhatiCount: value.bhatiCount,
+        totalCount: value.totalCount,
+        firstTravelDate: sortedDates[0] || "",
+        lastTravelDate: sortedDates[sortedDates.length - 1] || "",
+        recentDates: sortedDates.slice(-5).reverse(),
+      });
+    }
+
+    return finalMap;
+  }, [rows, allJathaDates]);
+
+  function getSummaryForRow(row: CallingRow) {
+    return travellerSummaryMap.get(getTravellerKey(row));
+  }
+
+  function matchesFrequency(totalCount: number) {
+    if (!frequencyFilter) return true;
+    if (frequencyFilter === "new") return totalCount === 1;
+    if (frequencyFilter === "repeat") return totalCount >= 2 && totalCount <= 3;
+    if (frequencyFilter === "frequent") return totalCount >= 4 && totalCount <= 6;
+    if (frequencyFilter === "very-frequent") return totalCount >= 7;
+    return true;
+  }
+
   const jathaDateOptions = React.useMemo(() => {
     const list = typeFilter
       ? allJathaDates.filter(
@@ -535,8 +664,11 @@ export default function CallingPage() {
   const filteredRows = React.useMemo(() => {
     const q = search.trim().toLowerCase();
 
-    return rows.filter((r) => {
+    const next = rows.filter((r) => {
       const jr = getJathaRange(r);
+      const freq = travellerSummaryMap.get(getTravellerKey(r));
+      const totalCount = freq?.totalCount || 1;
+      const frequencyTag = getTravellerTag(totalCount);
 
       const matchesSearch =
         !q ||
@@ -557,6 +689,11 @@ export default function CallingPage() {
           renderTicket(r.ticketBeasDelhi),
           jr.start,
           jr.end,
+          String(freq?.ladooCount ?? ""),
+          String(freq?.paranthaCount ?? ""),
+          String(freq?.bhatiCount ?? ""),
+          String(freq?.totalCount ?? ""),
+          frequencyTag,
         ]
           .filter(Boolean)
           .join(" ")
@@ -572,24 +709,82 @@ export default function CallingPage() {
 
       const matchesConfirm = !confirmFilter || String(r.confirm || "") === confirmFilter;
       const matchesFerry = !ferryFilter || String(r.ferry || "") === ferryFilter;
+      const matchesFreq = matchesFrequency(totalCount);
 
-      return matchesSearch && matchesType && matchesJatha && matchesConfirm && matchesFerry;
+      return (
+        matchesSearch &&
+        matchesType &&
+        matchesJatha &&
+        matchesConfirm &&
+        matchesFerry &&
+        matchesFreq
+      );
     });
-  }, [rows, search, typeFilter, jathaDateFilter, confirmFilter, ferryFilter, allJathaDates, ticketLabelMap]);
 
-  const visibleKeys = React.useMemo(
-    () => filteredRows.map((r) => rowKey(r)),
-    [filteredRows]
-  );
+    if (!frequencySort) return next;
+
+    return [...next].sort((a, b) => {
+      const aCount = travellerSummaryMap.get(getTravellerKey(a))?.totalCount || 1;
+      const bCount = travellerSummaryMap.get(getTravellerKey(b))?.totalCount || 1;
+
+      if (frequencySort === "highest") {
+        if (bCount !== aCount) return bCount - aCount;
+      } else {
+        if (aCount !== bCount) return aCount - bCount;
+      }
+
+      return String(a.customerName || "").localeCompare(String(b.customerName || ""));
+    });
+  }, [
+    rows,
+    search,
+    typeFilter,
+    jathaDateFilter,
+    confirmFilter,
+    ferryFilter,
+    frequencyFilter,
+    frequencySort,
+    allJathaDates,
+    ticketLabelMap,
+    travellerSummaryMap,
+  ]);
+
+  const visibleKeys = React.useMemo(() => filteredRows.map((r) => rowKey(r)), [filteredRows]);
 
   const allVisibleSelected =
-    visibleKeys.length > 0 &&
-    visibleKeys.every((k) => selectedKeys.includes(k));
+    visibleKeys.length > 0 && visibleKeys.every((k) => selectedKeys.includes(k));
+
+  const travellerStats = React.useMemo(() => {
+    const uniqueKeys = new Set<string>();
+    let newCount = 0;
+    let repeatCount = 0;
+    let frequentCount = 0;
+    let veryFrequentCount = 0;
+
+    for (const row of filteredRows) {
+      const key = getTravellerKey(row);
+      if (uniqueKeys.has(key)) continue;
+      uniqueKeys.add(key);
+
+      const totalCount = travellerSummaryMap.get(key)?.totalCount || 1;
+
+      if (totalCount >= 7) veryFrequentCount += 1;
+      else if (totalCount >= 4) frequentCount += 1;
+      else if (totalCount >= 2) repeatCount += 1;
+      else newCount += 1;
+    }
+
+    return {
+      uniqueTravellers: uniqueKeys.size,
+      newCount,
+      repeatCount,
+      frequentCount,
+      veryFrequentCount,
+    };
+  }, [filteredRows, travellerSummaryMap]);
 
   function toggleRowSelection(key: string) {
-    setSelectedKeys((prev) =>
-      prev.includes(key) ? prev.filter((x) => x !== key) : [...prev, key]
-    );
+    setSelectedKeys((prev) => (prev.includes(key) ? prev.filter((x) => x !== key) : [...prev, key]));
   }
 
   function toggleSelectAllVisible() {
@@ -762,9 +957,7 @@ export default function CallingPage() {
   }
 
   async function saveSelectedRows() {
-    const selectedRows = filteredRows.filter((r) =>
-      selectedKeys.includes(rowKey(r))
-    );
+    const selectedRows = filteredRows.filter((r) => selectedKeys.includes(rowKey(r)));
 
     for (const row of selectedRows) {
       if (isDirty(row)) {
@@ -788,16 +981,19 @@ export default function CallingPage() {
   const modalBaseRow = detailsRowKey ? getBaseRowByKey(detailsRowKey) : undefined;
   const modalDraft = modalBaseRow ? getRowDraft(modalBaseRow) : null;
   const modalSaving = detailsRowKey ? savingKeys.includes(detailsRowKey) : false;
+  const modalSummary = modalDraft ? getSummaryForRow(modalDraft) : null;
 
   function exportExcel() {
     const exportRows = filteredRows.map((r, index) => {
       const draft = getRowDraft(r);
       const c = rowComputed(draft);
       const pay = paymentToNumber(draft.payment);
+      const freq = getSummaryForRow(draft);
+      const totalCount = freq?.totalCount || 1;
 
       return {
         "S.NO": index + 1,
-        "TYPE": draft.sourceLabel || "",
+       
         "NAME": draft.customerName || "",
         "FATHER/HUSBAND": draft.fatherOrHusbandName || "",
         "GENDER": draft.gender || "",
@@ -805,10 +1001,19 @@ export default function CallingPage() {
         "MOBILE": draft.mobile || "",
         "ADDRESS": draft.address || "",
         "BADGE": draft.badgeNo || "",
-        "AADHAAR": draft.adhaarNumber || "",
-        "MODE": draft.mode || "",
-        "DEPARTMENT": draft.department || "",
+         "MODE": draft.mode || "",
+          "DEPARTMENT": draft.department || "",
         "SANGAT": draft.sangat || "",
+         "TYPE": draft.sourceLabel || "",
+        "AADHAAR": draft.adhaarNumber || "",
+        "LADOO COUNT": freq?.ladooCount || 0,
+        "PARANTHA COUNT": freq?.paranthaCount || 0,
+        "BHATI COUNT": freq?.bhatiCount || 0,
+        "TOTAL COUNT": totalCount,
+        "FREQUENCY TAG": getTravellerTag(totalCount),
+        "LAST TRAVEL": formatDDMonYYYY(freq?.lastTravelDate),
+       
+       
         "REQ D-B": draft.bookingReqDelhiBeas || "",
         "REQ B-D": draft.bookingReqBeasDelhi || "",
         "TICKET D-B": renderTicket(draft.ticketDelhiBeas),
@@ -858,7 +1063,30 @@ export default function CallingPage() {
           </div>
         </div>
 
-        <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          <div className="rounded-xl border border-black/10 bg-white/60 p-3 dark:border-white/10 dark:bg-white/5">
+            <div className="text-[11px] uppercase tracking-wide text-zinc-500">Unique Travellers</div>
+            <div className="mt-1 text-xl font-semibold">{travellerStats.uniqueTravellers}</div>
+          </div>
+          <div className="rounded-xl border border-black/10 bg-white/60 p-3 dark:border-white/10 dark:bg-white/5">
+            <div className="text-[11px] uppercase tracking-wide text-zinc-500">New</div>
+            <div className="mt-1 text-xl font-semibold">{travellerStats.newCount}</div>
+          </div>
+          <div className="rounded-xl border border-black/10 bg-white/60 p-3 dark:border-white/10 dark:bg-white/5">
+            <div className="text-[11px] uppercase tracking-wide text-zinc-500">Repeat</div>
+            <div className="mt-1 text-xl font-semibold">{travellerStats.repeatCount}</div>
+          </div>
+          <div className="rounded-xl border border-black/10 bg-white/60 p-3 dark:border-white/10 dark:bg-white/5">
+            <div className="text-[11px] uppercase tracking-wide text-zinc-500">Frequent</div>
+            <div className="mt-1 text-xl font-semibold">{travellerStats.frequentCount}</div>
+          </div>
+          <div className="rounded-xl border border-black/10 bg-white/60 p-3 dark:border-white/10 dark:bg-white/5">
+            <div className="text-[11px] uppercase tracking-wide text-zinc-500">Very Frequent</div>
+            <div className="mt-1 text-xl font-semibold">{travellerStats.veryFrequentCount}</div>
+          </div>
+        </div>
+
+        <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
           <div>
             <div className="app-label">Search</div>
             <input
@@ -930,6 +1158,34 @@ export default function CallingPage() {
               <option value="No">No</option>
             </select>
           </div>
+
+          <div>
+            <div className="app-label">Traveller Frequency</div>
+            <select
+              className={inputCls()}
+              value={frequencyFilter}
+              onChange={(e) => setFrequencyFilter(e.target.value as FrequencyFilter)}
+            >
+              <option value="">All</option>
+              <option value="new">New (1)</option>
+              <option value="repeat">Repeat (2-3)</option>
+              <option value="frequent">Frequent (4-6)</option>
+              <option value="very-frequent">Very Frequent (7+)</option>
+            </select>
+          </div>
+
+          <div>
+            <div className="app-label">Sort By Trips</div>
+            <select
+              className={inputCls()}
+              value={frequencySort}
+              onChange={(e) => setFrequencySort(e.target.value as FrequencySort)}
+            >
+              <option value="">Default</option>
+              <option value="highest">Highest First</option>
+              <option value="lowest">Lowest First</option>
+            </select>
+          </div>
         </div>
 
         <div className="mt-3 flex items-center justify-between gap-2">
@@ -946,6 +1202,8 @@ export default function CallingPage() {
               setJathaDateFilter("");
               setConfirmFilter("");
               setFerryFilter("");
+              setFrequencyFilter("");
+              setFrequencySort("");
               setSelectedKeys([]);
             }}
           >
@@ -1012,7 +1270,7 @@ export default function CallingPage() {
         </div>
 
         <div className="w-full overflow-x-auto mt-4">
-          <table className="min-w-[3100px] table-fixed border-collapse text-xs">
+          <table className="min-w-[3400px] table-fixed border-collapse text-xs">
             <thead className="thead">
               <tr>
                 <th className="th w-12 px-2 py-2">
@@ -1025,7 +1283,13 @@ export default function CallingPage() {
                 </th>
                 <th className="th w-14 px-2 py-2">S.No</th>
                 <th className="th w-28 px-2 py-2">Type</th>
-                <th className="th w-48 px-2 py-2">Name</th>
+                <th className="th w-56 px-2 py-2">Name</th>
+                <th className="th w-32 px-2 py-2">Tag</th>
+                <th className="th w-24 px-2 py-2">Ladoo</th>
+                <th className="th w-24 px-2 py-2">Parantha</th>
+                <th className="th w-24 px-2 py-2">Bhati</th>
+                <th className="th w-24 px-2 py-2">Total</th>
+                <th className="th w-32 px-2 py-2">Last Travel</th>
                 <th className="th w-48 px-2 py-2">Father/Husband</th>
                 <th className="th w-24 px-2 py-2">Gender</th>
                 <th className="th w-16 px-2 py-2">Age</th>
@@ -1059,13 +1323,13 @@ export default function CallingPage() {
             <tbody className="divide-y divide-black/5 dark:divide-white/10">
               {loading ? (
                 <tr>
-                  <td className="td px-2 py-2 text-zinc-600 dark:text-zinc-400" colSpan={31}>
+                  <td className="td px-2 py-2 text-zinc-600 dark:text-zinc-400" colSpan={37}>
                     Loading...
                   </td>
                 </tr>
               ) : filteredRows.length === 0 ? (
                 <tr>
-                  <td className="td px-2 py-2 text-zinc-600 dark:text-zinc-400" colSpan={31}>
+                  <td className="td px-2 py-2 text-zinc-600 dark:text-zinc-400" colSpan={37}>
                     No records found.
                   </td>
                 </tr>
@@ -1077,6 +1341,8 @@ export default function CallingPage() {
                   const dirty = isDirty(r);
                   const c = rowComputed(draft);
                   const pay = paymentToNumber(draft.payment);
+                  const summary = getSummaryForRow(draft);
+                  const totalCount = summary?.totalCount || 1;
 
                   return (
                     <tr
@@ -1099,9 +1365,29 @@ export default function CallingPage() {
 
                       <td className="td px-2 py-2">{i + 1}</td>
                       <td className="td px-2 py-2">{draft.sourceLabel || "-"}</td>
+
                       <td className="td px-2 py-2 whitespace-normal break-words font-medium">
-                        {draft.customerName || "-"}
+                        <div>{draft.customerName || "-"}</div>
+                        <div className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
+                          L:{summary?.ladooCount || 0} | P:{summary?.paranthaCount || 0} | B:
+                          {summary?.bhatiCount || 0} | T:{totalCount}
+                        </div>
                       </td>
+
+                      <td className="td px-2 py-2">
+                        <span className={frequencyBadgeCls(totalCount)}>
+                          {getTravellerTag(totalCount)}
+                        </span>
+                      </td>
+
+                      <td className="td px-2 py-2 text-center">{summary?.ladooCount || 0}</td>
+                      <td className="td px-2 py-2 text-center">{summary?.paranthaCount || 0}</td>
+                      <td className="td px-2 py-2 text-center">{summary?.bhatiCount || 0}</td>
+                      <td className="td px-2 py-2 text-center font-semibold">{totalCount}</td>
+                      <td className="td px-2 py-2 whitespace-nowrap">
+                        {formatDDMonYYYY(summary?.lastTravelDate) || "-"}
+                      </td>
+
                       <td className="td px-2 py-2 whitespace-normal break-words">
                         {draft.fatherOrHusbandName || "-"}
                       </td>
@@ -1200,167 +1486,235 @@ export default function CallingPage() {
       </div>
 
       {detailsOpen && modalBaseRow && modalDraft && (
-        <div
-          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-3"
-          onMouseDown={(e) => {
-            if (e.target === e.currentTarget) {
-              setDetailsOpen(false);
-              setDetailsRowKey("");
-            }
+  <div
+    className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-3"
+    onMouseDown={(e) => {
+      if (e.target === e.currentTarget) {
+        setDetailsOpen(false);
+        setDetailsRowKey("");
+      }
+    }}
+  >
+    <div className="flex max-h-[90vh] w-full max-w-5xl flex-col rounded-2xl bg-white p-4 shadow-xl dark:bg-zinc-950">
+      <div className="flex items-center justify-between gap-3 shrink-0">
+        <div>
+          <div className="text-lg font-semibold">Edit Row</div>
+          <div className="text-xs text-zinc-600 dark:text-zinc-400">
+            Confirm and Ferry can be edited here too.
+          </div>
+        </div>
+
+        <button
+          className="app-btn app-btn-secondary h-9 px-4"
+          onClick={() => {
+            setDetailsOpen(false);
+            setDetailsRowKey("");
           }}
         >
-          <div className="w-full max-w-5xl rounded-2xl bg-white p-4 shadow-xl dark:bg-zinc-950">
-            <div className="flex items-center justify-between gap-3">
+          Close
+        </button>
+      </div>
+
+      <div className="mt-3 min-h-0 flex-1 overflow-y-auto pr-2">
+        {modalSummary && (
+          <div className="rounded-2xl border border-black/10 bg-zinc-50/70 p-4 dark:border-white/10 dark:bg-white/5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <div className="text-lg font-semibold">Edit Row</div>
-                <div className="text-xs text-zinc-600 dark:text-zinc-400">
-                  Confirm and Ferry can be edited here too.
+                <div className="text-sm font-semibold">Traveller History</div>
+                <div className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
+                  Frequency summary across Ladoo, Parantha and Bhati.
                 </div>
               </div>
 
-              <button
-                className="app-btn app-btn-secondary h-9 px-4"
-                onClick={() => {
-                  setDetailsOpen(false);
-                  setDetailsRowKey("");
-                }}
-              >
-                Close
-              </button>
+              <span className={frequencyBadgeCls(modalSummary.totalCount)}>
+                {getTravellerTag(modalSummary.totalCount)}
+              </span>
             </div>
 
-            <div className="mt-3 max-h-[70vh] overflow-y-auto pr-1">
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                <div>
-                  <div className="app-label">Type</div>
-                  <input className={inputCls()} value={modalDraft.sourceLabel || ""} disabled />
+            <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+              <div className="rounded-xl border border-black/10 bg-white p-3 dark:border-white/10 dark:bg-zinc-900">
+                <div className="text-[11px] uppercase tracking-wide text-zinc-500">Ladoo</div>
+                <div className="mt-1 text-lg font-semibold">{modalSummary.ladooCount}</div>
+              </div>
+              <div className="rounded-xl border border-black/10 bg-white p-3 dark:border-white/10 dark:bg-zinc-900">
+                <div className="text-[11px] uppercase tracking-wide text-zinc-500">Parantha</div>
+                <div className="mt-1 text-lg font-semibold">{modalSummary.paranthaCount}</div>
+              </div>
+              <div className="rounded-xl border border-black/10 bg-white p-3 dark:border-white/10 dark:bg-zinc-900">
+                <div className="text-[11px] uppercase tracking-wide text-zinc-500">Bhati</div>
+                <div className="mt-1 text-lg font-semibold">{modalSummary.bhatiCount}</div>
+              </div>
+              <div className="rounded-xl border border-black/10 bg-white p-3 dark:border-white/10 dark:bg-zinc-900">
+                <div className="text-[11px] uppercase tracking-wide text-zinc-500">Total</div>
+                <div className="mt-1 text-lg font-semibold">{modalSummary.totalCount}</div>
+              </div>
+              <div className="rounded-xl border border-black/10 bg-white p-3 dark:border-white/10 dark:bg-zinc-900">
+                <div className="text-[11px] uppercase tracking-wide text-zinc-500">First Travel</div>
+                <div className="mt-1 text-sm font-semibold">
+                  {formatDDMonYYYY(modalSummary.firstTravelDate) || "-"}
                 </div>
-
-                <div>
-                  <div className="app-label">Name</div>
-                  <input className={inputCls()} value={modalDraft.customerName || ""} disabled />
-                </div>
-
-                <div>
-                  <div className="app-label">Mobile</div>
-                  <input className={inputCls()} value={modalDraft.mobile || ""} disabled />
-                </div>
-
-                <div>
-                  <div className="app-label">Badge</div>
-                  <input className={inputCls()} value={modalDraft.badgeNo || ""} disabled />
-                </div>
-
-                <div>
-                  <div className="app-label">Confirm</div>
-                  <select
-                    className={inputCls()}
-                    value={modalDraft.confirm || ""}
-                    onChange={(e) => updateDraft(modalBaseRow, { confirm: e.target.value as YesNo })}
-                  >
-                    <option value="">Select</option>
-                    <option value="Yes">Yes</option>
-                    <option value="No">No</option>
-                  </select>
-                </div>
-
-                <div>
-                  <div className="app-label">Ferry</div>
-                  <select
-                    className={inputCls()}
-                    value={modalDraft.ferry || ""}
-                    onChange={(e) => updateDraft(modalBaseRow, { ferry: e.target.value as YesNo })}
-                  >
-                    <option value="">Select</option>
-                    <option value="Yes">Yes</option>
-                    <option value="No">No</option>
-                  </select>
-                </div>
-
-                <div className="md:col-span-2">
-                  <div className="app-label">Remarks</div>
-                  <textarea
-                    className={inputCls()}
-                    style={{ minHeight: 100 }}
-                    value={modalDraft.remarks || ""}
-                    onChange={(e) => updateDraft(modalBaseRow, { remarks: e.target.value })}
-                    placeholder="Enter remarks"
-                  />
-                </div>
-
-                <div>
-                  <div className="app-label">Ticket (Delhi-Beas)</div>
-                  <div className="flex gap-2">
-                    <input
-                      className={inputCls()}
-                      value={normalizeTicketId(modalDraft.ticketDelhiBeas)}
-                      onChange={(e) =>
-                        updateDraft(modalBaseRow, { ticketDelhiBeas: e.target.value })
-                      }
-                      placeholder="Ticket ID"
-                    />
-                    <button
-                      type="button"
-                      className="app-btn app-btn-secondary h-10 px-3"
-                      onClick={() => updateDraft(modalBaseRow, { ticketDelhiBeas: "" })}
-                    >
-                      Clear
-                    </button>
-                  </div>
-                  <div className="mt-1 text-[11px] text-zinc-600 dark:text-zinc-400">
-                    {renderTicket(modalDraft.ticketDelhiBeas)}
-                  </div>
-                </div>
-
-                <div>
-                  <div className="app-label">Ticket (Beas-Delhi)</div>
-                  <div className="flex gap-2">
-                    <input
-                      className={inputCls()}
-                      value={normalizeTicketId(modalDraft.ticketBeasDelhi)}
-                      onChange={(e) =>
-                        updateDraft(modalBaseRow, { ticketBeasDelhi: e.target.value })
-                      }
-                      placeholder="Ticket ID"
-                    />
-                    <button
-                      type="button"
-                      className="app-btn app-btn-secondary h-10 px-3"
-                      onClick={() => updateDraft(modalBaseRow, { ticketBeasDelhi: "" })}
-                    >
-                      Clear
-                    </button>
-                  </div>
-                  <div className="mt-1 text-[11px] text-zinc-600 dark:text-zinc-400">
-                    {renderTicket(modalDraft.ticketBeasDelhi)}
-                  </div>
+              </div>
+              <div className="rounded-xl border border-black/10 bg-white p-3 dark:border-white/10 dark:bg-zinc-900">
+                <div className="text-[11px] uppercase tracking-wide text-zinc-500">Last Travel</div>
+                <div className="mt-1 text-sm font-semibold">
+                  {formatDDMonYYYY(modalSummary.lastTravelDate) || "-"}
                 </div>
               </div>
             </div>
 
-            <div className="mt-4 flex items-center justify-end gap-2">
-              <button
-                className="app-btn app-btn-secondary h-10 px-4"
-                onClick={() => {
-                  setDetailsOpen(false);
-                  setDetailsRowKey("");
-                }}
-                disabled={modalSaving}
-              >
-                Cancel
-              </button>
+            <div className="mt-4">
+              <div className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
+                Recent Travel Dates
+              </div>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {modalSummary.recentDates.length ? (
+                  modalSummary.recentDates.map((d) => (
+                    <span
+                      key={d}
+                      className="rounded-full border border-black/10 bg-white px-2.5 py-1 text-[11px] dark:border-white/10 dark:bg-zinc-900"
+                    >
+                      {formatDDMonYYYY(d)}
+                    </span>
+                  ))
+                ) : (
+                  <span className="text-xs text-zinc-500">No travel history found</span>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
+        <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+          <div>
+            <div className="app-label">Type</div>
+            <input className={inputCls()} value={modalDraft.sourceLabel || ""} disabled />
+          </div>
+
+          <div>
+            <div className="app-label">Name</div>
+            <input className={inputCls()} value={modalDraft.customerName || ""} disabled />
+          </div>
+
+          <div>
+            <div className="app-label">Mobile</div>
+            <input className={inputCls()} value={modalDraft.mobile || ""} disabled />
+          </div>
+
+          <div>
+            <div className="app-label">Badge</div>
+            <input className={inputCls()} value={modalDraft.badgeNo || ""} disabled />
+          </div>
+
+          <div>
+            <div className="app-label">Confirm</div>
+            <select
+              className={inputCls()}
+              value={modalDraft.confirm || ""}
+              onChange={(e) => updateDraft(modalBaseRow, { confirm: e.target.value as YesNo })}
+            >
+              <option value="">Select</option>
+              <option value="Yes">Yes</option>
+              <option value="No">No</option>
+            </select>
+          </div>
+
+          <div>
+            <div className="app-label">Ferry</div>
+            <select
+              className={inputCls()}
+              value={modalDraft.ferry || ""}
+              onChange={(e) => updateDraft(modalBaseRow, { ferry: e.target.value as YesNo })}
+            >
+              <option value="">Select</option>
+              <option value="Yes">Yes</option>
+              <option value="No">No</option>
+            </select>
+          </div>
+
+          <div className="md:col-span-2">
+            <div className="app-label">Remarks</div>
+            <textarea
+              className={inputCls()}
+              style={{ minHeight: 100 }}
+              value={modalDraft.remarks || ""}
+              onChange={(e) => updateDraft(modalBaseRow, { remarks: e.target.value })}
+              placeholder="Enter remarks"
+            />
+          </div>
+
+          <div>
+            <div className="app-label">Ticket (Delhi-Beas)</div>
+            <div className="flex gap-2">
+              <input
+                className={inputCls()}
+                value={normalizeTicketId(modalDraft.ticketDelhiBeas)}
+                onChange={(e) =>
+                  updateDraft(modalBaseRow, { ticketDelhiBeas: e.target.value })
+                }
+                placeholder="Ticket ID"
+              />
               <button
-                className="app-btn app-btn-primary h-10 px-4"
-                onClick={() => saveOneRow(modalBaseRow)}
-                disabled={modalSaving}
+                type="button"
+                className="app-btn app-btn-secondary h-10 px-3"
+                onClick={() => updateDraft(modalBaseRow, { ticketDelhiBeas: "" })}
               >
-                {modalSaving ? "Saving..." : "Save Changes"}
+                Clear
               </button>
+            </div>
+            <div className="mt-1 text-[11px] text-zinc-600 dark:text-zinc-400">
+              {renderTicket(modalDraft.ticketDelhiBeas)}
+            </div>
+          </div>
+
+          <div>
+            <div className="app-label">Ticket (Beas-Delhi)</div>
+            <div className="flex gap-2">
+              <input
+                className={inputCls()}
+                value={normalizeTicketId(modalDraft.ticketBeasDelhi)}
+                onChange={(e) =>
+                  updateDraft(modalBaseRow, { ticketBeasDelhi: e.target.value })
+                }
+                placeholder="Ticket ID"
+              />
+              <button
+                type="button"
+                className="app-btn app-btn-secondary h-10 px-3"
+                onClick={() => updateDraft(modalBaseRow, { ticketBeasDelhi: "" })}
+              >
+                Clear
+              </button>
+            </div>
+            <div className="mt-1 text-[11px] text-zinc-600 dark:text-zinc-400">
+              {renderTicket(modalDraft.ticketBeasDelhi)}
             </div>
           </div>
         </div>
-      )}
+      </div>
+
+      <div className="mt-4 flex items-center justify-end gap-2 shrink-0">
+        <button
+          className="app-btn app-btn-secondary h-10 px-4"
+          onClick={() => {
+            setDetailsOpen(false);
+            setDetailsRowKey("");
+          }}
+          disabled={modalSaving}
+        >
+          Cancel
+        </button>
+
+        <button
+          className="app-btn app-btn-primary h-10 px-4"
+          onClick={() => saveOneRow(modalBaseRow)}
+          disabled={modalSaving}
+        >
+          {modalSaving ? "Saving..." : "Save Changes"}
+        </button>
+      </div>
+    </div>
+  </div>
+)}
     </div>
   );
 }
