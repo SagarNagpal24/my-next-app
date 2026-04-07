@@ -1195,95 +1195,93 @@ function validateCreate(selectedIds: string[]) {
   }
 
   async function onCreate(e: React.FormEvent) {
-    e.preventDefault();
+  e.preventDefault();
 
-    const selectedIds = Array.from(new Set(jathaDateIds.map((x) => String(x).trim()).filter(Boolean)));
-    const err = validateCreate(selectedIds);
-    if (err) return alert(err);
+  const selectedIds = Array.from(new Set(jathaDateIds.map((x) => String(x).trim()).filter(Boolean)));
+  const err = validateCreate(selectedIds);
+  if (err) return alert(err);
 
-    // ✅ end > start check with ignore option
-    const okDates = confirmIfEndBeforeStart(travelStartDate, travelEndDate);
-    if (!okDates) return;
+  const okDates = confirmIfEndBeforeStart(travelStartDate, travelEndDate);
+  if (!okDates) return;
 
-    // ✅ mismatch check only if ticket selected (Delhi–Beas)
-    const okMismatch = confirmIfDelhiBeasDateMismatch({
-      travelStartDate,
-      ticketId: ticketDelhiBeas,
-      allow: mode === "Train" && bookingDelhiBeas === "Yes" && !!String(ticketDelhiBeas || "").trim(),
-    });
-    if (!okMismatch) return;
+  const okMismatch = confirmIfDelhiBeasDateMismatch({
+    travelStartDate,
+    ticketId: ticketDelhiBeas,
+    allow: mode === "Train" && bookingDelhiBeas === "Yes" && !!String(ticketDelhiBeas || "").trim(),
+  });
+  if (!okMismatch) return;
 
-    for (const oneId of selectedIds) {
-      if (
-        isDuplicateNominal({
-          customerName: selectedCustomer!.name,
-          jathaDateId: oneId,
-        })
-      ) {
-        const label = jathaLabelById.get(oneId) || oneId;
-        return alert(`Duplicate not allowed. Same customer and Jatha Date (${label}) already exist.`);
-      }
-    }
-
-    setSaving(true);
-    try {
-      for (const oneId of selectedIds) {
-        const jd = jathaDates.find((x) => x._id === oneId);
-        const jStart = jd ? getJathaStart(jd) : "";
-
-        const payload = {
-          customerId: selectedCustomer!._id,
-          customerName: selectedCustomer!.name,
-          badgeNo: selectedCustomer!.badgeNo || "",
-          fatherOrHusbandName: selectedCustomer!.fatherOrHusbandName || "",
-          gender: selectedCustomer!.gender || "",
-          age: selectedCustomer!.age ?? null,
-          address: selectedCustomer!.address || "",
-          mobile: selectedCustomer!.mobile || "",
-          adhaarNumber: selectedCustomer!.adhaarNumber || "",
-
-          department: department.trim(),
-          sangat: sangat || "",
-
-          mode,
-
-          bookingReqDelhiBeas: mode === "Train" ? bookingDelhiBeas : "",
-          bookingReqBeasDelhi: mode === "Train" ? bookingBeasDelhi : "",
-
-          // ✅ ticket optional even if booking Yes
-          ticketDelhiBeas: mode === "Train" && bookingDelhiBeas === "Yes" ? String(ticketDelhiBeas || "").trim() : "",
-          ticketBeasDelhi: mode === "Train" && bookingBeasDelhi === "Yes" ? String(ticketBeasDelhi || "").trim() : "",
-
-          payment: payment.trim(),
-
-          jathaDateId: oneId,
-          jathaDate: jStart || "",
-
-          travelStartDate,
-          travelEndDate,
-          notes: notes.trim(),
-        };
-
-        const res = await fetch("/api/nominal-roll/parantha", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          const label = jathaLabelById.get(oneId) || jStart || oneId;
-          alert(`Create failed for Jatha (${label}) [${res.status}]. ${data?.error || "Error"}`);
-          return;
-        }
-      }
-
-      resetForm();
-      await loadNominal();
-    } finally {
-      setSaving(false);
+  for (const oneId of selectedIds) {
+    if (
+      isDuplicateNominal({
+        customerName: selectedCustomer!.name,
+        jathaDateId: oneId,
+      })
+    ) {
+      const label = jathaLabelById.get(oneId) || oneId;
+      return alert(`Duplicate not allowed. Same customer and Jatha Date (${label}) already exist.`);
     }
   }
+
+  setSaving(true);
+  try {
+    for (const oneId of selectedIds) {
+      const jd = jathaDates.find((x) => x._id === oneId);
+      const jStart = jd ? getJathaStart(jd) : "";
+
+      const payload = {
+        customerId: selectedCustomer!._id,
+        customerName: selectedCustomer!.name,
+        badgeNo: selectedCustomer!.badgeNo || "",
+        fatherOrHusbandName: selectedCustomer!.fatherOrHusbandName || "",
+        gender: selectedCustomer!.gender || "",
+        age: selectedCustomer!.age ?? null,
+        address: selectedCustomer!.address || "",
+        mobile: selectedCustomer!.mobile || "",
+        adhaarNumber: selectedCustomer!.adhaarNumber || "",
+
+        department: department.trim(),
+        sangat: sangat || "",
+
+        mode,
+
+        bookingReqDelhiBeas: mode === "Train" ? bookingDelhiBeas : "",
+        bookingReqBeasDelhi: mode === "Train" ? bookingBeasDelhi : "",
+
+        ticketDelhiBeas: mode === "Train" && bookingDelhiBeas === "Yes" ? String(ticketDelhiBeas || "").trim() : "",
+        ticketBeasDelhi: mode === "Train" && bookingBeasDelhi === "Yes" ? String(ticketBeasDelhi || "").trim() : "",
+
+        payment: payment.trim(),
+
+        jathaDateId: oneId,
+        jathaDate: jStart || "",
+
+        travelStartDate,
+        travelEndDate,
+        notes: notes.trim(),
+      };
+
+      const res = await fetch("/api/nominal-roll/parantha", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const label = jathaLabelById.get(oneId) || jStart || oneId;
+        alert(`Create failed for Jatha (${label}) [${res.status}]. ${data?.error || "Error"}`);
+        return;
+      }
+    }
+
+    resetForm();
+    await loadNominal();
+    alert("✅ Data has been successfully added to Nominal Roll.");
+  } finally {
+    setSaving(false);
+  }
+}
 
   async function onDelete(id: string) {
     const realId = encodeURIComponent(String(id).trim());
@@ -1300,137 +1298,141 @@ function validateCreate(selectedIds: string[]) {
     await loadNominal();
   }
 
-  async function onSaveEdit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!editing) return;
+ async function onSaveEdit(e: React.FormEvent) {
+  e.preventDefault();
+  if (!editing) return;
 
-    const selectedIds = Array.from(new Set(editJathaDateIds.map((x) => String(x).trim()).filter(Boolean)));
-    if (!selectedIds.length) return alert("Jatha date is required.");
-    if (!editing.mode) return alert("Mode is required.");
+  const selectedIds = Array.from(new Set(editJathaDateIds.map((x) => String(x).trim()).filter(Boolean)));
+  if (!selectedIds.length) return alert("Jatha date is required.");
+  if (!editing.mode) return alert("Mode is required.");
 
-    if (String(editing.mode) === "Train") {
-      if (!editing.bookingReqDelhiBeas) return alert("Booking REQ (Delhi–Beas) is required.");
-      if (!editing.bookingReqBeasDelhi) return alert("Booking REQ (Beas–Delhi) is required.");
-    }
+  if (String(editing.mode) === "Train") {
+    if (!editing.bookingReqDelhiBeas) return alert("Booking REQ (Delhi–Beas) is required.");
+    if (!editing.bookingReqBeasDelhi) return alert("Booking REQ (Beas–Delhi) is required.");
+  }
 
-    if (!editing.payment.trim()) return alert("Payment is required.");
-    if (!editing.travelStartDate) return alert("Travel start date is required.");
-    if (!editing.travelEndDate) return alert("Travel end date is required.");
+  if (!editing.payment.trim()) return alert("Payment is required.");
+  if (!editing.travelStartDate) return alert("Travel start date is required.");
+  if (!editing.travelEndDate) return alert("Travel end date is required.");
 
-    const okDates = confirmIfEndBeforeStart(editing.travelStartDate, editing.travelEndDate);
-    if (!okDates) return;
+  const okDates = confirmIfEndBeforeStart(editing.travelStartDate, editing.travelEndDate);
+  if (!okDates) return;
 
-    const okMismatch = confirmIfDelhiBeasDateMismatch({
-      travelStartDate: editing.travelStartDate,
-      ticketId: String(editing.ticketDelhiBeas || ""),
-      allow: String(editing.mode) === "Train" && editing.bookingReqDelhiBeas === "Yes" && !!String(editing.ticketDelhiBeas || "").trim(),
+  const okMismatch = confirmIfDelhiBeasDateMismatch({
+    travelStartDate: editing.travelStartDate,
+    ticketId: String(editing.ticketDelhiBeas || ""),
+    allow:
+      String(editing.mode) === "Train" &&
+      editing.bookingReqDelhiBeas === "Yes" &&
+      !!String(editing.ticketDelhiBeas || "").trim(),
+  });
+  if (!okMismatch) return;
+
+  for (let i = 0; i < selectedIds.length; i++) {
+    const oneId = selectedIds[i];
+    const dup = isDuplicateNominal({
+      customerName: editing.customerName,
+      jathaDateId: oneId,
+      excludeId: i === 0 ? editing._id : "",
     });
-    if (!okMismatch) return;
+    if (dup) {
+      const label = jathaLabelById.get(oneId) || oneId;
+      return alert(`Duplicate not allowed. Same customer and Jatha Date (${label}) already exist.`);
+    }
+  }
 
-    for (let i = 0; i < selectedIds.length; i++) {
-      const oneId = selectedIds[i];
-      const dup = isDuplicateNominal({
-        customerName: editing.customerName,
-        jathaDateId: oneId,
-        excludeId: i === 0 ? editing._id : "",
-      });
-      if (dup) {
-        const label = jathaLabelById.get(oneId) || oneId;
-        return alert(`Duplicate not allowed. Same customer and Jatha Date (${label}) already exist.`);
-      }
+  const realId = encodeURIComponent(String(editing._id).trim());
+  setSaving(true);
+  try {
+    const firstId = selectedIds[0];
+    const jd = jathaDates.find((x) => x._id === firstId);
+    const jStart = jd ? getJathaStart(jd) : "";
+
+    const res = await fetch(`/api/nominal-roll/parantha/${realId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        department: String(editing.department || "").trim(),
+        sangat: String(editing.sangat || "").trim(),
+        mode: editing.mode,
+        bookingReqDelhiBeas: String(editing.mode) === "Train" ? editing.bookingReqDelhiBeas : "",
+        bookingReqBeasDelhi: String(editing.mode) === "Train" ? editing.bookingReqBeasDelhi : "",
+        ticketDelhiBeas:
+          String(editing.mode) === "Train" && editing.bookingReqDelhiBeas === "Yes"
+            ? String(editing.ticketDelhiBeas || "").trim()
+            : "",
+        ticketBeasDelhi:
+          String(editing.mode) === "Train" && editing.bookingReqBeasDelhi === "Yes"
+            ? String(editing.ticketBeasDelhi || "").trim()
+            : "",
+        payment: editing.payment.trim(),
+        jathaDateId: firstId,
+        jathaDate: jStart || "",
+        travelStartDate: String(editing.travelStartDate).slice(0, 10),
+        travelEndDate: String(editing.travelEndDate).slice(0, 10),
+        notes: (editing.notes || "").trim(),
+      }),
+    });
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      alert(`Update failed (${res.status}). ${data?.error || "Error"}`);
+      return;
     }
 
-    const realId = encodeURIComponent(String(editing._id).trim());
-    setSaving(true);
-    try {
-      const firstId = selectedIds[0];
-      const jd = jathaDates.find((x) => x._id === firstId);
-      const jStart = jd ? getJathaStart(jd) : "";
+    if (selectedIds.length > 1) {
+      for (const extraId of selectedIds.slice(1)) {
+        const extraJd = jathaDates.find((x) => x._id === extraId);
+        const extraJStart = extraJd ? getJathaStart(extraJd) : "";
 
-      const res = await fetch(`/api/nominal-roll/parantha/${realId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+        const payload = {
+          customerId: editing.customerId,
+          customerName: editing.customerName,
+          badgeNo: editing.badgeNo || "",
+          fatherOrHusbandName: editing.fatherOrHusbandName || "",
+          gender: editing.gender || "",
+          age: editing.age ?? null,
+          address: editing.address || "",
+          mobile: editing.mobile || "",
+          adhaarNumber: editing.adhaarNumber || "",
           department: String(editing.department || "").trim(),
           sangat: String(editing.sangat || "").trim(),
           mode: editing.mode,
-          bookingReqDelhiBeas: String(editing.mode) === "Train" ? editing.bookingReqDelhiBeas : "",
-          bookingReqBeasDelhi: String(editing.mode) === "Train" ? editing.bookingReqBeasDelhi : "",
-          ticketDelhiBeas:
-            String(editing.mode) === "Train" && editing.bookingReqDelhiBeas === "Yes"
-              ? String(editing.ticketDelhiBeas || "").trim()
-              : "",
-          ticketBeasDelhi:
-            String(editing.mode) === "Train" && editing.bookingReqBeasDelhi === "Yes"
-              ? String(editing.ticketBeasDelhi || "").trim()
-              : "",
+          bookingReqDelhiBeas: "",
+          bookingReqBeasDelhi: "",
+          ticketDelhiBeas: "",
+          ticketBeasDelhi: "",
           payment: editing.payment.trim(),
-          jathaDateId: firstId,
-          jathaDate: jStart || "",
+          jathaDateId: extraId,
+          jathaDate: extraJStart || "",
           travelStartDate: String(editing.travelStartDate).slice(0, 10),
           travelEndDate: String(editing.travelEndDate).slice(0, 10),
           notes: (editing.notes || "").trim(),
-        }),
-      });
+        };
 
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        alert(`Update failed (${res.status}). ${data?.error || "Error"}`);
-        return;
-      }
+        const extraRes = await fetch("/api/nominal-roll/parantha", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
 
-      if (selectedIds.length > 1) {
-        for (const extraId of selectedIds.slice(1)) {
-          const extraJd = jathaDates.find((x) => x._id === extraId);
-          const extraJStart = extraJd ? getJathaStart(extraJd) : "";
-
-          const payload = {
-            customerId: editing.customerId,
-            customerName: editing.customerName,
-            badgeNo: editing.badgeNo || "",
-            fatherOrHusbandName: editing.fatherOrHusbandName || "",
-            gender: editing.gender || "",
-            age: editing.age ?? null,
-            address: editing.address || "",
-            mobile: editing.mobile || "",
-            adhaarNumber: editing.adhaarNumber || "",
-            department: String(editing.department || "").trim(),
-            sangat: String(editing.sangat || "").trim(),
-            mode: editing.mode,
-            bookingReqDelhiBeas: "",
-            bookingReqBeasDelhi: "",
-            ticketDelhiBeas: "",
-            ticketBeasDelhi: "",
-            payment: editing.payment.trim(),
-            jathaDateId: extraId,
-            jathaDate: extraJStart || "",
-            travelStartDate: String(editing.travelStartDate).slice(0, 10),
-            travelEndDate: String(editing.travelEndDate).slice(0, 10),
-            notes: (editing.notes || "").trim(),
-          };
-
-          const extraRes = await fetch("/api/nominal-roll/parantha", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-          });
-
-          const extraData = await extraRes.json().catch(() => ({}));
-          if (!extraRes.ok) {
-            alert(`Extra save failed (${extraRes.status}). ${extraData?.error || "Error"}`);
-            return;
-          }
+        const extraData = await extraRes.json().catch(() => ({}));
+        if (!extraRes.ok) {
+          alert(`Extra save failed (${extraRes.status}). ${extraData?.error || "Error"}`);
+          return;
         }
       }
-
-      setEditing(null);
-      setEditJathaDateIds([]);
-      setEditJathaOpen(false);
-      await loadNominal();
-    } finally {
-      setSaving(false);
     }
+
+    setEditing(null);
+    setEditJathaDateIds([]);
+    setEditJathaOpen(false);
+    await loadNominal();
+    alert("✅ Changes have been successfully saved.");
+  } finally {
+    setSaving(false);
   }
+}
 
   function areRowsContinuous(prev: NominalLadooRow, next: NominalLadooRow) {
     const prevEnd = iso10(prev.travelEndDate);
@@ -1652,6 +1654,8 @@ function validateCreate(selectedIds: string[]) {
           await saveOne(lastRow, { ticketBeasDelhi: bd });
         }
       }
+
+      alert("✅ Ticket assignment saved successfully.");
 
       patchPendingState(firstId, { pickDB: "", pickBD: "" });
       await loadNominal();

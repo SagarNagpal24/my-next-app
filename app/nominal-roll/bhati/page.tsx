@@ -184,56 +184,56 @@ export default function BhatiNominalRollPage() {
     return "";
   }
 
-  async function onCreate(e: React.FormEvent) {
-    e.preventDefault();
-    const err = validateCreate();
-    if (err) return alert(err);
+ async function onCreate(e: React.FormEvent) {
+  e.preventDefault();
+  const err = validateCreate();
+  if (err) return alert(err);
 
-    const jd = jathaDates.find((x) => x._id === jathaDateId);
+  const jd = jathaDates.find((x) => x._id === jathaDateId);
 
-    setSaving(true);
-    try {
-      const payload = {
-        customerId: selectedCustomer!._id,
-        customerName: selectedCustomer!.name,
-        badgeNo: selectedCustomer!.badgeNo || "",
-        fatherOrHusbandName: selectedCustomer!.fatherOrHusbandName || "",
-        gender: selectedCustomer!.gender || "",
-        age: selectedCustomer!.age ?? null,
-        address: selectedCustomer!.address || "",
-        mobile: selectedCustomer!.mobile || "",
-        adhaarNumber: selectedCustomer!.adhaarNumber || "",
-        department: department.trim(),
-        sangat: sangat.trim(),
+  setSaving(true);
+  try {
+    const payload = {
+      customerId: selectedCustomer!._id,
+      customerName: selectedCustomer!.name,
+      badgeNo: selectedCustomer!.badgeNo || "",
+      fatherOrHusbandName: selectedCustomer!.fatherOrHusbandName || "",
+      gender: selectedCustomer!.gender || "",
+      age: selectedCustomer!.age ?? null,
+      address: selectedCustomer!.address || "",
+      mobile: selectedCustomer!.mobile || "",
+      adhaarNumber: selectedCustomer!.adhaarNumber || "",
+      department: department.trim(),
+      sangat: sangat.trim(),
 
-        mode,
-        payment: payment.trim(), // optional
+      mode,
+      payment: payment.trim(),
 
-        jathaDateId,
-        jathaDate: jd?.travelDate || "",
+      jathaDateId,
+      jathaDate: jd?.travelDate || "",
 
-        notes: notes.trim(),
-      };
+      notes: notes.trim(),
+    };
 
-      const res = await fetch("/api/nominal-roll/bhati", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+    const res = await fetch("/api/nominal-roll/bhati", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
 
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        alert(`Create failed (${res.status}). ${data?.error || "Error"}`);
-        return;
-      }
-
-      resetForm();
-      await loadNominal();
-    } finally {
-      setSaving(false);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      alert(`Create failed (${res.status}). ${data?.error || "Error"}`);
+      return;
     }
-  }
 
+    resetForm();
+    await loadNominal();
+    alert("✅ Data has been successfully added to Nominal Roll.");
+  } finally {
+    setSaving(false);
+  }
+}
   async function onDelete(id: string) {
     const realId = encodeURIComponent(String(id).trim());
     if (!confirm("Delete this record?")) return;
@@ -250,48 +250,47 @@ export default function BhatiNominalRollPage() {
   }
 
   async function onSaveEdit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!editing) return;
+  e.preventDefault();
+  if (!editing) return;
 
-    if (!editing.jathaDateId) return alert("Jatha date is required.");
-    if (!editing.mode) return alert("Mode is required.");
-    // ✅ payment NOT required
+  if (!editing.jathaDateId) return alert("Jatha date is required.");
+  if (!editing.mode) return alert("Mode is required.");
 
-    const realId = encodeURIComponent(String(editing._id).trim());
-    const jd = jathaDates.find((x) => x._id === editing.jathaDateId);
+  const realId = encodeURIComponent(String(editing._id).trim());
+  const jd = jathaDates.find((x) => x._id === editing.jathaDateId);
 
-    setSaving(true);
-    try {
-      const res = await fetch(`/api/nominal-roll/bhati/${realId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          mode: editing.mode,
-          payment: String(editing.payment || "").trim(), // optional
+  setSaving(true);
+  try {
+    const res = await fetch(`/api/nominal-roll/bhati/${realId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        mode: editing.mode,
+        payment: String(editing.payment || "").trim(),
 
-          jathaDateId: editing.jathaDateId,
-          jathaDate: jd?.travelDate || "",
+        jathaDateId: editing.jathaDateId,
+        jathaDate: jd?.travelDate || "",
 
-          department: String(editing.department || "").trim(),
-          sangat: String(editing.sangat || "").trim(),
+        department: String(editing.department || "").trim(),
+        sangat: String(editing.sangat || "").trim(),
 
-          notes: (editing.notes || "").trim(),
-        }),
-      });
+        notes: (editing.notes || "").trim(),
+      }),
+    });
 
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        alert(`Update failed (${res.status}). ${data?.error || "Error"}`);
-        return;
-      }
-
-      setEditing(null);
-      await loadNominal();
-    } finally {
-      setSaving(false);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      alert(`Update failed (${res.status}). ${data?.error || "Error"}`);
+      return;
     }
-  }
 
+    setEditing(null);
+    await loadNominal();
+    alert("✅ Changes have been successfully saved.");
+  } finally {
+    setSaving(false);
+  }
+}
   return (
     <div>
       <h2 className="text-lg font-semibold">Bhati</h2>
@@ -323,11 +322,13 @@ export default function BhatiNominalRollPage() {
                     <button
                       key={c._id}
                       type="button"
-                      onClick={() => {
-                        setSelectedCustomer(c);
-                        setDepartment(c.department || "");
-                        setSangat(c.sangat || "");
-                      }}
+                     onClick={() => {
+  setSelectedCustomer(c);
+  setDepartment(c.department || "");
+  setSangat(c.sangat || "");
+  setSearch(c.name || "");
+  setResults([]); // hide suggestions after selection
+}}
                       className={[
                         "w-full rounded-lg px-3 py-2 text-left hover:bg-zinc-50 dark:hover:bg-white/5",
                         selectedCustomer?._id === c._id ? "bg-zinc-50 dark:bg-white/5" : "",
