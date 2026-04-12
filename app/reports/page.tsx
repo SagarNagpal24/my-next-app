@@ -31,6 +31,31 @@ const DEPARTMENT_OPTIONS = [
   
 ] as const;
 
+
+const DEPT_ALLOTTED: Record<string, number> = {
+  PANDAL: 10,
+  SECURITY: 8,
+  SANITATION: 8,
+  FR: 6,
+  TRAFFIC: 5,
+  MNT: 4,
+  HRT: 2,
+  CANTEEN: 1,
+  BAV: 1,
+  "BAAL-SATSANG": 1,
+  COUPON: 1,
+  OFFICE: 1,
+  "SEWA-COLLECTION": 1,
+  WATER: 1,
+  "SEWA-SAMITI": 1,
+  MEDICAL: 0,
+  "VIP BLOCK": 0,
+  LANGAR: 0,
+  "GUEST-HOUSE": 0,
+  SANGAT: 0,
+  UNKNOWN: 0,
+};
+
 type JathaDate = {
   _id: string;
   category?: string;
@@ -649,78 +674,102 @@ export default function ReportsPage() {
     sewadars: number;
     sangat: number;
     total: number;
+    alloted: number;
+    diff: number;
     bus: number;
     train: number;
     self: number;
   };
 
   const deptSummary = React.useMemo<DeptSummaryRow[]>(() => {
-    const map = new Map<string, DeptSummaryRow>();
+  const map = new Map<string, DeptSummaryRow>();
 
-    function normDept(v: any) {
-      const s = String(v || "").trim();
-      return s ? s.toUpperCase() : "";
+  function normDept(v: any) {
+    const s = String(v || "").trim();
+    return s ? s.toUpperCase() : "";
+  }
+
+  function keyForRow(r: any) {
+    const sangat = String(r.sangat || "").trim().toLowerCase();
+    const dept = normDept(r.department);
+    if (sangat === "yes" && !dept) return "SANGAT";
+    return dept || "UNKNOWN";
+  }
+
+  function getAllotedForDept(dept: string) {
+    return Number(DEPT_ALLOTTED[String(dept || "").toUpperCase()] ?? 0);
+  }
+
+  function createRow(dept: string): DeptSummaryRow {
+    return {
+      dept,
+      sewadars: 0,
+      sangat: 0,
+      total: 0,
+      alloted: getAllotedForDept(dept),
+      diff: 0,
+      bus: 0,
+      train: 0,
+      self: 0,
+    };
+  }
+
+  // ✅ STEP 1: Initialize ALL departments first
+  Object.keys(DEPT_ALLOTTED).forEach((dept) => {
+    map.set(dept, createRow(dept));
+  });
+
+  // ✅ STEP 2: Fill actual data
+  for (const r of items) {
+    const sangat = String(r.sangat || "").trim().toLowerCase();
+    const deptKey = keyForRow(r);
+
+    if (!map.has(deptKey)) {
+      map.set(deptKey, createRow(deptKey));
     }
 
-    function keyForRow(r: any) {
-      const sangat = String(r.sangat || "").trim().toLowerCase();
-      const dept = normDept(r.department);
-      if ((sangat === "yes") && !dept) return "SANGAT";
-      return dept || "UNKNOWN";
-    }
+    const row = map.get(deptKey)!;
 
-    function getOrCreate(k: string) {
-      if (!map.has(k)) {
-        map.set(k, { dept: k, sewadars: 0, sangat: 0, total: 0, bus: 0, train: 0, self: 0 });
-      }
-      return map.get(k)!;
-    }
+    const mode = String(r.mode || "").trim().toLowerCase();
+    if (mode === "bus") row.bus += 1;
+    else if (mode === "train") row.train += 1;
+    else if (mode === "self") row.self += 1;
 
-    for (const r of items) {
-      const sangat = String(r.sangat || "").trim().toLowerCase(); // yes/no/blank
-      const deptKey = keyForRow(r);
-      const row = getOrCreate(deptKey);
+    if (sangat === "yes") row.sangat += 1;
+    else row.sewadars += 1;
+  }
 
-      // travel mode counts
-      const mode = String(r.mode || "").trim().toLowerCase();
-      if (mode === "bus") row.bus += 1;
-      else if (mode === "train") row.train += 1;
-      else if (mode === "self") row.self += 1;
+  // ✅ STEP 3: Calculate totals + diff
+  const out = Array.from(map.values()).map((x) => {
+    const total = x.sewadars + x.sangat;
+    return {
+      ...x,
+      total,
+      diff: total - x.alloted,
+    };
+  });
 
-      // sewadars vs sangat counts
-      if (sangat === "yes") {
-        row.sangat += 1;
-      } else {
-        // blank or "no"
-        row.sewadars += 1;
-      }
-    }
+  // ✅ STEP 4: Sort nicely
+const ORDER = Object.keys(DEPT_ALLOTTED);
 
-    // totals + sort (keep UNKNOWN last)
-    const out = Array.from(map.values()).map((x) => ({ ...x, total: x.sewadars + x.sangat }));
-    out.sort((a, b) => {
-      if (a.dept === "UNKNOWN") return 1;
-      if (b.dept === "UNKNOWN") return -1;
-      if (a.dept === "SANGAT") return 1;
-      if (b.dept === "SANGAT") return -1;
-      return a.dept.localeCompare(b.dept);
-    });
+out.sort((a, b) => ORDER.indexOf(a.dept) - ORDER.indexOf(b.dept));
 
-    return out;
-  }, [items]);
-
+  return out;
+}, [items]);
   const deptTotals = React.useMemo(() => {
     return deptSummary.reduce(
       (acc, r) => {
         acc.sewadars += r.sewadars;
         acc.sangat += r.sangat;
         acc.total += r.total;
+        acc.alloted += r.alloted;
+        acc.diff += r.diff;
         acc.bus += r.bus;
         acc.train += r.train;
         acc.self += r.self;
         return acc;
       },
-      { sewadars: 0, sangat: 0, total: 0, bus: 0, train: 0, self: 0 }
+      { sewadars: 0, sangat: 0, total: 0, alloted: 0, diff: 0, bus: 0, train: 0, self: 0 }
     );
   }, [deptSummary]);
 
@@ -733,9 +782,10 @@ export default function ReportsPage() {
         SEWADAR: r.sewadars,
         SANGAT: r.sangat,
         TOTAL: r.total,
+        ALLOTED: r.alloted,
+        "TOTAL - ALLOTED": r.diff,
         BUS: r.bus,
-        "TRAIN": r.train,
-        "SELF": r.self,
+        "TRAIN/SELF": r.train + r.self,
       }));
 
       // add totals row
@@ -745,9 +795,10 @@ export default function ReportsPage() {
         SEWADAR: deptTotals.sewadars,
         SANGAT: deptTotals.sangat,
         TOTAL: deptTotals.total,
+        ALLOTED: deptTotals.alloted,
+        "TOTAL - ALLOTED": deptTotals.diff,
         BUS: deptTotals.bus,
-        "TRAIN": deptTotals.train,
-        "SELF": deptTotals.self,
+        "TRAIN/SELF": deptTotals.train + deptTotals.self,
       } as any);
 
       const ws = XLSX.utils.json_to_sheet(rows);
@@ -1656,7 +1707,7 @@ React.useEffect(() => {
             if (e.target === e.currentTarget) setDeptOpen(false);
           }}
         >
-          <div className="w-full max-w-5xl rounded-2xl bg-white p-4 shadow-xl dark:bg-zinc-950">
+          <div className="w-screen h-screen rounded-none bg-white p-4 shadow-xl dark:bg-zinc-950 flex flex-col">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <div className="text-lg font-semibold">Department Summary</div>
@@ -1675,41 +1726,107 @@ React.useEffect(() => {
               </div>
             </div>
 
-            <div className="mt-3 max-h-[70vh] overflow-auto rounded-xl border border-black/10 dark:border-white/10">
-              <table className="w-full text-sm">
-                <thead className="sticky top-0 bg-white dark:bg-zinc-950">
-                  <tr className="border-b border-black/10 dark:border-white/10">
-                    <th className="px-3 py-2 text-left">S NO</th>
-                    <th className="px-3 py-2 text-left">DEPTT</th>
-                    <th className="px-3 py-2 text-right">SEWADAR</th>
-                    <th className="px-3 py-2 text-right">SANGAT</th>
-                    <th className="px-3 py-2 text-right">TOTAL</th>
-                    <th className="px-3 py-2 text-right">BUS</th>
-                    <th className="px-3 py-2 text-right">TRAIN</th>
-                    <th className="px-3 py-2 text-right">SELF</th>
+            <div className="mt-3 flex-1 overflow-auto rounded-xl border border-black/10 dark:border-white/10">
+              <table className="w-full min-w-[1100px] border-collapse text-sm">
+                <thead className="sticky top-0 z-10 bg-white dark:bg-zinc-950">
+                  <tr>
+                    <th
+                      colSpan={7}
+                      className="border border-black/10 bg-zinc-100 px-3 py-2 text-center text-base font-bold dark:border-white/10 dark:bg-zinc-900"
+                    >
+                      PRANTHA JATHA SEWA BEAS
+                    </th>
+                    <th
+                      colSpan={2}
+                      className="border border-black/10 bg-yellow-100 px-3 py-2 text-center text-base font-bold dark:border-white/10 dark:bg-yellow-900/30"
+                    >
+                      Travel Mode
+                    </th>
+                  </tr>
+
+                  <tr>
+                    <th
+                      colSpan={7}
+                      className="border border-black/10 bg-zinc-50 px-3 py-2 text-center font-semibold dark:border-white/10 dark:bg-zinc-900"
+                    >
+                      DETAILS OF THE DEPTT
+                    </th>
+                    <th className="border border-black/10 bg-yellow-50 px-3 py-2 dark:border-white/10 dark:bg-yellow-900/20" />
+                    <th className="border border-black/10 bg-yellow-50 px-3 py-2 dark:border-white/10 dark:bg-yellow-900/20" />
+                  </tr>
+
+                  <tr className="bg-zinc-50 dark:bg-zinc-900">
+                    <th className="border border-black/10 px-3 py-2 text-left dark:border-white/10">S NO</th>
+                    <th className="border border-black/10 px-3 py-2 text-left dark:border-white/10">DEPTT</th>
+                    <th className="border border-black/10 px-3 py-2 text-right dark:border-white/10">SEWADAR</th>
+                    <th className="border border-black/10 px-3 py-2 text-right dark:border-white/10">SANGAT</th>
+                    <th className="border border-black/10 bg-green-100 px-3 py-2 text-right font-semibold dark:border-white/10 dark:bg-green-900/30">
+                      TOTAL
+                    </th>
+                    <th className="border border-black/10 px-3 py-2 text-right dark:border-white/10">ALLOTED</th>
+                    <th className="border border-black/10 px-3 py-2 text-right dark:border-white/10">(Total - Alloted)</th>
+                    <th className="border border-black/10 bg-yellow-100 px-3 py-2 text-right dark:border-white/10 dark:bg-yellow-900/30">
+                      Bus
+                    </th>
+                    <th className="border border-black/10 bg-yellow-100 px-3 py-2 text-right dark:border-white/10 dark:bg-yellow-900/30">
+                      Train/self
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
                   {deptSummary.map((r, idx) => (
                     <tr key={r.dept} className="border-b border-black/5 dark:border-white/5">
-                      <td className="px-3 py-2">{idx + 1}</td>
-                      <td className="px-3 py-2 font-medium">{r.dept}</td>
-                      <td className="px-3 py-2 text-right">{r.sewadars}</td>
-                      <td className="px-3 py-2 text-right">{r.sangat}</td>
-                      <td className="px-3 py-2 text-right font-semibold">{r.total}</td>
-                      <td className="px-3 py-2 text-right">{r.bus}</td>
-                      <td className="px-3 py-2 text-right">{r.train}</td>
-                      <td className="px-3 py-2 text-right">{r.self}</td>
+                      <td className="border border-black/10 px-3 py-2 dark:border-white/10">{idx + 1}</td>
+                      <td className="border border-black/10 px-3 py-2 font-medium dark:border-white/10">{r.dept}</td>
+                      <td className="border border-black/10 px-3 py-2 text-right dark:border-white/10">{r.sewadars}</td>
+                      <td className="border border-black/10 px-3 py-2 text-right dark:border-white/10">{r.sangat}</td>
+                      <td className="border border-black/10 bg-green-50 px-3 py-2 text-right font-semibold dark:border-white/10 dark:bg-green-900/20">
+                        {r.total}
+                      </td>
+                      <td className="border border-black/10 px-3 py-2 text-right dark:border-white/10">{r.alloted}</td>
+                      <td
+                        className={`border border-black/10 px-3 py-2 text-right font-semibold dark:border-white/10 ${
+                          r.diff < 0
+                            ? "bg-red-200 text-red-800 dark:bg-red-900/40 dark:text-red-300"
+                            : r.diff > 0
+                            ? "bg-zinc-100 dark:bg-zinc-800"
+                            : ""
+                        }`}
+                      >
+                        {r.diff}
+                      </td>
+                      <td className="border border-black/10 bg-yellow-50 px-3 py-2 text-right dark:border-white/10 dark:bg-yellow-900/20">
+                        {r.bus}
+                      </td>
+                      <td className="border border-black/10 bg-yellow-50 px-3 py-2 text-right dark:border-white/10 dark:bg-yellow-900/20">
+                        {r.train + r.self}
+                      </td>
                     </tr>
                   ))}
-                  <tr className="border-t border-black/10 dark:border-white/10 font-semibold">
-                    <td className="px-3 py-2" />
-                    <td className="px-3 py-2">TOTAL</td>
-                    <td className="px-3 py-2 text-right">{deptTotals.sewadars}</td>
-                    <td className="px-3 py-2 text-right">{deptTotals.sangat}</td>
-                    <td className="px-3 py-2 text-right">{deptTotals.total}</td>
-                    <td className="px-3 py-2 text-right">{deptTotals.bus}</td>
-                    <td className="px-3 py-2 text-right">{deptTotals.train}</td>
+                  <tr className="font-bold">
+                    <td className="border border-black/10 px-3 py-2 dark:border-white/10" />
+                    <td className="border border-black/10 px-3 py-2 dark:border-white/10">TOTAL</td>
+                    <td className="border border-black/10 px-3 py-2 text-right dark:border-white/10">{deptTotals.sewadars}</td>
+                    <td className="border border-black/10 px-3 py-2 text-right dark:border-white/10">{deptTotals.sangat}</td>
+                    <td className="border border-black/10 bg-green-100 px-3 py-2 text-right dark:border-white/10 dark:bg-green-900/30">
+                      {deptTotals.total}
+                    </td>
+                    <td className="border border-black/10 px-3 py-2 text-right dark:border-white/10">{deptTotals.alloted}</td>
+                    <td
+                      className={`border border-black/10 px-3 py-2 text-right dark:border-white/10 ${
+                        deptTotals.diff < 0
+                          ? "bg-red-200 text-red-800 dark:bg-red-900/40 dark:text-red-300"
+                          : "bg-zinc-100 dark:bg-zinc-800"
+                      }`}
+                    >
+                      {deptTotals.diff}
+                    </td>
+                    <td className="border border-black/10 bg-yellow-100 px-3 py-2 text-right dark:border-white/10 dark:bg-yellow-900/30">
+                      {deptTotals.bus}
+                    </td>
+                    <td className="border border-black/10 bg-yellow-100 px-3 py-2 text-right dark:border-white/10 dark:bg-yellow-900/30">
+                      {deptTotals.train + deptTotals.self}
+                    </td>
                   </tr>
                 </tbody>
               </table>
