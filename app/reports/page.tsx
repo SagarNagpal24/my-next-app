@@ -35,7 +35,7 @@ const DEPARTMENT_OPTIONS = [
 const DEPT_ALLOTTED: Record<string, number> = {
   PANDAL: 10,
   SECURITY: 8,
-  SANITATION: 8,
+  SHK: 8,
   FR: 6,
   TRAFFIC: 5,
   MNT: 4,
