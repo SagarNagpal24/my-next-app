@@ -3,7 +3,7 @@
 import React from "react";
 
 type YesNo = "Yes" | "No" | "";
-type Mode = "Train" | "Bus" | "Self" | "";
+type Mode = "Train" | "Bus" | "Self" |"Travel Only (Bus)"| ""
 
 // ✅ Train routes (we normalize from train-data)
 type RouteType = "DLI-BEAS" | "BEAS-DLI";
@@ -2534,6 +2534,7 @@ function validateCreate(selectedIds: string[]) {
                       <option value="Train">Train</option>
                       <option value="Bus">Bus</option>
                       <option value="Self">Self</option>
+                       <option value="Travel only (Bus)">Travel Only (Bus)</option>
                     </select>
                   </div>
 
@@ -2812,6 +2813,7 @@ function validateCreate(selectedIds: string[]) {
                   <option value="Train">Train</option>
                   <option value="Bus">Bus</option>
                   <option value="Self">Self</option>
+                   <option value="Travel only (Bus)">Travel Only (Bus)</option>
                 </select>
               </div>
 
@@ -3112,6 +3114,7 @@ function validateCreate(selectedIds: string[]) {
                       <option value="Train">Train</option>
                       <option value="Bus">Bus</option>
                       <option value="Self">Self</option>
+                       <option value="Travel only (Bus)">Travel Only (Bus)</option>
                     </select>
                   </div>
 
