@@ -689,7 +689,7 @@ export default function CustomersPage() {
 
       await exportCustomersToExcel(
         safe,
-        `customers_all_${new Date().toISOString().slice(0, 10)}.xlsx`
+        `sangat_all_${new Date().toISOString().slice(0, 10)}.xlsx`
       );
     } catch (e: any) {
       alert(e?.message || "Export failed");
