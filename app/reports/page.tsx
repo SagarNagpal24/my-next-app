@@ -32,28 +32,76 @@ const DEPARTMENT_OPTIONS = [
 ] as const;
 
 
-const DEPT_ALLOTTED: Record<string, number> = {
-  PANDAL: 10,
-  SECURITY: 8,
-  SHK: 8,
-  FR: 6,
-  TRAFFIC: 5,
-  MNT: 4,
-  HRT: 2,
-  CANTEEN: 1,
-  BAV: 1,
-  "BAAL-SATSANG": 1,
-  COUPON: 1,
-  OFFICE: 1,
-  "SEWA-COLLECTION": 1,
-  WATER: 1,
-  "SEWA-SAMITI": 1,
-  MEDICAL: 0,
-  "VIP BLOCK": 0,
-  LANGAR: 0,
-  "GUEST-HOUSE": 0,
-  SANGAT: 0,
-  UNKNOWN: 0,
+const DEPT_ALLOTTED_BY_TAB: Record<string, Record<string, number>> = {
+  ladoo: {
+    PANDAL: 3,
+    SECURITY: 3,
+    SHK: 3,
+    FR: 4,
+    TRAFFIC: 2,
+    MNT: 2,
+    HRT: 1,
+    CANTEEN: 1,
+    BAV:0,
+    "BAAL-SATSANG": 0,
+    COUPON: 0,
+    OFFICE: 0,
+    "SEWA-COLLECTION":0 ,
+    WATER: 1,
+    "SEWA-SAMITI": 0,
+    MEDICAL: 0,
+    "VIP BLOCK": 0,
+    LANGAR: 0,
+    "GUEST-HOUSE": 0,
+    SANGAT: 0,
+    UNKNOWN: 0,
+  },
+  parantha: {
+    PANDAL: 12,
+    SECURITY: 10,
+    SHK: 6,
+    FR: 5,
+    TRAFFIC: 6,
+    MNT: 3,
+    HRT: 4,
+    CANTEEN: 2,
+    BAV: 1,
+    "BAAL-SATSANG": 0,
+    COUPON: 2,
+    OFFICE: 1,
+    "SEWA-COLLECTION": 1,
+    WATER: 2,
+    "SEWA-SAMITI": 1,
+    MEDICAL: 0,
+    "VIP BLOCK": 0,
+    LANGAR: 0,
+    "GUEST-HOUSE": 0,
+    SANGAT: 0,
+    UNKNOWN: 0,
+  },
+  bhati: {
+    PANDAL: 0,
+    SECURITY: 0,
+    SANITATION: 0,
+    FR: 0,
+    TRAFFIC: 0,
+    MNT: 0,
+    HRT: 0,
+    CANTEEN: 0,
+    BAV: 0,
+    "BAAL-SATSANG": 0,
+    COUPON: 0,
+    OFFICE: 0,
+    "SEWA-COLLECTION": 0,
+    WATER: 0,
+    "SEWA-SAMITI": 0,
+    MEDICAL: 0,
+    "VIP BLOCK": 0,
+    LANGAR: 0,
+    "GUEST-HOUSE": 0,
+    SANGAT: 0,
+    UNKNOWN: 0,
+  },
 };
 
 type JathaDate = {
@@ -697,7 +745,8 @@ export default function ReportsPage() {
   }
 
   function getAllotedForDept(dept: string) {
-    return Number(DEPT_ALLOTTED[String(dept || "").toUpperCase()] ?? 0);
+    const tabMap = DEPT_ALLOTTED_BY_TAB[String(tab || "").toLowerCase()] || {};
+    return Number(tabMap[String(dept || "").toUpperCase()] ?? 0);
   }
 
   function createRow(dept: string): DeptSummaryRow {
@@ -714,8 +763,10 @@ export default function ReportsPage() {
     };
   }
 
-  // ✅ STEP 1: Initialize ALL departments first
-  Object.keys(DEPT_ALLOTTED).forEach((dept) => {
+  const currentTabMap = DEPT_ALLOTTED_BY_TAB[String(tab || "").toLowerCase()] || {};
+
+  // ✅ STEP 1: Initialize ALL departments for current tab first
+  Object.keys(currentTabMap).forEach((dept) => {
     map.set(dept, createRow(dept));
   });
 
@@ -745,17 +796,28 @@ export default function ReportsPage() {
     return {
       ...x,
       total,
-      diff: total - x.alloted,
+      alloted: getAllotedForDept(x.dept),
+      diff: total - getAllotedForDept(x.dept),
     };
   });
 
   // ✅ STEP 4: Sort nicely
-const ORDER = Object.keys(DEPT_ALLOTTED);
+  const ORDER = Object.keys(currentTabMap);
 
-out.sort((a, b) => ORDER.indexOf(a.dept) - ORDER.indexOf(b.dept));
+  out.sort((a, b) => {
+    const ai = ORDER.indexOf(a.dept);
+    const bi = ORDER.indexOf(b.dept);
+
+    if (ai === -1 && bi === -1) return a.dept.localeCompare(b.dept);
+    if (ai === -1) return 1;
+    if (bi === -1) return -1;
+
+    return ai - bi;
+  });
 
   return out;
-}, [items]);
+}, [items, tab]);
+
   const deptTotals = React.useMemo(() => {
     return deptSummary.reduce(
       (acc, r) => {
@@ -1193,69 +1255,121 @@ React.useEffect(() => {
         <meta charset="utf-8" />
         <title>Tickets</title>
         <style>
-          @page { size: A4; margin: 10mm; }
-          html, body { margin:0; padding:0; font-family: Arial, sans-serif; color:#111; }
+          @page {
+  size: A4;
+  margin: 8mm;
+}
 
-          .page {
-            width: 190mm;
-            height: 277mm;
-            box-sizing: border-box;
-            page-break-after: always;
-          }
-          .page:last-child { page-break-after: auto; }
+html, body {
+  margin: 0;
+  padding: 0;
+  font-family: Arial, sans-serif;
+  color: #111;
+}
 
-          .grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            grid-template-rows: 1fr 1fr;
-            gap: 7mm;
-            width: 100%;
-            height: 100%;
-          }
+.page {
+  width: 190mm;
+  height: 277mm;
+  page-break-after: always;
+}
 
-          .ticket {
-            border: 1.2px solid #111;
-            border-radius: 10px;
-            padding: 5mm;
-            box-sizing: border-box;
-            display:flex;
-            flex-direction:column;
-            break-inside: avoid;
-            page-break-inside: avoid;
-          }
-          .ticket-empty { border: 0; }
+.grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 5mm; /* 🔽 reduced */
+  height: 100%;
+}
 
-          .head { display:flex; justify-content:space-between; align-items:center; margin-bottom: 3mm; }
-          .title { font-size: 13pt; font-weight: 800; }
-          .sn { font-size: 11pt; font-weight: 800; }
+/* 🔥 Compact ticket */
+.ticket {
+  border: 1px solid #111;
+  border-radius: 8px;
+  padding: 4mm; /* 🔽 reduced */
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
 
-          .row {
-            display:flex;
-            gap: 8px;
-            margin: 1.2mm 0;
-            font-size: 10.8pt;
-            line-height: 1.15;
-          }
-          .label { width: 34%; font-weight: 800; }
-          .value { width: 66%; font-weight: 650; }
+/* Header */
+.head {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 2mm;
+}
 
-          .sep { margin: 3mm 0; border-top: 1px dashed #999; }
+.title {
+  font-size: 12pt;
+  font-weight: 800;
+}
 
-          .subhead { font-size: 11pt; font-weight: 800; margin-bottom: 2mm; }
+.sn {
+  font-size: 10pt;
+  font-weight: 700;
+}
 
-          .row2 { display:flex; gap: 8mm; }
-          .col { width: 50%; }
-          .coltitle { font-size: 10.5pt; font-weight: 800; margin-bottom: 1mm; }
-          .tickettext { font-size: 10pt; font-weight: 650; line-height: 1.2; word-break: break-word; }
+/* 🔥 Compact rows */
+.row {
+  display: flex;
+  gap: 6px;
+  font-size: 9.5pt;
+  margin: 0.8mm 0; /* 🔽 tighter */
+}
 
-          .contact{
-            margin-top:auto;
-            padding-top: 2mm;
-            font-size: 8pt;
-            font-weight: 800;
-            color: #353434ff;
-            text-align: left;
-          }
+.label {
+  width: 32%;
+  font-weight: 700;
+}
+
+.value {
+  width: 68%;
+  font-weight: 600;
+}
+
+/* separator */
+.sep {
+  margin: 2mm 0;
+  border-top: 1px dashed #aaa;
+}
+
+/* Ticket section */
+.subhead {
+  font-size: 10pt;
+  font-weight: 800;
+  margin-bottom: 1mm;
+}
+
+/* two column ticket */
+.row2 {
+  display: flex;
+  gap: 5mm; /* 🔽 reduced */
+}
+
+.col {
+  width: 50%;
+}
+
+.coltitle {
+  font-size: 9.5pt;
+  font-weight: 700;
+  margin-bottom: 0.5mm;
+}
+
+/* 🔥 MOST IMPORTANT (compact ticket text) */
+.tickettext {
+  font-size: 9pt;
+  line-height: 1.15; /* 🔽 tighter */
+  font-weight: 600;
+  word-break: break-word;
+}
+
+/* contact */
+.contact {
+  margin-top: auto;
+  font-size: 7.5pt; /* 🔽 smaller */
+  font-weight: 700;
+  padding-top: 1mm;
+}
         </style>
       </head>
       <body>
@@ -1734,7 +1848,7 @@ React.useEffect(() => {
                       colSpan={7}
                       className="border border-black/10 bg-zinc-100 px-3 py-2 text-center text-base font-bold dark:border-white/10 dark:bg-zinc-900"
                     >
-                      PRANTHA JATHA SEWA BEAS
+                      JATHA SEWA
                     </th>
                     <th
                       colSpan={2}
