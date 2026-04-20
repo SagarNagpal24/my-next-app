@@ -1563,6 +1563,11 @@ for (const r of raw) {
   const [pendingSelectedIds, setPendingSelectedIds] = React.useState<Set<string>>(new Set());
   const [pendingBulkBusy, setPendingBulkBusy] = React.useState(false);
 
+  const [pendingStartFrom, setPendingStartFrom] = React.useState<string>("");
+  const [pendingStartTo, setPendingStartTo] = React.useState<string>("");
+  const [pendingEndFrom, setPendingEndFrom] = React.useState<string>("");
+  const [pendingEndTo, setPendingEndTo] = React.useState<string>("");
+
   function getPendingState(id: string): PendingRowState {
     return pendingState[id] || { qDB: "", qBD: "", pickDB: "", pickBD: "" };
   }
@@ -1571,13 +1576,28 @@ for (const r of raw) {
     setPendingState((prev) => ({ ...prev, [id]: { ...getPendingState(id), ...patch } }));
   }
 
+  const filteredPendingTicketItems = React.useMemo(() => {
+    return pendingTicketItems.filter((r) => {
+      const st = iso10(r.travelStartDate);
+      const en = iso10(r.travelEndDate);
+
+      if (pendingStartFrom && st && st < iso10(pendingStartFrom)) return false;
+      if (pendingStartTo && st && st > iso10(pendingStartTo)) return false;
+
+      if (pendingEndFrom && en && en < iso10(pendingEndFrom)) return false;
+      if (pendingEndTo && en && en > iso10(pendingEndTo)) return false;
+
+      return true;
+    });
+  }, [pendingTicketItems, pendingStartFrom, pendingStartTo, pendingEndFrom, pendingEndTo]);
+
   const pendingSummary = React.useMemo(() => {
     let fare = 0;
     let paid = 0;
     let pending = 0;
     let fareKnownCount = 0;
 
-    for (const r of pendingTicketItems) {
+    for (const r of filteredPendingTicketItems) {
       const f = getFareForRow(r);
       const p = getPaidForRow(r) ?? 0;
       paid += p;
@@ -1590,13 +1610,13 @@ for (const r of raw) {
     }
 
     return {
-      count: pendingTicketItems.length,
+      count: filteredPendingTicketItems.length,
       fareKnownCount,
       fare,
       paid,
       pending,
     };
-  }, [pendingTicketItems, ticketById]);
+  }, [filteredPendingTicketItems, ticketById]);
 
   async function savePendingRowTickets(row: PendingTicketGroupRow, nextDB: string, nextBD: string) {
     const firstRow = row.__firstRow || row;
@@ -1998,7 +2018,7 @@ for (const r of raw) {
   type="button"
   className="app-btn app-btn-secondary h-9 px-3 text-xs"
   onClick={() => {
-    const rows = pendingTicketItems.map((r, i) => {
+    const rows = filteredPendingTicketItems.map((r, i) => {
       const needDB = !!r.__needDB;
       const needBD = !!r.__needBD;
 
@@ -2091,6 +2111,70 @@ for (const r of raw) {
             </div>
           </div>
 
+          <div className="mt-4 rounded-xl border border-black/5 bg-white p-3 dark:border-white/10 dark:bg-zinc-950">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <div>
+                <div className="app-label">Travel Start From</div>
+                <input
+                  type="date"
+                  className={inputCls()}
+                  value={pendingStartFrom}
+                  onChange={(e) => setPendingStartFrom(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <div className="app-label">Travel Start To</div>
+                <input
+                  type="date"
+                  className={inputCls()}
+                  value={pendingStartTo}
+                  onChange={(e) => setPendingStartTo(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <div className="app-label">Travel End From</div>
+                <input
+                  type="date"
+                  className={inputCls()}
+                  value={pendingEndFrom}
+                  onChange={(e) => setPendingEndFrom(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <div className="app-label">Travel End To</div>
+                <input
+                  type="date"
+                  className={inputCls()}
+                  value={pendingEndTo}
+                  onChange={(e) => setPendingEndTo(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+              <div className="text-sm text-zinc-600 dark:text-zinc-400">
+                Showing <span className="font-semibold">{filteredPendingTicketItems.length}</span> of{" "}
+                <span className="font-semibold">{pendingTicketItems.length}</span>
+              </div>
+
+              <button
+                type="button"
+                className="app-btn app-btn-secondary h-9 px-4 text-xs"
+                onClick={() => {
+                  setPendingStartFrom("");
+                  setPendingStartTo("");
+                  setPendingEndFrom("");
+                  setPendingEndTo("");
+                }}
+              >
+                Clear Filters
+              </button>
+            </div>
+          </div>
+
           {/* Bulk actions */}
           <div className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-black/5 bg-zinc-50 px-3 py-2 text-sm dark:border-white/10 dark:bg-black/30">
             <div>
@@ -2100,7 +2184,7 @@ for (const r of raw) {
               <button
                 type="button"
                 className="app-btn app-btn-secondary h-9 px-3 text-xs"
-                onClick={() => setPendingSelectedIds(new Set(pendingTicketItems.map((x) => String(x._id))))}
+                onClick={() => setPendingSelectedIds(new Set(filteredPendingTicketItems.map((x) => String(x._id))))}
                 disabled={pendingTicketItems.length === 0}
               >
                 Select All
@@ -2112,7 +2196,7 @@ for (const r of raw) {
                 type="button"
                 className="app-btn app-btn-primary h-9 px-3 text-xs"
                 onClick={() => {
-                  const rows = pendingTicketItems.filter((x) => pendingSelectedIds.has(String(x._id)));
+                  const rows = filteredPendingTicketItems.filter((x) => pendingSelectedIds.has(String(x._id)));
                   if (!rows.length) return alert("Select rows first.");
                   bulkSmartAssign(rows);
                 }}
@@ -2124,7 +2208,7 @@ for (const r of raw) {
                 type="button"
                 className="app-btn app-btn-primary h-9 px-3 text-xs"
                 onClick={async () => {
-                  const rows = pendingTicketItems.filter((x) => pendingSelectedIds.has(String(x._id)));
+                  const rows = filteredPendingTicketItems.filter((x) => pendingSelectedIds.has(String(x._id)));
                   if (!rows.length) return alert("Select rows first.");
                   await bulkSaveSelected(rows);
                 }}
@@ -2160,14 +2244,14 @@ for (const r of raw) {
               </thead>
 
               <tbody className="divide-y divide-black/5 dark:divide-white/10">
-                {pendingTicketItems.length === 0 ? (
+                {filteredPendingTicketItems.length === 0 ? (
                   <tr>
                     <td className="td text-zinc-600 dark:text-zinc-400" colSpan={11}>
                       No pending ticket bookings 🎉
                     </td>
                   </tr>
                 ) : (
-                  pendingTicketItems.map((r, idx) => {
+                  filteredPendingTicketItems.map((r, idx) => {
                     const id = String(r._id || "").trim();
                     const st = getPendingState(id);
 
