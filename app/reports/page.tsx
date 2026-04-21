@@ -28,6 +28,9 @@ const DEPARTMENT_OPTIONS = [
   "VIP Block",
   "Langar",
   "Guest-House",
+  "English-Satsang",
+  "Painting"
+
   
 ] as const;
 
@@ -42,6 +45,8 @@ const DEPT_ALLOTTED_BY_TAB: Record<string, Record<string, number>> = {
     MNT: 2,
     HRT: 1,
     CANTEEN: 1,
+    "English-Satsang":0,
+    Painting:0,
     BAV:0,
     "BAAL-SATSANG": 0,
     COUPON: 0,
@@ -53,8 +58,12 @@ const DEPT_ALLOTTED_BY_TAB: Record<string, Record<string, number>> = {
     "VIP BLOCK": 0,
     LANGAR: 0,
     "GUEST-HOUSE": 0,
+
+    
+
     SANGAT: 0,
     UNKNOWN: 0,
+    
   },
   parantha: {
     PANDAL: 12,
@@ -66,6 +75,8 @@ const DEPT_ALLOTTED_BY_TAB: Record<string, Record<string, number>> = {
     HRT: 4,
     CANTEEN: 2,
     BAV: 1,
+    "English-Satsang":2,
+    Painting:2,
     "BAAL-SATSANG": 0,
     COUPON: 2,
     OFFICE: 1,
@@ -76,6 +87,7 @@ const DEPT_ALLOTTED_BY_TAB: Record<string, Record<string, number>> = {
     "VIP BLOCK": 0,
     LANGAR: 0,
     "GUEST-HOUSE": 0,
+    
     SANGAT: 0,
     UNKNOWN: 0,
   },
@@ -89,6 +101,8 @@ const DEPT_ALLOTTED_BY_TAB: Record<string, Record<string, number>> = {
     HRT: 0,
     CANTEEN: 0,
     BAV: 0,
+    "English-Satsang":0,
+    Painting:0,
     "BAAL-SATSANG": 0,
     COUPON: 0,
     OFFICE: 0,

@@ -25,6 +25,9 @@ const DEPARTMENTS = [
   "VIP Block",
   "Langar",
   "Guest-House",
+  "English-Satsang",
+  "Painting"
+
 ] as const;
 
 function toNum(v: any) {

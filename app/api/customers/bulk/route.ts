@@ -25,7 +25,10 @@ type Department =
   | "Medical"
   | "VIP Block"
   | "Langar"
-  | "Guest-House";
+  | "Guest-House"
+  |"English-Satsang"
+  | "Painting";
+;
 
 const DEPARTMENT_OPTIONS: Exclude<Department, "">[] = [
   "Security",
@@ -47,6 +50,9 @@ const DEPARTMENT_OPTIONS: Exclude<Department, "">[] = [
   "VIP Block",
   "Langar",
   "Guest-House",
+  "English-Satsang",
+  "Painting"
+
 ];
 
 function digitsOnly(v: any) {

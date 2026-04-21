@@ -24,6 +24,9 @@ export async function GET() {
     "VIP Block",
     "Langar",
     "Guest-House",
+    "English-Satsang",
+    "Painting"
+
   ];
 
   const GENDERS = ["M", "F", "Other"];

@@ -28,6 +28,9 @@ const DEPARTMENT_OPTIONS = [
   "VIP Block",
   "Langar",
   "Guest-House",
+  "English-Satsang",
+  "Painting"
+
   
 ] as const;
 
