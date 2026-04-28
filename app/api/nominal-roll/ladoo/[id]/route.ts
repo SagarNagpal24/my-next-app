@@ -120,6 +120,11 @@ export async function PUT(req: Request, ctx: Ctx) {
     const travelEndDate = asString(body.travelEndDate);
     const notes = asString(body.notes);
 
+    // Calling tab fields
+    const confirm = asString(body.confirm);
+    const ferry = asString(body.ferry);
+    const remarks = asString(body.remarks);
+
     if (!jathaDateId) return NextResponse.json({ error: "Jatha date required" }, { status: 400 });
     if (!jathaDate) return NextResponse.json({ error: "Jatha date value missing" }, { status: 400 });
 
@@ -215,6 +220,11 @@ export async function PUT(req: Request, ctx: Ctx) {
       travelEndDate: new Date(travelEndDate),
 
       notes,
+
+      // Calling tab fields - save permanently in DB
+      confirm,
+      ferry,
+      remarks,
 
       // ✅ keep normalized key aligned for old rows that may not have it
       customerNameKey,
