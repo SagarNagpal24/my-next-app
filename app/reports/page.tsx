@@ -1181,10 +1181,24 @@ React.useEffect(() => {
     }
   }
 
-  // -------- PRINT TICKETS (6 per A4 page, multi-page) --------
+  // -------- PRINT TICKETS (4 per A4 page, multi-page) --------
   function buildTicketsHtml(rows: ReportRow[]) {
     const chunkSize = 4;
     const pages: string[] = [];
+
+    function ticketLinesHtml(ticketValue: any) {
+      const raw = String(renderTicket(ticketValue) || "-").trim();
+      if (!raw || raw === "-") return `<div class="detail-line muted">-</div>`;
+
+      const lines = raw
+        .split(/\s*•\s*/g)
+        .map((x) => x.trim())
+        .filter(Boolean);
+
+      return lines
+        .map((line) => `<div class="detail-line">${escapeHtml(line)}</div>`)
+        .join("");
+    }
 
     const cardsForChunk = (chunk: ReportRow[], offset: number) =>
       chunk
@@ -1204,41 +1218,70 @@ React.useEffect(() => {
           const start = escapeHtml(formatDDMonYYYY(r.travelStartDate) || "-");
           const end = escapeHtml(formatDDMonYYYY(r.travelEndDate) || "-");
 
-          const tDB = escapeHtml(renderTicket(r.ticketDelhiBeas));
-          const tBD = escapeHtml(renderTicket(r.ticketBeasDelhi));
+          const tDB = ticketLinesHtml(r.ticketDelhiBeas);
+          const tBD = ticketLinesHtml(r.ticketBeasDelhi);
 
           return `
             <div class="ticket">
               <div class="head">
-                <div class="title">Nominal Ticket</div>
+                <div>
+                  <div class="brand">JATHA MANAGER</div>
+                  <div class="title">Nominal Travel Ticket</div>
+                </div>
                 <div class="sn">#${sn}</div>
               </div>
 
-              <div class="row"><span class="label">Name:</span><span class="value">${name}</span></div>
-              <div class="row"><span class="label">Mobile:</span><span class="value">${mobile}</span></div>
-             
-              <div class="sep"></div>
-
-              <div class="row"><span class="label">Jatha:</span><span class="value">${jdStart} → ${jdEnd}</span></div>
-              <div class="row"><span class="label">Travel:</span><span class="value">${start} → ${end}</span></div>
-
-              <div class="sep"></div>
-
-              <div class="subhead">Ticket Details</div>
-
-              <div class="row2">
-                <div class="col">
-                  <div class="coltitle">Delhi → Beas</div>
-                  <div class="tickettext">${tDB}</div>
-                </div>
-                <div class="col">
-                  <div class="coltitle">Beas → Delhi</div>
-                  <div class="tickettext">${tBD}</div>
+              <div class="profile-box">
+          
+                <div class="profile-main">
+                  <div class="profile-row">
+                    <span>Name</span>
+                    <strong>${name}</strong>
+                  </div>
+                  <div class="profile-row">
+                    <span>Mobile</span>
+                    <strong>${mobile}</strong>
+                  </div>
+                  <div class="chips">
+                    <span>Badge: <b>${badge}</b></span>
+                    <span>Mode: <b>${modeStr}</b></span>
+                    <span>Dept: <b>${dept}</b></span>
+                    <span>Sangat: <b>${sangatStr}</b></span>
+                  </div>
                 </div>
               </div>
 
-              <div class="contact">
-                Contact:<br> Gurjeet Kaur - 9999934357  <br> Pulkit Sethi - 9871331688
+              <div class="date-row">
+                <div class="date-card">
+                  <div class="date-label">Jatha Date</div>
+                  <div class="date-value">${jdStart} → ${jdEnd}</div>
+                </div>
+                <div class="date-card">
+                  <div class="date-label">Travel Date</div>
+                  <div class="date-value">${start} → ${end}</div>
+                </div>
+              </div>
+
+              <div class="section-title">
+                <span>Ticket Details</span>
+                <i></i>
+              </div>
+
+              <div class="ticket-cards">
+                <div class="travel-card">
+                  <div class="travel-head">Delhi → Beas</div>
+                  <div class="travel-body">${tDB}</div>
+                </div>
+                <div class="travel-card">
+                  <div class="travel-head">Beas → Delhi</div>
+                  <div class="travel-body">${tBD}</div>
+                </div>
+              </div>
+
+              <div class="contact-band">
+                <span class="contact-title">Contact</span>
+                <span><b>Gurjeet Kaur</b> 9999934357</span>
+                <span><b>Jyoti Arora</b> 9971540450</span>
               </div>
             </div>
           `;
@@ -1270,120 +1313,260 @@ React.useEffect(() => {
         <title>Tickets</title>
         <style>
           @page {
-  size: A4;
-  margin: 8mm;
-}
+            size: A4;
+            margin: 7mm;
+          }
 
-html, body {
-  margin: 0;
-  padding: 0;
-  font-family: Arial, sans-serif;
-  color: #111;
-}
+          * {
+            box-sizing: border-box;
+          }
 
-.page {
-  width: 190mm;
-  height: 277mm;
-  page-break-after: always;
-}
+          html, body {
+            margin: 0;
+            padding: 0;
+            font-family: Arial, Helvetica, sans-serif;
+            color: #111;
+            background: #fff;
+          }
 
-.grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  grid-template-rows: 1fr 1fr;
-  gap: 5mm; /* 🔽 reduced */
-  height: 100%;
-}
+          .page {
+            width: 196mm;
+            height: 283mm;
+            page-break-after: always;
+          }
 
-/* 🔥 Compact ticket */
-.ticket {
-  border: 1px solid #111;
-  border-radius: 8px;
-  padding: 4mm; /* 🔽 reduced */
-  display: flex;
-  flex-direction: column;
-  box-sizing: border-box;
-}
+          .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            grid-template-rows: 1fr 1fr;
+            gap: 5mm;
+            height: 100%;
+          }
 
-/* Header */
-.head {
-  display: flex;
-  justify-content: space-between;
-  margin-bottom: 2mm;
-}
+          .ticket {
+            border: 1px solid #111;
+            border-radius: 8px;
+            padding: 3.6mm;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            background: #fff;
+          }
 
-.title {
-  font-size: 12pt;
-  font-weight: 800;
-}
+          .ticket-empty {
+            border: 1px dashed #aaa;
+          }
 
-.sn {
-  font-size: 10pt;
-  font-weight: 700;
-}
+          .head {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            padding-bottom: 1.4mm;
+            border-bottom: 1px dashed #999;
+            margin-bottom: 2mm;
+          }
 
-/* 🔥 Compact rows */
-.row {
-  display: flex;
-  gap: 6px;
-  font-size: 9.5pt;
-  margin: 0.8mm 0; /* 🔽 tighter */
-}
+          .brand {
+            font-size: 7pt;
+            line-height: 1;
+            font-weight: 800;
+            letter-spacing: 0.4px;
+            text-transform: uppercase;
+          }
 
-.label {
-  width: 32%;
-  font-weight: 700;
-}
+          .title {
+            margin-top: 0.6mm;
+            font-size: 14.5pt;
+            line-height: 1;
+            font-weight: 900;
+            letter-spacing: -0.3px;
+          }
 
-.value {
-  width: 68%;
-  font-weight: 600;
-}
+          .sn {
+            font-size: 13pt;
+            line-height: 1;
+            font-weight: 900;
+          }
 
-/* separator */
-.sep {
-  margin: 2mm 0;
-  border-top: 1px dashed #aaa;
-}
+          .profile-box {
+            border: 1px solid #cfcfcf;
+            border-radius: 7px;
+            padding: 2.2mm;
+            display: flex;
+            gap: 2.4mm;
+            background: #fafafa;
+          }
 
-/* Ticket section */
-.subhead {
-  font-size: 10pt;
-  font-weight: 800;
-  margin-bottom: 1mm;
-}
+          .avatar {
+            display: none;
+          }
 
-/* two column ticket */
-.row2 {
-  display: flex;
-  gap: 5mm; /* 🔽 reduced */
-}
+          .profile-main {
+            flex: 1;
+            min-width: 0;
+          }
 
-.col {
-  width: 50%;
-}
+          .profile-row {
+            display: grid;
+            grid-template-columns: 20mm 1fr;
+            gap: 2mm;
+            align-items: baseline;
+            margin-bottom: 1mm;
+          }
 
-.coltitle {
-  font-size: 9.5pt;
-  font-weight: 700;
-  margin-bottom: 0.5mm;
-}
+          .profile-row span {
+            font-size: 9pt;
+            font-weight: 700;
+          }
 
-/* 🔥 MOST IMPORTANT (compact ticket text) */
-.tickettext {
-  font-size: 9pt;
-  line-height: 1.15; /* 🔽 tighter */
-  font-weight: 600;
-  word-break: break-word;
-}
+          .profile-row strong {
+            font-size: 10.5pt;
+            line-height: 1.05;
+            font-weight: 900;
+            word-break: break-word;
+          }
 
-/* contact */
-.contact {
-  margin-top: auto;
-  font-size: 7.5pt; /* 🔽 smaller */
-  font-weight: 700;
-  padding-top: 1mm;
-}
+          .chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1.2mm;
+            margin-top: 1.5mm;
+          }
+
+          .chips span {
+            border: 1px solid #c7c7c7;
+            border-radius: 999px;
+            padding: 0.7mm 1.8mm;
+            font-size: 7.2pt;
+            line-height: 1;
+            font-weight: 700;
+            background: #fff;
+          }
+
+          .date-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2.5mm;
+            margin-top: 2.4mm;
+          }
+
+          .date-card {
+            border: 1px dashed #999;
+            border-radius: 6px;
+            padding: 1.8mm;
+          }
+
+          .date-label {
+            font-size: 7.5pt;
+            line-height: 1;
+            font-weight: 900;
+            text-transform: uppercase;
+            color: #333;
+            margin-bottom: 1.2mm;
+          }
+
+          .date-value {
+            font-size: 9.5pt;
+            line-height: 1.2;
+            font-weight: 900;
+          }
+
+          .section-title {
+            display: flex;
+            align-items: center;
+            gap: 2.5mm;
+            margin-top: 2.6mm;
+            margin-bottom: 1.6mm;
+          }
+
+          .section-title span {
+            font-size: 12pt;
+            font-weight: 900;
+            line-height: 1;
+          }
+
+          .section-title i {
+            height: 1px;
+            background: #111;
+            flex: 1;
+          }
+
+          .ticket-cards {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2.4mm;
+            min-height: 0;
+            flex: 1;
+          }
+
+          .travel-card {
+            border: 1px solid #c9c9c9;
+            border-radius: 6px;
+            overflow: hidden;
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+          }
+
+          .travel-head {
+            background: #efefef;
+            border-bottom: 1px solid #d5d5d5;
+            padding: 1.6mm;
+            font-size: 9.1pt;
+            line-height: 1;
+            font-weight: 900;
+          }
+
+          .travel-body {
+            padding: 1.4mm;
+            min-height: 0;
+            overflow: hidden;
+          }
+
+          .detail-line {
+            font-size: 7.8pt;
+            line-height: 1.12;
+            font-weight: 800;
+            padding: 0.42mm 0;
+            border-bottom: 1px dashed #ddd;
+            word-break: break-word;
+          }
+
+          .detail-line:last-child {
+            border-bottom: none;
+          }
+
+          .muted {
+            color: #777;
+          }
+
+          .contact-band {
+            margin-top: 1.7mm;
+            padding-top: 1.2mm;
+            border-top: 1px solid #111;
+            display: grid;
+            grid-template-columns: auto 1fr 1fr;
+            gap: 1.5mm;
+            align-items: center;
+            font-size: 6.7pt;
+            line-height: 1.05;
+            font-weight: 700;
+          }
+
+          .contact-title {
+            border: 1px solid #111;
+            border-radius: 999px;
+            padding: 0.55mm 1.6mm;
+            font-size: 6.5pt;
+            font-weight: 900;
+            text-transform: uppercase;
+            white-space: nowrap;
+          }
+
+          .contact-band span:not(.contact-title) {
+            white-space: normal;
+            word-break: break-word;
+          }
         </style>
       </head>
       <body>
