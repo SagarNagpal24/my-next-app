@@ -5,6 +5,7 @@ import * as XLSX from "xlsx";
 
 type CallingCategory = "ladoo" | "parantha" | "bhati";
 type YesNo = "" | "Yes" | "No";
+type ConfirmFilterValue = "Pending" | "Yes" | "No";
 type FrequencyFilter = "" | "new" | "repeat" | "frequent" | "very-frequent";
 type FrequencySort = "" | "highest" | "lowest";
 
@@ -206,6 +207,25 @@ function normalizeText(v: any) {
   return String(v || "").trim().toLowerCase();
 }
 
+
+function getConfirmStatus(v: any): ConfirmFilterValue {
+  const s = String(v || "").trim();
+  if (s === "Yes") return "Yes";
+  if (s === "No") return "No";
+  return "Pending";
+}
+
+function getConfirmLabel(v: any) {
+  return getConfirmStatus(v);
+}
+
+function getGenderStatus(v: any): "Male" | "Female" | "Other" {
+  const s = String(v || "").trim().toLowerCase();
+  if (s === "m" || s === "male") return "Male";
+  if (s === "f" || s === "female") return "Female";
+  return "Other";
+}
+
 function sortUniqueDates(dates: string[]) {
   return Array.from(new Set(dates.filter(Boolean))).sort((a, b) => a.localeCompare(b));
 }
@@ -239,7 +259,8 @@ export default function CallingPage() {
   const [search, setSearch] = React.useState("");
   const [typeFilter, setTypeFilter] = React.useState<"" | CallingCategory>("");
   const [jathaDateFilter, setJathaDateFilter] = React.useState("");
-  const [confirmFilter, setConfirmFilter] = React.useState<YesNo>("");
+  const [modeFilters, setModeFilters] = React.useState<string[]>([]);
+  const [confirmFilters, setConfirmFilters] = React.useState<ConfirmFilterValue[]>([]);
   const [ferryFilter, setFerryFilter] = React.useState<YesNo>("");
   const [frequencyFilter, setFrequencyFilter] = React.useState<FrequencyFilter>("");
   const [frequencySort, setFrequencySort] = React.useState<FrequencySort>("");
@@ -661,6 +682,17 @@ export default function CallingPage() {
     );
   }, [allJathaDates, typeFilter]);
 
+  const modeOptions = React.useMemo(() => {
+    const unique = new Set<string>();
+
+    rows.forEach((r) => {
+      const mode = String(r.mode || "").trim();
+      if (mode) unique.add(mode);
+    });
+
+    return Array.from(unique).sort((a, b) => a.localeCompare(b));
+  }, [rows]);
+
   const filteredRows = React.useMemo(() => {
     const q = search.trim().toLowerCase();
 
@@ -707,7 +739,13 @@ export default function CallingPage() {
         String(r.jathaDateId || "").trim() === jathaDateFilter ||
         jr.start === jathaDateFilter;
 
-      const matchesConfirm = !confirmFilter || String(r.confirm || "") === confirmFilter;
+      const rowMode = String(r.mode || "").trim();
+      const matchesMode =
+        modeFilters.length === 0 || modeFilters.includes(rowMode);
+
+      const confirmStatus = getConfirmStatus(r.confirm);
+      const matchesConfirm =
+        confirmFilters.length === 0 || confirmFilters.includes(confirmStatus);
       const matchesFerry = !ferryFilter || String(r.ferry || "") === ferryFilter;
       const matchesFreq = matchesFrequency(totalCount);
 
@@ -715,6 +753,7 @@ export default function CallingPage() {
         matchesSearch &&
         matchesType &&
         matchesJatha &&
+        matchesMode &&
         matchesConfirm &&
         matchesFerry &&
         matchesFreq
@@ -740,7 +779,8 @@ export default function CallingPage() {
     search,
     typeFilter,
     jathaDateFilter,
-    confirmFilter,
+    modeFilters,
+    confirmFilters,
     ferryFilter,
     frequencyFilter,
     frequencySort,
@@ -782,6 +822,19 @@ export default function CallingPage() {
       veryFrequentCount,
     };
   }, [filteredRows, travellerSummaryMap]);
+
+  const genderStats = React.useMemo(() => {
+    let male = 0;
+    let female = 0;
+
+    for (const row of filteredRows) {
+      const gender = getGenderStatus(row.gender);
+      if (gender === "Male") male += 1;
+      if (gender === "Female") female += 1;
+    }
+
+    return { male, female };
+  }, [filteredRows]);
 
   function toggleRowSelection(key: string) {
     setSelectedKeys((prev) => (prev.includes(key) ? prev.filter((x) => x !== key) : [...prev, key]));
@@ -1025,7 +1078,7 @@ export default function CallingPage() {
         "TRAVEL START": formatDDMonYYYY(draft.travelStartDate),
         "TRAVEL END": formatDDMonYYYY(draft.travelEndDate),
         "NOTES": draft.notes || "",
-        "CONFIRM": draft.confirm || "",
+        "CONFIRM": getConfirmLabel(draft.confirm),
         "FERRY": draft.ferry || "",
         "REMARKS": draft.remarks || "",
         "CREATED AT": formatDDMonYYYY(draft.createdAt),
@@ -1134,16 +1187,51 @@ export default function CallingPage() {
           </div>
 
           <div>
+            <div className="app-label">Mode</div>
+            <div className="flex min-h-10 max-h-28 flex-wrap items-center gap-2 overflow-y-auto rounded-lg border border-black/10 bg-white px-2 py-1.5 text-xs dark:border-white/10 dark:bg-zinc-950">
+              {modeOptions.length === 0 ? (
+                <span className="text-zinc-500 dark:text-zinc-400">No mode available</span>
+              ) : (
+                modeOptions.map((value) => (
+                  <label key={value} className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                    <input
+                      type="checkbox"
+                      checked={modeFilters.includes(value)}
+                      onChange={(e) => {
+                        setModeFilters((prev) =>
+                          e.target.checked
+                            ? Array.from(new Set([...prev, value]))
+                            : prev.filter((x) => x !== value)
+                        );
+                      }}
+                    />
+                    <span>{value}</span>
+                  </label>
+                ))
+              )}
+            </div>
+          </div>
+
+          <div>
             <div className="app-label">Confirm</div>
-            <select
-              className={inputCls()}
-              value={confirmFilter}
-              onChange={(e) => setConfirmFilter(e.target.value as YesNo)}
-            >
-              <option value="">All</option>
-              <option value="Yes">Yes</option>
-              <option value="No">No</option>
-            </select>
+            <div className="flex min-h-10 flex-wrap items-center gap-2 rounded-lg border border-black/10 bg-white px-2 py-1.5 text-xs dark:border-white/10 dark:bg-zinc-950">
+              {(["Pending", "Yes", "No"] as ConfirmFilterValue[]).map((value) => (
+                <label key={value} className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                  <input
+                    type="checkbox"
+                    checked={confirmFilters.includes(value)}
+                    onChange={(e) => {
+                      setConfirmFilters((prev) =>
+                        e.target.checked
+                          ? Array.from(new Set([...prev, value]))
+                          : prev.filter((x) => x !== value)
+                      );
+                    }}
+                  />
+                  <span>{value}</span>
+                </label>
+              ))}
+            </div>
           </div>
 
           <div>
@@ -1189,8 +1277,16 @@ export default function CallingPage() {
         </div>
 
         <div className="mt-3 flex items-center justify-between gap-2">
-          <div className="text-sm text-zinc-600 dark:text-zinc-400">
-            Total Records: <span className="font-semibold">{filteredRows.length}</span>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-zinc-600 dark:text-zinc-400">
+            <span>
+              Total Records: <span className="font-semibold">{filteredRows.length}</span>
+            </span>
+            <span>
+              Male: <span className="font-semibold">{genderStats.male}</span>
+            </span>
+            <span>
+              Female: <span className="font-semibold">{genderStats.female}</span>
+            </span>
           </div>
 
           <button
@@ -1200,7 +1296,8 @@ export default function CallingPage() {
               setSearch("");
               setTypeFilter("");
               setJathaDateFilter("");
-              setConfirmFilter("");
+              setModeFilters([]);
+              setConfirmFilters([]);
               setFerryFilter("");
               setFrequencyFilter("");
               setFrequencySort("");
@@ -1230,6 +1327,15 @@ export default function CallingPage() {
             disabled={selectedKeys.length === 0}
           >
             Confirm No
+          </button>
+
+          <button
+            type="button"
+            className="app-btn app-btn-secondary h-9 px-3"
+            onClick={() => applyBulkConfirm("")}
+            disabled={selectedKeys.length === 0}
+          >
+            Confirm Pending
           </button>
 
           <button
@@ -1433,9 +1539,10 @@ export default function CallingPage() {
                           onClick={stopRowClick}
                           onChange={(e) => updateDraft(r, { confirm: e.target.value as YesNo })}
                         >
-                          <option value="">Select</option>
+                          <option value="">Pending</option>
                           <option value="Yes">Yes</option>
                           <option value="No">No</option>
+                          
                         </select>
                       </td>
 
@@ -1612,7 +1719,7 @@ export default function CallingPage() {
               value={modalDraft.confirm || ""}
               onChange={(e) => updateDraft(modalBaseRow, { confirm: e.target.value as YesNo })}
             >
-              <option value="">Select</option>
+              <option value="">Pending</option>
               <option value="Yes">Yes</option>
               <option value="No">No</option>
             </select>
