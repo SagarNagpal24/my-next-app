@@ -50,8 +50,7 @@ const DEPARTMENT_OPTIONS: Exclude<Department, "">[] = [
   "Langar",
   "Guest-House",
   "English-Satsang",
-  "Painting"
-
+  "Painting",
 ];
 
 type ImgData = {
@@ -121,6 +120,13 @@ function toUpperText(s: string) {
 
 function toUpperTrim(s: string) {
   return String(s || "").trim().toUpperCase();
+}
+
+// ✅ Badge must start with PR0012 or EC only
+function badgePrefixValid(badgeNo: string) {
+  const s = toUpperTrim(badgeNo);
+  if (!s) return true;
+  return s.startsWith("PR0012") || s.startsWith("EC");
 }
 
 function badgeLast4Valid(badgeNo: string) {
@@ -265,6 +271,7 @@ export default function Home() {
   });
 
   const computedAge = React.useMemo(() => calcAgeFromDob(form.dob), [form.dob]);
+  const hasBadge = !!form.badgeNo.trim();
 
   const [errors, setErrors] = React.useState<Record<string, string>>({});
   const [saving, setSaving] = React.useState(false);
@@ -278,6 +285,24 @@ export default function Home() {
     setErrors((p) => {
       const copy = { ...p };
       delete copy[key as string];
+      return copy;
+    });
+  }
+
+  // ✅ If badge is removed, department is cleared and disabled.
+  function setBadgeNo(value: string) {
+    const nextBadge = toUpperText(value);
+
+    setForm((p) => ({
+      ...p,
+      badgeNo: nextBadge,
+      department: nextBadge.trim() ? p.department : "",
+    }));
+
+    setErrors((p) => {
+      const copy = { ...p };
+      delete copy.badgeNo;
+      delete copy.department;
       return copy;
     });
   }
@@ -303,7 +328,7 @@ export default function Home() {
       else if (age <= 0 || age > 120) e.dob = "Age must be 1–120 (based on DOB).";
     }
 
-    const badge = form.badgeNo.trim();
+    const badge = toUpperTrim(form.badgeNo);
     const aadhaar = digitsOnly(form.adhaarNumber);
 
     if (!badge && !aadhaar) {
@@ -313,8 +338,19 @@ export default function Home() {
 
     if (badge && hasSpaceOrHyphen(form.badgeNo)) {
       e.badgeNo = "No spacing or - is allowed in Badge No.";
+    } else if (badge && !badgePrefixValid(badge)) {
+      e.badgeNo = "Badge No must start with PR0012 or EC only.";
     } else if (badge && !badgeLast4Valid(badge)) {
-      e.badgeNo = "Badge No last 4 digits must be exactly 4 numbers (e.g., XXXX1234).";
+      e.badgeNo = "Badge No last 4 digits must be exactly 4 numbers (e.g., PR00121234 or EC1234).";
+    }
+
+    // ✅ Department is mandatory only when Badge No has value.
+    if (badge) {
+      if (!form.department) {
+        e.department = "Department is required when Badge No is entered.";
+      } else if (!DEPARTMENT_OPTIONS.includes(form.department as any)) {
+        e.department = "Invalid Department.";
+      }
     }
 
     if (form.adhaarNumber.trim() && hasSpaceOrHyphen(form.adhaarNumber)) {
@@ -330,10 +366,6 @@ export default function Home() {
 
     if (form.blacklisted && !["Yes", "No"].includes(form.blacklisted)) {
       e.blacklisted = "Blacklisted must be Yes or No.";
-    }
-
-    if (form.department && !DEPARTMENT_OPTIONS.includes(form.department as any)) {
-      e.department = "Invalid Department.";
     }
 
     setErrors(e);
@@ -410,7 +442,10 @@ export default function Home() {
         address: toUpperTrim(form.address),
         mobile: digitsOnly(form.mobile).slice(0, 10),
         adhaarNumber: digitsOnly(form.adhaarNumber).slice(0, 12),
-        department: form.department,
+
+        // ✅ Department is saved only when Badge No is filled.
+        department: toUpperTrim(form.badgeNo) ? form.department : "",
+
         blacklisted: form.blacklisted || "No",
         emergencyNumber: digitsOnly(form.emergencyNumber),
         medicalDate: form.medicalDate ? form.medicalDate : null,
@@ -541,8 +576,8 @@ export default function Home() {
                 <input
                   className={`app-input ${errors.badgeNo ? "border-red-400 focus:border-red-500" : ""}`}
                   value={form.badgeNo}
-                  onChange={(e) => setField("badgeNo", toUpperText(e.target.value))}
-                  placeholder="Badge No"
+                  onChange={(e) => setBadgeNo(e.target.value)}
+                  placeholder="PR0012... or EC..."
                 />
               </Field>
 
@@ -596,13 +631,19 @@ export default function Home() {
                 </div>
               </Field>
 
-              <Field label="Department" error={errors.department}>
+              <Field label={hasBadge ? "Department *" : "Department"} error={errors.department}>
                 <select
-                  className={`app-input ${errors.department ? "border-red-400 focus:border-red-500" : ""}`}
+                  className={`app-input ${!hasBadge ? "cursor-not-allowed opacity-60" : ""} ${
+                    errors.department ? "border-red-400 focus:border-red-500" : ""
+                  }`}
                   value={form.department}
                   onChange={(e) => setField("department", e.target.value as Department)}
+                  disabled={!hasBadge}
+                  required={hasBadge}
                 >
-                  <option value="">Select</option>
+                  <option value="">
+                    {hasBadge ? "Select Department" : "Enter Badge No first"}
+                  </option>
                   {DEPARTMENT_OPTIONS.map((d) => (
                     <option key={d} value={d}>
                       {d}
@@ -633,7 +674,9 @@ export default function Home() {
             </div>
 
             <div className="mt-3 text-xs text-zinc-600 dark:text-zinc-400">
-              Note: Fill <span className="font-semibold">either</span> Badge No or Aadhaar (one is mandatory).
+              Note: Fill <span className="font-semibold">either</span> Badge No or Aadhaar.
+              Badge No must start with <span className="font-semibold">PR0012</span> or{" "}
+              <span className="font-semibold">EC</span>. Department is required only when Badge No is filled.
             </div>
           </div>
 
