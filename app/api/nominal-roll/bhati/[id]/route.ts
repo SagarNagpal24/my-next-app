@@ -45,7 +45,17 @@ export async function PUT(req: Request, ctx: Ctx) {
       console.error("ensureIndexes failed (PUT bhati):", e?.message || e);
     }
 
+    const oid = new ObjectId(id);
+    const existing = await db.collection(COLLECTION).findOne({ _id: oid });
+
+    if (!existing) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+
     const body = await req.json();
+
+    const hasOwn = (key: string) =>
+      Object.prototype.hasOwnProperty.call(body, key);
 
     const mode = asString(body.mode);
     const payment = asString(body.payment);
@@ -55,10 +65,18 @@ export async function PUT(req: Request, ctx: Ctx) {
 
     const notes = asString(body.notes);
 
-    // ✅ NEW FIELDS
-    const confirm = asYesNo(body.confirm);
-    const ferry = asYesNo(body.ferry);
-    const remarks = asString(body.remarks);
+    // ✅ Preserve Calling tab fields if Nominal/Reports tab does not send them
+    const confirm = hasOwn("confirm")
+      ? asYesNo(body.confirm)
+      : asYesNo(existing.confirm);
+
+    const ferry = hasOwn("ferry")
+      ? asYesNo(body.ferry)
+      : asYesNo(existing.ferry);
+
+    const remarks = hasOwn("remarks")
+      ? asString(body.remarks)
+      : asString(existing.remarks);
 
     /* ---------- validations ---------- */
 
@@ -91,7 +109,7 @@ export async function PUT(req: Request, ctx: Ctx) {
 
       notes,
 
-      // ✅ SAVED FIELDS
+      // ✅ SAVED FIELDS - preserved if missing in request body
       confirm,
       ferry,
       remarks,
@@ -101,7 +119,7 @@ export async function PUT(req: Request, ctx: Ctx) {
 
     try {
       const result = await db.collection(COLLECTION).updateOne(
-        { _id: new ObjectId(id) },
+        { _id: oid },
         { $set: update }
       );
 

@@ -120,10 +120,8 @@ export async function PUT(req: Request, ctx: Ctx) {
     const travelEndDate = asString(body.travelEndDate);
     const notes = asString(body.notes);
 
-    // Calling tab fields
-    const confirm = asString(body.confirm);
-    const ferry = asString(body.ferry);
-    const remarks = asString(body.remarks);
+    const hasOwn = (key: string) =>
+      Object.prototype.hasOwnProperty.call(body, key);
 
     if (!jathaDateId) return NextResponse.json({ error: "Jatha date required" }, { status: 400 });
     if (!jathaDate) return NextResponse.json({ error: "Jatha date value missing" }, { status: 400 });
@@ -170,6 +168,19 @@ export async function PUT(req: Request, ctx: Ctx) {
 
     const currentName = String(current.customerName || "").trim();
     const customerNameKey = normalizeNameKey(currentName);
+
+    // ✅ Preserve Calling tab fields when Nominal/Reports tabs do not send them
+    const confirm = hasOwn("confirm")
+      ? asString(body.confirm)
+      : asString(current.confirm);
+
+    const ferry = hasOwn("ferry")
+      ? asString(body.ferry)
+      : asString(current.ferry);
+
+    const remarks = hasOwn("remarks")
+      ? asString(body.remarks)
+      : asString(current.remarks);
 
     // ✅ duplicate prevention by SAME NAME + SAME JATHA DATE, excluding current row
     const existingDuplicate = await db.collection(COLLECTION).findOne({
