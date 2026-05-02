@@ -2819,7 +2819,9 @@ function validateCreate(selectedIds: string[]) {
                   <option value="Train">Train</option>
                   <option value="Bus">Bus</option>
                   <option value="Self">Self</option>
-                   <option value="Travel only (Bus)">Travel Only (Bus)</option>
+                  <option value="Travel Only (Bus- Both Sides)">Travel Only (Bus- Both Sides)</option>
+                       <option value="Travel Only (Bus- Delhi to Beas)">Travel Only (Bus- Delhi to Beas)</option>
+                       <option value="Travel Only (Bus- Beas to Delhi)">Travel Only (Bus- Beas to Delhi)</option>
                 </select>
               </div>
 
@@ -3120,7 +3122,9 @@ function validateCreate(selectedIds: string[]) {
                       <option value="Train">Train</option>
                       <option value="Bus">Bus</option>
                       <option value="Self">Self</option>
-                       <option value="Travel only (Bus)">Travel Only (Bus)</option>
+                       <option value="Travel Only (Bus- Both Sides)">Travel Only (Bus- Both Sides)</option>
+                       <option value="Travel Only (Bus- Delhi to Beas)">Travel Only (Bus- Delhi to Beas)</option>
+                       <option value="Travel Only (Bus- Beas to Delhi)">Travel Only (Bus- Beas to Delhi)</option>
                     </select>
                   </div>
 
