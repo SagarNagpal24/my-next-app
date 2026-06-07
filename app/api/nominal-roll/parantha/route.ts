@@ -18,9 +18,29 @@ function asString(v: any) {
   return String(v ?? "").trim();
 }
 
+function asUpperString(v: any) {
+  return String(v ?? "").trim().toUpperCase();
+}
+
 function asYesNo(v: any): "" | "Yes" | "No" {
   const s = String(v ?? "").trim();
   return s === "Yes" || s === "No" ? s : "";
+}
+
+// ✅ NEW: Payment Mode dropdown value
+function asPaymentMode(v: any): "" | "Cash" | "Online" {
+  const s = String(v ?? "").trim();
+  return s === "Cash" || s === "Online" ? s : "";
+}
+
+// ✅ NEW: Paid To dropdown value
+function asPaidTo(
+  v: any
+): "" | "Munish" | "Sagar" | "Gurjeet" | "Pulkit" | "Anjali" | "Jyoti" {
+  const s = String(v ?? "").trim();
+  return ["Munish", "Sagar", "Gurjeet", "Pulkit", "Anjali", "Jyoti"].includes(s)
+    ? (s as any)
+    : "";
 }
 
 async function ensureIndexes(db: any) {
@@ -47,6 +67,17 @@ async function ensureIndexes(db: any) {
       name: "uniq_ticket_beas_delhi",
       partialFilterExpression: {
         ticketBeasDelhi: { $type: "string", $ne: "" },
+      },
+    }
+  );
+
+  // ✅ NEW: helps searching/filtering Bus Group / Friend Group
+  await db.collection(COLLECTION).createIndex(
+    { busGroup: 1 },
+    {
+      name: "idx_bus_group",
+      partialFilterExpression: {
+        busGroup: { $type: "string", $ne: "" },
       },
     }
   );
@@ -82,6 +113,15 @@ export async function GET() {
 
       ticketDelhiBeas: asString(x.ticketDelhiBeas),
       ticketBeasDelhi: asString(x.ticketBeasDelhi),
+
+      payment: asString(x.payment),
+
+      // ✅ NEW FIELDS
+      paymentMode: asPaymentMode(x.paymentMode),
+      paidTo: asPaidTo(x.paidTo),
+
+      // ✅ NEW: Bus/Friend group marker
+      busGroup: asUpperString(x.busGroup),
 
       confirm: asYesNo(x.confirm),
       ferry: asYesNo(x.ferry),
@@ -139,6 +179,14 @@ export async function POST(req: Request) {
     let ticketBeasDelhi = asString(body.ticketBeasDelhi);
 
     const payment = asString(body.payment);
+
+    // ✅ NEW FIELDS
+    const paymentMode = asPaymentMode(body.paymentMode);
+    const paidTo = asPaidTo(body.paidTo);
+
+    // ✅ NEW: Bus/Friend group marker
+    // Same value means these people should be placed in one bus only.
+    const busGroup = asUpperString(body.busGroup);
 
     const jathaDateId = asString(body.jathaDateId);
     const jathaDate = asString(body.jathaDate);
@@ -242,6 +290,13 @@ export async function POST(req: Request) {
       ticketBeasDelhi,
 
       payment,
+
+      // ✅ NEW FIELDS
+      paymentMode,
+      paidTo,
+
+      // ✅ NEW: Bus/Friend group marker
+      busGroup,
 
       jathaDateId,
       jathaDate: new Date(jathaDate),

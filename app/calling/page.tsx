@@ -6,6 +6,12 @@ import * as XLSX from "xlsx";
 type CallingCategory = "ladoo" | "parantha" | "bhati";
 type YesNo = "" | "Yes" | "No";
 type ConfirmFilterValue = "Pending" | "Yes" | "No";
+type PaymentMode = "" | "Cash" | "Online";
+type PaidTo = "" | "Munish" | "Sagar" | "Gurjeet" | "Pulkit" | "Anjali" | "Jyoti";
+
+const PAYMENT_MODE_OPTIONS: Exclude<PaymentMode, "">[] = ["Cash", "Online"];
+const PAID_TO_OPTIONS: Exclude<PaidTo, "">[] = ["Munish", "Sagar", "Gurjeet", "Pulkit", "Anjali", "Jyoti"];
+
 type FrequencyFilter = "" | "new" | "repeat" | "frequent" | "very-frequent";
 type FrequencySort = "" | "highest" | "lowest";
 
@@ -30,6 +36,7 @@ type ReportRow = {
   address?: string;
   mobile?: string;
   adhaarNumber?: string;
+  emergencyNumber?: string;
 
   mode?: string;
   department?: string;
@@ -42,6 +49,9 @@ type ReportRow = {
   ticketBeasDelhi?: any;
 
   payment?: string;
+  paymentMode?: PaymentMode | string;
+  paidTo?: PaidTo | string;
+  busGroup?: string;
 
   jathaDateId?: string;
   jathaDate?: string;
@@ -199,7 +209,13 @@ function getItemsFromResponse(data: any): any[] {
   if (Array.isArray(data?.data)) return data.data;
   if (Array.isArray(data?.rows)) return data.rows;
   if (Array.isArray(data?.tickets)) return data.tickets;
+  if (Array.isArray(data?.customers)) return data.customers;
+  if (Array.isArray(data?.customer)) return data.customer;
+  if (Array.isArray(data?.list)) return data.list;
+  if (Array.isArray(data?.results)) return data.results;
   if (Array.isArray(data?.data?.items)) return data.data.items;
+  if (Array.isArray(data?.data?.customers)) return data.data.customers;
+  if (Array.isArray(data?.data?.rows)) return data.data.rows;
   return [];
 }
 
@@ -255,11 +271,16 @@ export default function CallingPage() {
   const [rows, setRows] = React.useState<CallingRow[]>([]);
   const [allJathaDates, setAllJathaDates] = React.useState<JathaDate[]>([]);
   const [allTickets, setAllTickets] = React.useState<TrainTicketRow[]>([]);
+  const [sangatEmergencyMap, setSangatEmergencyMap] = React.useState<Record<string, string>>({});
 
   const [search, setSearch] = React.useState("");
   const [typeFilter, setTypeFilter] = React.useState<"" | CallingCategory>("");
   const [jathaDateFilter, setJathaDateFilter] = React.useState("");
   const [modeFilters, setModeFilters] = React.useState<string[]>([]);
+  const [paymentModeFilter, setPaymentModeFilter] = React.useState<PaymentMode>("");
+  const [paidToFilter, setPaidToFilter] = React.useState<PaidTo>("");
+  const [paymentFilter, setPaymentFilter] = React.useState("");
+  const [busGroupFilter, setBusGroupFilter] = React.useState("");
   const [confirmFilters, setConfirmFilters] = React.useState<ConfirmFilterValue[]>([]);
   const [ferryFilter, setFerryFilter] = React.useState<YesNo>("");
   const [frequencyFilter, setFrequencyFilter] = React.useState<FrequencyFilter>("");
@@ -313,6 +334,19 @@ export default function CallingPage() {
       confirm: r.confirm === "Yes" || r.confirm === "No" ? r.confirm : "",
       ferry: r.ferry === "Yes" || r.ferry === "No" ? r.ferry : "",
       remarks: String(r.remarks || ""),
+      paymentMode: String(r.paymentMode || ""),
+      paidTo: String(r.paidTo || ""),
+      busGroup: String(r.busGroup || "").trim().toUpperCase(),
+      emergencyNumber: String(
+        r.emergencyNumber ||
+          r.emergencyNo ||
+          r.emergencyMobile ||
+          r.emergencyContact ||
+          r.emergencyPhone ||
+          r.emergencyContactNumber ||
+          r.emergency_number ||
+          ""
+      ),
     }));
   }
 
@@ -467,10 +501,75 @@ export default function CallingPage() {
     }
   }
 
+  async function loadSangatEmergencyNumbers() {
+    try {
+      const endpoints = [
+        "/api/customers?limit=10000",
+        "/api/customers?limit=20000",
+        "/api/customers?all=1",
+        "/api/customers",
+        "/api/sangat?limit=10000",
+        "/api/sangat?all=1",
+        "/api/sangat-data?limit=10000",
+        "/api/sangat-data?all=1",
+      ];
+
+      let rawItems: any[] = [];
+
+      for (const url of endpoints) {
+        try {
+          const res = await fetch(url, { cache: "no-store" });
+          if (!res.ok) continue;
+
+          const data = await res.json().catch(() => ({}));
+          const arr = getItemsFromResponse(data);
+
+          if (arr.length) {
+            rawItems = arr;
+            break;
+          }
+        } catch {}
+      }
+
+      const map: Record<string, string> = {};
+
+      for (const x of rawItems) {
+        const emergency = String(
+          x.emergencyNumber ||
+            x.emergencyNo ||
+            x.emergencyMobile ||
+            x.emergencyContact ||
+            x.emergencyPhone ||
+            ""
+        ).trim();
+
+        if (!emergency) continue;
+
+        const customerId = normalizeText(extractId(x._id || x.customerId || x.id));
+        const mobile = normalizeText(x.mobile);
+        const aadhaar = normalizeText(x.adhaarNumber || x.aadhaarNumber);
+        const name = normalizeText(x.name || x.customerName);
+        const father = normalizeText(x.fatherOrHusbandName);
+        const age = String(x.age ?? "").trim();
+
+        if (customerId) map[`c:${customerId}`] = emergency;
+        if (mobile) map[`m:${mobile}`] = emergency;
+        if (aadhaar) map[`a:${aadhaar}`] = emergency;
+        if (name || father || age) map[`n:${name}|f:${father}|age:${age}`] = emergency;
+      }
+
+      setSangatEmergencyMap(map);
+    } catch (e) {
+      console.error("Failed to load emergency numbers from Sangat data", e);
+      setSangatEmergencyMap({});
+    }
+  }
+
   React.useEffect(() => {
     loadAll();
     loadJathaDates();
     loadTrainTickets();
+    loadSangatEmergencyNumbers();
   }, []);
 
   React.useEffect(() => {
@@ -589,7 +688,7 @@ export default function CallingPage() {
     const aadhaar = normalizeText(row.adhaarNumber);
     if (aadhaar) return `a:${aadhaar}`;
 
-    const customerId = normalizeText(row.customerId);
+    const customerId = normalizeText(extractId(row.customerId));
     if (customerId) return `c:${customerId}`;
 
     const name = normalizeText(row.customerName);
@@ -597,6 +696,36 @@ export default function CallingPage() {
     const age = String(row.age ?? "").trim();
 
     return `n:${name}|f:${father}|age:${age}`;
+  }
+
+  function emergencyLookupKeys(row: Partial<CallingRow>) {
+    const keys: string[] = [];
+
+    const customerId = normalizeText(extractId(row.customerId));
+    const mobile = normalizeText(row.mobile);
+    const aadhaar = normalizeText(row.adhaarNumber);
+    const name = normalizeText(row.customerName);
+    const father = normalizeText(row.fatherOrHusbandName);
+    const age = String(row.age ?? "").trim();
+
+    if (customerId) keys.push(`c:${customerId}`);
+    if (mobile) keys.push(`m:${mobile}`);
+    if (aadhaar) keys.push(`a:${aadhaar}`);
+    if (name || father || age) keys.push(`n:${name}|f:${father}|age:${age}`);
+
+    return keys;
+  }
+
+  function getEmergencyNumber(row: Partial<CallingRow>) {
+    const direct = String((row as any).emergencyNumber || "").trim();
+    if (direct) return direct;
+
+    for (const key of emergencyLookupKeys(row)) {
+      const value = String(sangatEmergencyMap[key] || "").trim();
+      if (value) return value;
+    }
+
+    return "";
   }
 
   const travellerSummaryMap = React.useMemo(() => {
@@ -693,6 +822,24 @@ export default function CallingPage() {
     return Array.from(unique).sort((a, b) => a.localeCompare(b));
   }, [rows]);
 
+  const busGroupOptions = React.useMemo(() => {
+    const unique = new Set<string>();
+
+    rows.forEach((r) => {
+      const group = String(r.busGroup || "").trim().toUpperCase();
+      if (group) unique.add(group);
+    });
+
+    return Array.from(unique).sort((a, b) => {
+      const an = Number((a.match(/^GROUP-(\d+)$/i) || [])[1] || 0);
+      const bn = Number((b.match(/^GROUP-(\d+)$/i) || [])[1] || 0);
+      if (an && bn) return an - bn;
+      if (an) return -1;
+      if (bn) return 1;
+      return a.localeCompare(b);
+    });
+  }, [rows]);
+
   const filteredRows = React.useMemo(() => {
     const q = search.trim().toLowerCase();
 
@@ -708,12 +855,17 @@ export default function CallingPage() {
           r.customerName,
           r.fatherOrHusbandName,
           r.mobile,
+          getEmergencyNumber(r),
           r.badgeNo,
           r.address,
           r.department,
           r.notes,
           r.remarks,
           r.mode,
+          r.paymentMode,
+          r.paidTo,
+          r.payment,
+          r.busGroup,
           r.sangat,
           r.gender,
           r.adhaarNumber,
@@ -743,6 +895,24 @@ export default function CallingPage() {
       const matchesMode =
         modeFilters.length === 0 || modeFilters.includes(rowMode);
 
+      const matchesPaymentMode =
+        !paymentModeFilter ||
+        String(r.paymentMode || "").trim().toLowerCase() === paymentModeFilter.toLowerCase();
+
+      const matchesPaidTo =
+        !paidToFilter ||
+        String(r.paidTo || "").trim().toLowerCase() === paidToFilter.toLowerCase();
+
+      const paymentLimitText = paymentFilter.trim();
+      const paymentLimit = Number(paymentLimitText);
+      const matchesPayment =
+        !paymentLimitText ||
+        (Number.isFinite(paymentLimit) && paymentToNumber(r.payment) < paymentLimit);
+
+      const matchesBusGroup =
+        !busGroupFilter.trim() ||
+        String(r.busGroup || "").trim().toLowerCase() === busGroupFilter.trim().toLowerCase();
+
       const confirmStatus = getConfirmStatus(r.confirm);
       const matchesConfirm =
         confirmFilters.length === 0 || confirmFilters.includes(confirmStatus);
@@ -754,6 +924,10 @@ export default function CallingPage() {
         matchesType &&
         matchesJatha &&
         matchesMode &&
+        matchesPaymentMode &&
+        matchesPaidTo &&
+        matchesPayment &&
+        matchesBusGroup &&
         matchesConfirm &&
         matchesFerry &&
         matchesFreq
@@ -780,6 +954,10 @@ export default function CallingPage() {
     typeFilter,
     jathaDateFilter,
     modeFilters,
+    paymentModeFilter,
+    paidToFilter,
+    paymentFilter,
+    busGroupFilter,
     confirmFilters,
     ferryFilter,
     frequencyFilter,
@@ -787,6 +965,7 @@ export default function CallingPage() {
     allJathaDates,
     ticketLabelMap,
     travellerSummaryMap,
+    sangatEmergencyMap,
   ]);
 
   const visibleKeys = React.useMemo(() => filteredRows.map((r) => rowKey(r)), [filteredRows]);
@@ -836,6 +1015,21 @@ export default function CallingPage() {
     return { male, female };
   }, [filteredRows]);
 
+  const paymentStats = React.useMemo(() => {
+    let paymentSum = 0;
+    let fareSum = 0;
+    let pendingSum = 0;
+
+    for (const row of filteredRows) {
+      const c = rowComputed(row);
+      paymentSum += paymentToNumber(row.payment);
+      fareSum += c.fareTotal;
+      pendingSum += c.pending;
+    }
+
+    return { paymentSum, fareSum, pendingSum };
+  }, [filteredRows, ticketFareMap, allJathaDates]);
+
   function toggleRowSelection(key: string) {
     setSelectedKeys((prev) => (prev.includes(key) ? prev.filter((x) => x !== key) : [...prev, key]));
   }
@@ -873,6 +1067,12 @@ export default function CallingPage() {
       String(draft.confirm || "") !== String(row.confirm || "") ||
       String(draft.ferry || "") !== String(row.ferry || "") ||
       String(draft.remarks || "") !== String(row.remarks || "") ||
+      String(draft.payment || "") !== String(row.payment || "") ||
+      String(draft.paymentMode || "") !== String(row.paymentMode || "") ||
+      String(draft.paidTo || "") !== String(row.paidTo || "") ||
+      String(draft.busGroup || "") !== String(row.busGroup || "") ||
+      String(draft.mode || "") !== String(row.mode || "") ||
+      String(draft.department || "") !== String(row.department || "") ||
       String(normalizeTicketId(draft.ticketDelhiBeas) || "") !==
         String(normalizeTicketId(row.ticketDelhiBeas) || "") ||
       String(normalizeTicketId(draft.ticketBeasDelhi) || "") !==
@@ -886,6 +1086,9 @@ export default function CallingPage() {
     return {
       mode: String(draft.mode || ""),
       payment: String(draft.payment || ""),
+      paymentMode: String(draft.paymentMode || ""),
+      paidTo: String(draft.paidTo || ""),
+      busGroup: String(draft.busGroup || "").trim().toUpperCase(),
       jathaDateId: String(draft.jathaDateId || ""),
       jathaDate: toYMD(draft.jathaDate || getJathaRange(draft).start || ""),
       notes: String(draft.notes || ""),
@@ -938,6 +1141,12 @@ export default function CallingPage() {
                 confirm: draft.confirm || "",
                 ferry: draft.ferry || "",
                 remarks: draft.remarks || "",
+                payment: draft.payment || "",
+                paymentMode: draft.paymentMode || "",
+                paidTo: draft.paidTo || "",
+                busGroup: String(draft.busGroup || "").trim().toUpperCase(),
+                mode: draft.mode || "",
+                department: draft.department || "",
                 ticketDelhiBeas: normalizeTicketId(draft.ticketDelhiBeas) || "",
                 ticketBeasDelhi: normalizeTicketId(draft.ticketBeasDelhi) || "",
               }
@@ -1052,6 +1261,7 @@ export default function CallingPage() {
         "GENDER": draft.gender || "",
         "AGE": draft.age ?? "",
         "MOBILE": draft.mobile || "",
+        "EMERGENCY NUMBER": getEmergencyNumber(draft),
         "ADDRESS": draft.address || "",
         "BADGE": draft.badgeNo || "",
          "MODE": draft.mode || "",
@@ -1074,6 +1284,9 @@ export default function CallingPage() {
         "FARE TOTAL": c.fareTotal,
         "PENDING": c.pending,
         "PAYMENT": pay || 0,
+        "PAYMENT MODE": draft.paymentMode || "",
+        "PAID TO": draft.paidTo || "",
+        "BUS GROUP": draft.busGroup || "",
         "JATHA DATE": getJathaLabel(draft),
         "TRAVEL START": formatDDMonYYYY(draft.travelStartDate),
         "TRAVEL END": formatDDMonYYYY(draft.travelEndDate),
@@ -1113,29 +1326,6 @@ export default function CallingPage() {
             <button onClick={loadAll} className="app-btn app-btn-primary h-10 px-4">
               Refresh
             </button>
-          </div>
-        </div>
-
-        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
-          <div className="rounded-xl border border-black/10 bg-white/60 p-3 dark:border-white/10 dark:bg-white/5">
-            <div className="text-[11px] uppercase tracking-wide text-zinc-500">Unique Travellers</div>
-            <div className="mt-1 text-xl font-semibold">{travellerStats.uniqueTravellers}</div>
-          </div>
-          <div className="rounded-xl border border-black/10 bg-white/60 p-3 dark:border-white/10 dark:bg-white/5">
-            <div className="text-[11px] uppercase tracking-wide text-zinc-500">New</div>
-            <div className="mt-1 text-xl font-semibold">{travellerStats.newCount}</div>
-          </div>
-          <div className="rounded-xl border border-black/10 bg-white/60 p-3 dark:border-white/10 dark:bg-white/5">
-            <div className="text-[11px] uppercase tracking-wide text-zinc-500">Repeat</div>
-            <div className="mt-1 text-xl font-semibold">{travellerStats.repeatCount}</div>
-          </div>
-          <div className="rounded-xl border border-black/10 bg-white/60 p-3 dark:border-white/10 dark:bg-white/5">
-            <div className="text-[11px] uppercase tracking-wide text-zinc-500">Frequent</div>
-            <div className="mt-1 text-xl font-semibold">{travellerStats.frequentCount}</div>
-          </div>
-          <div className="rounded-xl border border-black/10 bg-white/60 p-3 dark:border-white/10 dark:bg-white/5">
-            <div className="text-[11px] uppercase tracking-wide text-zinc-500">Very Frequent</div>
-            <div className="mt-1 text-xl font-semibold">{travellerStats.veryFrequentCount}</div>
           </div>
         </div>
 
@@ -1213,6 +1403,65 @@ export default function CallingPage() {
           </div>
 
           <div>
+            <div className="app-label">Payment Mode</div>
+            <select
+              className={inputCls()}
+              value={paymentModeFilter}
+              onChange={(e) => setPaymentModeFilter(e.target.value as PaymentMode)}
+            >
+              <option value="">All</option>
+              {PAYMENT_MODE_OPTIONS.map((x) => (
+                <option key={x} value={x}>
+                  {x}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <div className="app-label">Paid To</div>
+            <select
+              className={inputCls()}
+              value={paidToFilter}
+              onChange={(e) => setPaidToFilter(e.target.value as PaidTo)}
+            >
+              <option value="">All</option>
+              {PAID_TO_OPTIONS.map((x) => (
+                <option key={x} value={x}>
+                  {x}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <div className="app-label">Payment Less Than</div>
+            <input
+              className={inputCls()}
+              value={paymentFilter}
+              onChange={(e) => setPaymentFilter(e.target.value.replace(/[^0-9.]/g, ""))}
+              inputMode="decimal"
+              placeholder="Amount less than..."
+            />
+          </div>
+
+          <div>
+            <div className="app-label">Bus Group</div>
+            <select
+              className={inputCls()}
+              value={busGroupFilter}
+              onChange={(e) => setBusGroupFilter(e.target.value)}
+            >
+              <option value="">All</option>
+              {busGroupOptions.map((g) => (
+                <option key={g} value={g}>
+                  {g}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
             <div className="app-label">Confirm</div>
             <div className="flex min-h-10 flex-wrap items-center gap-2 rounded-lg border border-black/10 bg-white px-2 py-1.5 text-xs dark:border-white/10 dark:bg-zinc-950">
               {(["Pending", "Yes", "No"] as ConfirmFilterValue[]).map((value) => (
@@ -1287,6 +1536,15 @@ export default function CallingPage() {
             <span>
               Female: <span className="font-semibold">{genderStats.female}</span>
             </span>
+            <span>
+              Payment Sum: <span className="font-semibold">{paymentStats.paymentSum}</span>
+            </span>
+            <span>
+              Fare Sum: <span className="font-semibold">{paymentStats.fareSum}</span>
+            </span>
+            <span>
+              Pending Sum: <span className="font-semibold">{paymentStats.pendingSum}</span>
+            </span>
           </div>
 
           <button
@@ -1297,6 +1555,10 @@ export default function CallingPage() {
               setTypeFilter("");
               setJathaDateFilter("");
               setModeFilters([]);
+              setPaymentModeFilter("");
+              setPaidToFilter("");
+              setPaymentFilter("");
+              setBusGroupFilter("");
               setConfirmFilters([]);
               setFerryFilter("");
               setFrequencyFilter("");
@@ -1400,6 +1662,7 @@ export default function CallingPage() {
                 <th className="th w-24 px-2 py-2">Gender</th>
                 <th className="th w-16 px-2 py-2">Age</th>
                 <th className="th w-32 px-2 py-2">Mobile</th>
+                <th className="th w-36 px-2 py-2">Emergency</th>
                 <th className="th w-72 px-2 py-2">Address</th>
                 <th className="th w-28 px-2 py-2">Badge</th>
                 <th className="th w-36 px-2 py-2">Aadhaar</th>
@@ -1413,6 +1676,9 @@ export default function CallingPage() {
                 <th className="th w-24 px-2 py-2">Fare Total</th>
                 <th className="th w-24 px-2 py-2">Pending</th>
                 <th className="th w-32 px-2 py-2">Payment</th>
+                <th className="th w-32 px-2 py-2">Payment Mode</th>
+                <th className="th w-32 px-2 py-2">Paid To</th>
+                <th className="th w-32 px-2 py-2">Bus Group</th>
                 <th className="th w-44 px-2 py-2">Jatha Date</th>
                 <th className="th w-28 px-2 py-2">Travel Start</th>
                 <th className="th w-28 px-2 py-2">Travel End</th>
@@ -1429,13 +1695,13 @@ export default function CallingPage() {
             <tbody className="divide-y divide-black/5 dark:divide-white/10">
               {loading ? (
                 <tr>
-                  <td className="td px-2 py-2 text-zinc-600 dark:text-zinc-400" colSpan={37}>
+                  <td className="td px-2 py-2 text-zinc-600 dark:text-zinc-400" colSpan={41}>
                     Loading...
                   </td>
                 </tr>
               ) : filteredRows.length === 0 ? (
                 <tr>
-                  <td className="td px-2 py-2 text-zinc-600 dark:text-zinc-400" colSpan={37}>
+                  <td className="td px-2 py-2 text-zinc-600 dark:text-zinc-400" colSpan={41}>
                     No records found.
                   </td>
                 </tr>
@@ -1500,6 +1766,7 @@ export default function CallingPage() {
                       <td className="td px-2 py-2">{draft.gender || "-"}</td>
                       <td className="td px-2 py-2">{draft.age ?? "-"}</td>
                       <td className="td px-2 py-2">{draft.mobile || "-"}</td>
+                      <td className="td px-2 py-2">{getEmergencyNumber(draft) || "-"}</td>
                       <td className="td px-2 py-2 whitespace-normal break-words">
                         {draft.address || "-"}
                       </td>
@@ -1521,6 +1788,9 @@ export default function CallingPage() {
                       <td className="td px-2 py-2">{c.fareTotal || "-"}</td>
                       <td className="td px-2 py-2">{c.pending || "-"}</td>
                       <td className="td px-2 py-2">{pay || "-"}</td>
+                      <td className="td px-2 py-2">{draft.paymentMode || "-"}</td>
+                      <td className="td px-2 py-2">{draft.paidTo || "-"}</td>
+                      <td className="td px-2 py-2 font-semibold text-amber-700 dark:text-amber-300">{draft.busGroup || "-"}</td>
                       <td className="td px-2 py-2 whitespace-nowrap">{getJathaLabel(draft)}</td>
                       <td className="td px-2 py-2 whitespace-nowrap">
                         {formatDDMonYYYY(draft.travelStartDate) || "-"}
@@ -1607,7 +1877,7 @@ export default function CallingPage() {
         <div>
           <div className="text-lg font-semibold">Edit Row</div>
           <div className="text-xs text-zinc-600 dark:text-zinc-400">
-            Confirm and Ferry can be edited here too.
+            Confirm and Ferry can be edited here too. Emergency Number is shown from Sangat Data when available.
           </div>
         </div>
 
@@ -1708,8 +1978,100 @@ export default function CallingPage() {
           </div>
 
           <div>
+            <div className="app-label">Emergency Number</div>
+            <input className={inputCls()} value={getEmergencyNumber(modalDraft) || ""} disabled />
+          </div>
+
+          <div>
             <div className="app-label">Badge</div>
             <input className={inputCls()} value={modalDraft.badgeNo || ""} disabled />
+          </div>
+
+          <div>
+            <div className="app-label">Mode</div>
+            <select
+              className={inputCls()}
+              value={modalDraft.mode || ""}
+              onChange={(e) => updateDraft(modalBaseRow, { mode: e.target.value })}
+            >
+              <option value="">Select</option>
+              {modeOptions.map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <div className="app-label">Department</div>
+            <input
+              className={inputCls()}
+              value={modalDraft.department || ""}
+              onChange={(e) => updateDraft(modalBaseRow, { department: e.target.value })}
+              placeholder="Department"
+            />
+          </div>
+
+          <div>
+            <div className="app-label">Payment</div>
+            <input
+              className={inputCls()}
+              value={modalDraft.payment || ""}
+              onChange={(e) => updateDraft(modalBaseRow, { payment: e.target.value })}
+              placeholder="Payment"
+            />
+          </div>
+
+          <div>
+            <div className="app-label">Payment Mode</div>
+            <select
+              className={inputCls()}
+              value={modalDraft.paymentMode || ""}
+              onChange={(e) => updateDraft(modalBaseRow, { paymentMode: e.target.value })}
+            >
+              <option value="">Select</option>
+              {PAYMENT_MODE_OPTIONS.map((x) => (
+                <option key={x} value={x}>
+                  {x}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <div className="app-label">Paid To</div>
+            <select
+              className={inputCls()}
+              value={modalDraft.paidTo || ""}
+              onChange={(e) => updateDraft(modalBaseRow, { paidTo: e.target.value })}
+            >
+              <option value="">Select</option>
+              {PAID_TO_OPTIONS.map((x) => (
+                <option key={x} value={x}>
+                  {x}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <div className="app-label">Bus Group</div>
+            <select
+              className={inputCls()}
+              value={modalDraft.busGroup || ""}
+              onChange={(e) => updateDraft(modalBaseRow, { busGroup: e.target.value })}
+            >
+              <option value="">No Group</option>
+              {busGroupOptions.map((g) => (
+                <option key={g} value={g}>
+                  {g}
+                </option>
+              ))}
+            </select>
+            <div className="mt-1 text-[11px] text-zinc-600 dark:text-zinc-400">
+              Same Bus/Friend Group should be kept in one bus.
+            </div>
           </div>
 
           <div>

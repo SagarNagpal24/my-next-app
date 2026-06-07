@@ -13,15 +13,46 @@ function asString(v: any) {
   return String(v ?? "").trim();
 }
 
+function asUpperString(v: any) {
+  return String(v ?? "").trim().toUpperCase();
+}
+
 function asYesNo(v: any): "" | "Yes" | "No" {
   const s = String(v ?? "").trim();
   return s === "Yes" || s === "No" ? s : "";
+}
+
+// ✅ NEW: Payment Mode dropdown value
+function asPaymentMode(v: any): "" | "Cash" | "Online" {
+  const s = String(v ?? "").trim();
+  return s === "Cash" || s === "Online" ? s : "";
+}
+
+// ✅ NEW: Paid To dropdown value
+function asPaidTo(
+  v: any
+): "" | "Munish" | "Sagar" | "Gurjeet" | "Pulkit" | "Anjali" | "Jyoti" {
+  const s = String(v ?? "").trim();
+  return ["Munish", "Sagar", "Gurjeet", "Pulkit", "Anjali", "Jyoti"].includes(s)
+    ? (s as any)
+    : "";
 }
 
 async function ensureIndexes(db: any) {
   await db.collection(COLLECTION).createIndex(
     { customerId: 1, jathaDateId: 1 },
     { unique: true, name: "uniq_customer_jathadate" }
+  );
+
+  // ✅ NEW: helps searching/filtering Bus Group / Friend Group
+  await db.collection(COLLECTION).createIndex(
+    { busGroup: 1 },
+    {
+      name: "idx_bus_group",
+      partialFilterExpression: {
+        busGroup: { $type: "string", $ne: "" },
+      },
+    }
   );
 }
 
@@ -58,6 +89,23 @@ export async function PUT(req: Request, ctx: Ctx) {
 
     const mode = asString(body.mode);
     const payment = asString(body.payment);
+
+    // ✅ NEW FIELDS
+    // Preserve existing values if this route is called from an older page/API payload
+    // that does not send paymentMode or paidTo.
+    const paymentMode = hasOwn("paymentMode")
+      ? asPaymentMode(body.paymentMode)
+      : asPaymentMode(existing.paymentMode);
+
+    const paidTo = hasOwn("paidTo")
+      ? asPaidTo(body.paidTo)
+      : asPaidTo(existing.paidTo);
+
+    // ✅ NEW: Bus/Friend group marker
+    // Preserve existing group if older code does not send busGroup.
+    const busGroup = hasOwn("busGroup")
+      ? asUpperString(body.busGroup)
+      : asUpperString(existing.busGroup);
 
     const jathaDateId = asString(body.jathaDateId);
     const jathaDate = asString(body.jathaDate);
@@ -97,6 +145,14 @@ export async function PUT(req: Request, ctx: Ctx) {
     const update: any = {
       mode,
       payment,
+
+      // ✅ NEW FIELDS
+      paymentMode,
+      paidTo,
+
+      // ✅ NEW: Bus/Friend group marker
+      busGroup,
+
       jathaDateId,
       jathaDate: new Date(jathaDate),
       notes,

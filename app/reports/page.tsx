@@ -6,6 +6,11 @@ type Category = "ladoo" | "parantha" | "bhati";
 type GenderFilter = "Male" | "Female" | "Other" | "";
 
 type YesNo = "Yes" | "No" | "";
+type PaymentMode = "" | "Cash" | "Online";
+type PaidTo = "" | "Munish" | "Sagar" | "Gurjeet" | "Pulkit" | "Anjali" | "Jyoti";
+
+const PAYMENT_MODE_OPTIONS: Exclude<PaymentMode, "">[] = ["Cash", "Online"];
+const PAID_TO_OPTIONS: Exclude<PaidTo, "">[] = ["Munish", "Sagar", "Gurjeet", "Pulkit", "Anjali", "Jyoti"];
 
 // ✅ keep in sync with nominal-roll page
 const DEPARTMENT_OPTIONS = [
@@ -155,6 +160,8 @@ type ReportRow = {
   ticketBeasDelhi?: any;
 
   payment?: string;
+  paymentMode?: PaymentMode | string;
+  paidTo?: PaidTo | string;
 
   // reports may return either jathaDateId or only jathaDate (start date)
   jathaDateId?: string;
@@ -366,6 +373,8 @@ async function exportToExcel(rows: any[], filename: string) {
     "FARE TOTAL",
     "PENDING",
     "PAYMENT",
+    "PAYMENT MODE",
+    "PAID TO",
     "JATHA DATE",
     "TRAVEL START",
     "TRAVEL END",
@@ -403,6 +412,8 @@ async function exportToExcel(rows: any[], filename: string) {
       r.fareTotal ?? 0,
       r.pending ?? 0,
       r.payment ? Number(r.payment) || r.payment : 0,
+      upper(r.paymentMode || ""),
+      upper(r.paidTo || ""),
       upper(r.jathaDate || ""),
       upper(r.travelStartDate || ""),
       upper(r.travelEndDate || ""),
@@ -431,6 +442,8 @@ export default function ReportsPage() {
   const [department, setDepartment] = React.useState<string>("");
   const [sangat, setSangat] = React.useState<YesNo>("");
   const [mode, setMode] = React.useState<string>("");
+  const [paymentMode, setPaymentMode] = React.useState<PaymentMode>("");
+  const [paidTo, setPaidTo] = React.useState<PaidTo>("");
 
   const [reqDB, setReqDB] = React.useState<YesNo>("");
   const [reqBD, setReqBD] = React.useState<YesNo>("");
@@ -627,6 +640,18 @@ export default function ReportsPage() {
       list = list.filter((r) => String(r.mode || "").trim().toLowerCase() === m);
     }
 
+    // payment mode
+    if (paymentMode) {
+      const pm = paymentMode.trim().toLowerCase();
+      list = list.filter((r) => String(r.paymentMode || "").trim().toLowerCase() === pm);
+    }
+
+    // paid to
+    if (paidTo) {
+      const pt = paidTo.trim().toLowerCase();
+      list = list.filter((r) => String(r.paidTo || "").trim().toLowerCase() === pt);
+    }
+
     // req filters
     if (reqDB) list = list.filter((r) => String(r.bookingReqDelhiBeas || "").trim() === reqDB);
     if (reqBD) list = list.filter((r) => String(r.bookingReqBeasDelhi || "").trim() === reqBD);
@@ -653,6 +678,8 @@ export default function ReportsPage() {
           renderTicket(r.ticketDelhiBeas),
           renderTicket(r.ticketBeasDelhi),
           r.payment,
+          r.paymentMode,
+          r.paidTo,
           jr.start,
           jr.end,
           r.travelStartDate,
@@ -716,6 +743,8 @@ export default function ReportsPage() {
     department,
     sangat,
     mode,
+    paymentMode,
+    paidTo,
     reqDB,
     reqBD,
     jathaFrom,
@@ -1084,6 +1113,8 @@ React.useEffect(() => {
     setDepartment("");
     setSangat("");
     setMode("");
+    setPaymentMode("");
+    setPaidTo("");
     setReqDB("");
     setReqBD("");
     setJathaFrom("");
@@ -1629,6 +1660,8 @@ React.useEffect(() => {
         ticketDelhiBeas: normalizeTicketId(editRow.ticketDelhiBeas) || "",
         ticketBeasDelhi: normalizeTicketId(editRow.ticketBeasDelhi) || "",
         payment: editRow.payment || "",
+        paymentMode: editRow.paymentMode || "",
+        paidTo: editRow.paidTo || "",
         jathaDateId: effectiveJathaDateId || "",
         jathaDate: jrForPayload.start || toYMD(editRow.jathaDate) || "",
         travelStartDate: toYMD(editRow.travelStartDate) || "",
@@ -1754,12 +1787,36 @@ React.useEffect(() => {
               <option value="Special Train">Special Train</option>
               <option value="Bus">Bus</option>
               <option value="Self">Self</option>
-                     <option value="Bus (Both Sides)">Bus (Both Sides)</option>
+                     
                          <option value="Bus (Delhi to Beas)">Bus (Delhi to Beas)</option>
                            <option value="Bus (Beas to Delhi)">Bus (Beas to Delhi)</option>
                <option value="Travel Only (Bus- Both Sides)">Travel Only (Bus- Both Sides)</option>
                        <option value="Travel Only (Bus- Delhi to Beas)">Travel Only (Bus- Delhi to Beas)</option>
                        <option value="Travel Only (Bus- Beas to Delhi)">Travel Only (Bus- Beas to Delhi)</option>
+            </select>
+          </div>
+
+          <div>
+            <div className="app-label">Payment Mode</div>
+            <select className={inputCls()} value={paymentMode} onChange={(e) => setPaymentMode(e.target.value as PaymentMode)}>
+              <option value="">All</option>
+              {PAYMENT_MODE_OPTIONS.map((x) => (
+                <option key={x} value={x}>
+                  {x}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <div className="app-label">Paid To</div>
+            <select className={inputCls()} value={paidTo} onChange={(e) => setPaidTo(e.target.value as PaidTo)}>
+              <option value="">All</option>
+              {PAID_TO_OPTIONS.map((x) => (
+                <option key={x} value={x}>
+                  {x}
+                </option>
+              ))}
             </select>
           </div>
 
@@ -1930,6 +1987,8 @@ React.useEffect(() => {
                 <th className="th w-24 px-2 py-2">Fare Total</th>
                 <th className="th w-24 px-2 py-2">Pending</th>
                 <th className="th w-32 px-2 py-2">Payment</th>
+                <th className="th w-32 px-2 py-2">Payment Mode</th>
+                <th className="th w-32 px-2 py-2">Paid To</th>
 
                 <th className="th w-44 px-2 py-2">Jatha Date</th>
                 <th className="th w-28 px-2 py-2">Travel Start</th>
@@ -1944,13 +2003,13 @@ React.useEffect(() => {
             <tbody className="divide-y divide-black/5 dark:divide-white/10">
               {loading ? (
                 <tr>
-                  <td className="td px-2 py-2 text-zinc-600 dark:text-zinc-400" colSpan={26}>
+                  <td className="td px-2 py-2 text-zinc-600 dark:text-zinc-400" colSpan={28}>
                     Loading...
                   </td>
                 </tr>
               ) : items.length === 0 ? (
                 <tr>
-                  <td className="td px-2 py-2 text-zinc-600 dark:text-zinc-400" colSpan={26}>
+                  <td className="td px-2 py-2 text-zinc-600 dark:text-zinc-400" colSpan={28}>
                     No records found.
                   </td>
                 </tr>
@@ -1999,6 +2058,8 @@ React.useEffect(() => {
                       <td className="td px-2 py-2">{c.fareTotal || "-"}</td>
                       <td className="td px-2 py-2">{pending || "-"}</td>
                       <td className="td px-2 py-2">{pay || "-"}</td>
+                      <td className="td px-2 py-2">{r.paymentMode || "-"}</td>
+                      <td className="td px-2 py-2">{r.paidTo || "-"}</td>
 
                       <td className="td px-2 py-2 whitespace-nowrap">{(formatDDMonYYYY(c.jathaStartDate) || "-") + " → " + (formatDDMonYYYY(c.jathaEndDate) || "-")}</td>
                       <td className="td px-2 py-2 whitespace-nowrap">{formatDDMonYYYY(toYMD(r.travelStartDate)) || "-"}</td>
@@ -2188,7 +2249,7 @@ React.useEffect(() => {
                     <option value="Special Train">Special Train</option>
                     <option value="Bus">Bus</option>
                     <option value="Self">Self</option>
-                           <option value="Bus (Both Sides)">Bus (Both Sides)</option>
+                           
                          <option value="Bus (Delhi to Beas)">Bus (Delhi to Beas)</option>
                            <option value="Bus (Beas to Delhi)">Bus (Beas to Delhi)</option>
                      <option value="Travel Only (Bus- Both Sides)">Travel Only (Bus- Both Sides)</option>
@@ -2260,6 +2321,38 @@ React.useEffect(() => {
                     onChange={(e) => setEditRow((p) => (p ? { ...p, payment: e.target.value } : p))}
                     placeholder="e.g. 300"
                   />
+                </div>
+
+                <div>
+                  <div className="app-label">Payment Mode</div>
+                  <select
+                    className={inputCls()}
+                    value={editRow.paymentMode || ""}
+                    onChange={(e) => setEditRow((p) => (p ? { ...p, paymentMode: e.target.value } : p))}
+                  >
+                    <option value="">Select</option>
+                    {PAYMENT_MODE_OPTIONS.map((x) => (
+                      <option key={x} value={x}>
+                        {x}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <div className="app-label">Paid To</div>
+                  <select
+                    className={inputCls()}
+                    value={editRow.paidTo || ""}
+                    onChange={(e) => setEditRow((p) => (p ? { ...p, paidTo: e.target.value } : p))}
+                  >
+                    <option value="">Select</option>
+                    {PAID_TO_OPTIONS.map((x) => (
+                      <option key={x} value={x}>
+                        {x}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 <div>

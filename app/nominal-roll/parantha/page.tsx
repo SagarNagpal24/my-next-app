@@ -4,6 +4,11 @@ import React from "react";
 
 type YesNo = "Yes" | "No" | "";
 type Mode = "Train" | "Bus" | "Self" |"Travel Only (Bus)"| ""
+type PaymentMode = "" | "Cash" | "Online";
+type PaidTo = "" | "Munish" | "Sagar" | "Gurjeet" | "Pulkit" | "Anjali" | "Jyoti";
+
+const PAYMENT_MODE_OPTIONS: Exclude<PaymentMode, "">[] = ["Cash", "Online"];
+const PAID_TO_OPTIONS: Exclude<PaidTo, "">[] = ["Munish", "Sagar", "Gurjeet", "Pulkit", "Anjali", "Jyoti"];
 
 // ✅ Train routes (we normalize from train-data)
 type RouteType = "DLI-BEAS" | "BEAS-DLI";
@@ -105,6 +110,11 @@ type NominalLadooRow = {
   ticketBeasDelhi: string;
 
   payment: string;
+  paymentMode?: PaymentMode | string;
+  paidTo?: PaidTo | string;
+
+  // ✅ Bus/Friend group marker: same value means keep these people in same bus
+  busGroup?: string;
 
   jathaDateId: string;
   jathaDate: string;
@@ -143,6 +153,19 @@ function normalizeId(x: any) {
 
 function inputCls() {
   return "app-input app-input-sm";
+}
+
+function normalizeBusGroup(v: any) {
+  return String(v || "").trim().toUpperCase();
+}
+
+function groupNumberFromLabel(label: string) {
+  const m = normalizeBusGroup(label).match(/^GROUP-(\d+)$/);
+  return m ? Number(m[1]) : 0;
+}
+
+function makeGroupLabel(n: number) {
+  return `GROUP-${n}`;
 }
 
 function normalizeRoute(v: any): RouteType | "" {
@@ -532,6 +555,12 @@ export default function ParanthaNominalRollPage() {
   const [ticketSearchBD, setTicketSearchBD] = React.useState("");
 
   const [payment, setPayment] = React.useState("");
+  const [paymentMode, setPaymentMode] = React.useState<PaymentMode>("");
+  const [paidTo, setPaidTo] = React.useState<PaidTo>("");
+
+  // ✅ Same Bus / Friend Group marker
+  const [busGroup, setBusGroup] = React.useState("");
+
   const [travelStartDate, setTravelStartDate] = React.useState("");
   const [travelEndDate, setTravelEndDate] = React.useState("");
   const [notes, setNotes] = React.useState("");
@@ -678,6 +707,59 @@ export default function ParanthaNominalRollPage() {
     }
     return m;
   }, [items]);
+
+
+  const busGroupCountMap = React.useMemo(() => {
+    const map = new Map<string, number>();
+
+    for (const r of items) {
+      const g = normalizeBusGroup(r.busGroup);
+      if (!g) continue;
+      map.set(g, (map.get(g) || 0) + 1);
+    }
+
+    return map;
+  }, [items]);
+
+  const busGroupOptions = React.useMemo(() => {
+    const used = Array.from(busGroupCountMap.keys()).sort((a, b) => {
+      const an = groupNumberFromLabel(a);
+      const bn = groupNumberFromLabel(b);
+
+      if (an && bn) return an - bn;
+      if (an) return -1;
+      if (bn) return 1;
+
+      return a.localeCompare(b);
+    });
+
+    let next = 1;
+    const unused: string[] = [];
+
+    while (unused.length < 5) {
+      const label = makeGroupLabel(next);
+      if (!busGroupCountMap.has(label)) unused.push(label);
+      next++;
+    }
+
+    return [...used, ...unused];
+  }, [busGroupCountMap]);
+
+  function busGroupOptionLabel(group: string) {
+    const g = normalizeBusGroup(group);
+    const count = busGroupCountMap.get(g) || 0;
+    return count > 0 ? `${g} (${count})` : `${g} (new)`;
+  }
+
+  function busGroupSelectCls(value: string) {
+    const count = busGroupCountMap.get(normalizeBusGroup(value)) || 0;
+
+    if (count > 0) {
+      return `${inputCls()} border-amber-300 bg-amber-50 font-semibold text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200`;
+    }
+
+    return `${inputCls()} border-emerald-300 bg-emerald-50 font-semibold text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-200`;
+  }
 
   const usedDelhiBeasTicketIds = React.useMemo(() => {
     const s = new Set<string>();
@@ -1060,6 +1142,9 @@ export default function ParanthaNominalRollPage() {
           travelEndDate: String(x.travelEndDate || "").slice(0, 10),
           ticketDelhiBeas: String(x.ticketDelhiBeas || ""),
           ticketBeasDelhi: String(x.ticketBeasDelhi || ""),
+          paymentMode: String(x.paymentMode || "").trim(),
+          paidTo: String(x.paidTo || "").trim(),
+          busGroup: String(x.busGroup || "").trim(),
           department: String(x.department || "").trim(),
           sangat: String(x.sangat || "").trim() as any,
         }))
@@ -1133,6 +1218,9 @@ export default function ParanthaNominalRollPage() {
     setTicketSearchBD("");
 
     setPayment("");
+    setPaymentMode("");
+    setPaidTo("");
+    setBusGroup("");
     setTravelStartDate("");
     setTravelEndDate("");
     setNotes("");
@@ -1166,6 +1254,9 @@ export default function ParanthaNominalRollPage() {
       travelEndDate: iso10(r.travelEndDate),
       department: String(r.department || "").trim(),
       sangat: (String(r.sangat || "").trim() as any) || "",
+      paymentMode: String(r.paymentMode || "").trim(),
+      paidTo: String(r.paidTo || "").trim(),
+      busGroup: String(r.busGroup || "").trim(),
     });
     setEditJathaDateIds(r.jathaDateId ? [String(r.jathaDateId).trim()] : []);
     setEditJathaOpen(false);
@@ -1255,6 +1346,9 @@ function validateCreate(selectedIds: string[]) {
         ticketBeasDelhi: mode === "Train" && bookingBeasDelhi === "Yes" ? String(ticketBeasDelhi || "").trim() : "",
 
         payment: payment.trim(),
+        paymentMode,
+        paidTo,
+        busGroup: busGroup.trim(),
 
         jathaDateId: oneId,
         jathaDate: jStart || "",
@@ -1369,6 +1463,9 @@ function validateCreate(selectedIds: string[]) {
             ? String(editing.ticketBeasDelhi || "").trim()
             : "",
         payment: editing.payment.trim(),
+        paymentMode: String(editing.paymentMode || "").trim(),
+        paidTo: String(editing.paidTo || "").trim(),
+        busGroup: String(editing.busGroup || "").trim(),
         jathaDateId: firstId,
         jathaDate: jStart || "",
         travelStartDate: String(editing.travelStartDate).slice(0, 10),
@@ -1406,6 +1503,9 @@ function validateCreate(selectedIds: string[]) {
           ticketDelhiBeas: "",
           ticketBeasDelhi: "",
           payment: editing.payment.trim(),
+          paymentMode: String(editing.paymentMode || "").trim(),
+          paidTo: String(editing.paidTo || "").trim(),
+          busGroup: String(editing.busGroup || "").trim(),
           jathaDateId: extraId,
           jathaDate: extraJStart || "",
           travelStartDate: String(editing.travelStartDate).slice(0, 10),
@@ -1633,6 +1733,9 @@ function validateCreate(selectedIds: string[]) {
                 ? String(patch.ticketBeasDelhi ?? target.ticketBeasDelhi ?? "").trim()
                 : "",
             payment: String(target.payment || "").trim(),
+            paymentMode: String(target.paymentMode || "").trim(),
+            paidTo: String(target.paidTo || "").trim(),
+            busGroup: String(target.busGroup || "").trim(),
             jathaDateId: target.jathaDateId,
             jathaDate: jStart || "",
             travelStartDate: iso10(target.travelStartDate),
@@ -1774,6 +1877,9 @@ function validateCreate(selectedIds: string[]) {
         r.department,
         r.sangat,
         r.mode,
+        r.paymentMode,
+        r.paidTo,
+        r.busGroup,
         r.bookingReqDelhiBeas,
         r.bookingReqBeasDelhi,
         r.ticketDelhiBeas,
@@ -1857,6 +1963,9 @@ function validateCreate(selectedIds: string[]) {
         "FARE TOTAL": upper(fareTotal),
         "PENDING": upper(pending),
         "PAYMENT": upper(paid),
+        "PAYMENT MODE": upper(r.paymentMode || ""),
+        "PAID TO": upper(r.paidTo || ""),
+        "BUS GROUP": upper(r.busGroup || ""),
         "JATHA DATE": upper(`${jr.start} -> ${jr.end}`),
         "TRAVEL START": upper(String(r.travelStartDate || "").slice(0, 10)),
         "TRAVEL END": upper(String(r.travelEndDate || "").slice(0, 10)),
@@ -1906,7 +2015,8 @@ function validateCreate(selectedIds: string[]) {
           <div class="row small">TRAVEL: <b>${upper(r.travelStartDate)} -> ${upper(r.travelEndDate)}</b></div>
           <div class="row small">TICKET D-B: ${upper(renderTicketLabel(r.ticketDelhiBeas))}</div>
           <div class="row small">TICKET B-D: ${upper(renderTicketLabel(r.ticketBeasDelhi))}</div>
-          <div class="row">FARE: <b>${upper(fareTotal)}</b> &nbsp; PAID: <b>${upper(paid)}</b> &nbsp; PENDING: <b>${upper(pending)}</b></div>
+          <div class="row">FARE: <b>${upper(fareTotal)}</b> &nbsp; PAID: <b>${upper(paid)}</b> &nbsp; PENDING: <b>${upper(pending)}</b></div>\n          <div class="row small">PAYMENT MODE: <b>${upper(r.paymentMode || "-")}</b> &nbsp; PAID TO: <b>${upper(r.paidTo || "-")}</b></div>
+          <div class="row small">BUS GROUP: <b>${upper(r.busGroup || "-")}</b></div>
         </div>
       `;
     }
@@ -2016,6 +2126,9 @@ function validateCreate(selectedIds: string[]) {
         "Ticket B-D": renderTicketValue(r.ticketBeasDelhi),
         Fare: fare === null ? "" : fare,
         Paid: paid === null ? "" : paid,
+        "Payment Mode": r.paymentMode || "",
+        "Paid To": r.paidTo || "",
+        "Bus Group": r.busGroup || "",
         Pending: pending === null ? "" : pending,
         "Pending Side": pendingSide,
         Notes: r.notes || "",
@@ -2538,7 +2651,7 @@ function validateCreate(selectedIds: string[]) {
                        <option value="Special Train">Special Train</option>
                       <option value="Bus">Bus</option>
                       <option value="Self">Self</option>
-                         <option value="Bus (Both Sides)">Bus (Both Sides)</option>
+                         
                          <option value="Bus (Delhi to Beas)">Bus (Delhi to Beas)</option>
                            <option value="Bus (Beas to Delhi)">Bus (Beas to Delhi)</option>
                       <option value="Travel Only (Bus- Both Sides)">Travel Only (Bus- Both Sides)</option>
@@ -2571,6 +2684,62 @@ function validateCreate(selectedIds: string[]) {
                   <div>
                     <div className="app-label">Payment *</div>
                     <input className={inputCls()} value={payment} onChange={(e) => setPayment(e.target.value)} placeholder="e.g., 500 / Paid 500" />
+                  </div>
+
+                  <div>
+                    <div className="app-label">Payment Mode</div>
+                    <select className={inputCls()} value={paymentMode} onChange={(e) => setPaymentMode(e.target.value as PaymentMode)}>
+                      <option value="">Select</option>
+                      {PAYMENT_MODE_OPTIONS.map((x) => (
+                        <option key={x} value={x}>
+                          {x}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <div className="app-label">Paid To</div>
+                    <select className={inputCls()} value={paidTo} onChange={(e) => setPaidTo(e.target.value as PaidTo)}>
+                      <option value="">Select</option>
+                      {PAID_TO_OPTIONS.map((x) => (
+                        <option key={x} value={x}>
+                          {x}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="sm:col-span-2 lg:col-span-3 rounded-xl border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/40 dark:bg-amber-950/20">
+                    <div className="app-label">Bus Group / Friend Group</div>
+                    <select
+                      className={busGroup ? busGroupSelectCls(busGroup) : inputCls()}
+                      value={busGroup}
+                      onChange={(e) => setBusGroup(e.target.value)}
+                    >
+                      <option value="">No Group</option>
+                      {busGroupOptions.map((g) => {
+                        const count = busGroupCountMap.get(g) || 0;
+                        return (
+                          <option key={g} value={g}>
+                            {busGroupOptionLabel(g)}
+                          </option>
+                        );
+                      })}
+                    </select>
+
+                    <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                      <span className="rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 font-semibold text-amber-900 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
+                        Used group = amber
+                      </span>
+                      <span className="rounded-full border border-emerald-300 bg-emerald-100 px-2 py-0.5 font-semibold text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200">
+                        New group = green
+                      </span>
+                    </div>
+
+                    <div className="mt-1 text-xs text-amber-800 dark:text-amber-200">
+                      Same group name means these people should be placed in one bus only. Used groups show count, and next 5 unused groups are shown automatically.
+                    </div>
                   </div>
 
                   <div>
@@ -2824,7 +2993,7 @@ function validateCreate(selectedIds: string[]) {
                   <option value="Special Train">Special Train</option>
                   <option value="Bus">Bus</option>
                   <option value="Self">Self</option>
-                         <option value="Bus (Both Sides)">Bus (Both Sides)</option>
+                         
                          <option value="Bus (Delhi to Beas)">Bus (Delhi to Beas)</option>
                            <option value="Bus (Beas to Delhi)">Bus (Beas to Delhi)</option>
                   <option value="Travel Only (Bus- Both Sides)">Travel Only (Bus- Both Sides)</option>
@@ -2961,6 +3130,9 @@ function validateCreate(selectedIds: string[]) {
                     "Ticket B-D",
                     "Fare",
                     "Paid",
+                    "Payment Mode",
+                    "Paid To",
+                    "Bus Group",
                     "Pending",
                     "Jatha Date",
                     "Start",
@@ -2978,13 +3150,13 @@ function validateCreate(selectedIds: string[]) {
               <tbody className="divide-y divide-black/5 dark:divide-white/10">
                 {loading ? (
                   <tr>
-                    <td className="td text-zinc-600 dark:text-zinc-400" colSpan={22}>
+                    <td className="td text-zinc-600 dark:text-zinc-400" colSpan={25}>
                       Loading...
                     </td>
                   </tr>
                 ) : filteredItems.length === 0 ? (
                   <tr>
-                    <td className="td text-zinc-600 dark:text-zinc-400" colSpan={22}>
+                    <td className="td text-zinc-600 dark:text-zinc-400" colSpan={25}>
                       No records found.
                     </td>
                   </tr>
@@ -3019,6 +3191,9 @@ function validateCreate(selectedIds: string[]) {
 
                         <td className="td">{fare === null ? "-" : fare}</td>
                         <td className="td">{paid === null ? "-" : paid}</td>
+                        <td className="td">{r.paymentMode || "-"}</td>
+                        <td className="td">{r.paidTo || "-"}</td>
+                        <td className="td font-semibold text-amber-700 dark:text-amber-300">{r.busGroup || "-"}</td>
                         <td className="td font-semibold">{pending === null ? "-" : pending}</td>
 
                         <td className="td">{r.__groupLabel || formatJathaLabelFromRow(r)}</td>
@@ -3131,7 +3306,7 @@ function validateCreate(selectedIds: string[]) {
                       <option value="Special Train">Special Train</option>
                       <option value="Bus">Bus</option>
                       <option value="Self">Self</option>
-                             <option value="Bus (Both Sides)">Bus (Both Sides)</option>
+                             
                          <option value="Bus (Delhi to Beas)">Bus (Delhi to Beas)</option>
                            <option value="Bus (Beas to Delhi)">Bus (Beas to Delhi)</option>
                        <option value="Travel Only (Bus- Both Sides)">Travel Only (Bus- Both Sides)</option>
@@ -3163,6 +3338,67 @@ function validateCreate(selectedIds: string[]) {
                   <div>
                     <div className="app-label">Payment *</div>
                     <input className={inputCls()} value={editing.payment} onChange={(e) => setEditing({ ...editing, payment: e.target.value })} />
+                  </div>
+
+                  <div>
+                    <div className="app-label">Payment Mode</div>
+                    <select
+                      className={inputCls()}
+                      value={String(editing.paymentMode || "")}
+                      onChange={(e) => setEditing({ ...editing, paymentMode: e.target.value })}
+                    >
+                      <option value="">Select</option>
+                      {PAYMENT_MODE_OPTIONS.map((x) => (
+                        <option key={x} value={x}>
+                          {x}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <div className="app-label">Paid To</div>
+                    <select
+                      className={inputCls()}
+                      value={String(editing.paidTo || "")}
+                      onChange={(e) => setEditing({ ...editing, paidTo: e.target.value })}
+                    >
+                      <option value="">Select</option>
+                      {PAID_TO_OPTIONS.map((x) => (
+                        <option key={x} value={x}>
+                          {x}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="sm:col-span-2 lg:col-span-3 rounded-xl border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/40 dark:bg-amber-950/20">
+                    <div className="app-label">Bus Group / Friend Group</div>
+                    <select
+                      className={editing.busGroup ? busGroupSelectCls(String(editing.busGroup || "")) : inputCls()}
+                      value={String(editing.busGroup || "")}
+                      onChange={(e) => setEditing({ ...editing, busGroup: e.target.value })}
+                    >
+                      <option value="">No Group</option>
+                      {busGroupOptions.map((g) => (
+                        <option key={g} value={g}>
+                          {busGroupOptionLabel(g)}
+                        </option>
+                      ))}
+                    </select>
+
+                    <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                      <span className="rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 font-semibold text-amber-900 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
+                        Used group = amber
+                      </span>
+                      <span className="rounded-full border border-emerald-300 bg-emerald-100 px-2 py-0.5 font-semibold text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200">
+                        New group = green
+                      </span>
+                    </div>
+
+                    <div className="mt-1 text-xs text-amber-800 dark:text-amber-200">
+                      Same group name means these people should be placed in one bus only. Used groups show count, and next 5 unused groups are shown automatically.
+                    </div>
                   </div>
 
                   <div>
