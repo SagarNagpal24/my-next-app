@@ -2637,6 +2637,7 @@ for (const r of raw) {
                       <option value="Train">Train</option>
                       <option value="Bus">Bus</option>
                       <option value="Self">Self</option>
+                      <option value="Travel Only">Travel Only</option>
                     </select>
                   </div>
 
@@ -2915,6 +2916,7 @@ for (const r of raw) {
                   <option value="Train">Train</option>
                   <option value="Bus">Bus</option>
                   <option value="Self">Self</option>
+                   <option value="Travel Only">Travel Only</option>
                 </select>
               </div>
 
@@ -3215,6 +3217,7 @@ for (const r of raw) {
                       <option value="Train">Train</option>
                       <option value="Bus">Bus</option>
                       <option value="Self">Self</option>
+                       <option value="Travel Only">Travel Only</option>
                     </select>
                   </div>
 

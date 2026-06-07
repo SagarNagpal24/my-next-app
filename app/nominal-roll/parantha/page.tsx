@@ -2537,6 +2537,9 @@ function validateCreate(selectedIds: string[]) {
                       <option value="Train">Train</option>
                       <option value="Bus">Bus</option>
                       <option value="Self">Self</option>
+                         <option value="Bus (Both Sides)">Bus (Both Sides)</option>
+                         <option value="Bus (Delhi to Beas)">Bus (Delhi to Beas)</option>
+                           <option value="Bus (Beas to Delhi)">Bus (Beas to Delhi)</option>
                       <option value="Travel Only (Bus- Both Sides)">Travel Only (Bus- Both Sides)</option>
                        <option value="Travel Only (Bus- Delhi to Beas)">Travel Only (Bus- Delhi to Beas)</option>
                        <option value="Travel Only (Bus- Beas to Delhi)">Travel Only (Bus- Beas to Delhi)</option>
@@ -2819,6 +2822,9 @@ function validateCreate(selectedIds: string[]) {
                   <option value="Train">Train</option>
                   <option value="Bus">Bus</option>
                   <option value="Self">Self</option>
+                         <option value="Bus (Both Sides)">Bus (Both Sides)</option>
+                         <option value="Bus (Delhi to Beas)">Bus (Delhi to Beas)</option>
+                           <option value="Bus (Beas to Delhi)">Bus (Beas to Delhi)</option>
                   <option value="Travel Only (Bus- Both Sides)">Travel Only (Bus- Both Sides)</option>
                        <option value="Travel Only (Bus- Delhi to Beas)">Travel Only (Bus- Delhi to Beas)</option>
                        <option value="Travel Only (Bus- Beas to Delhi)">Travel Only (Bus- Beas to Delhi)</option>
@@ -3122,6 +3128,9 @@ function validateCreate(selectedIds: string[]) {
                       <option value="Train">Train</option>
                       <option value="Bus">Bus</option>
                       <option value="Self">Self</option>
+                             <option value="Bus (Both Sides)">Bus (Both Sides)</option>
+                         <option value="Bus (Delhi to Beas)">Bus (Delhi to Beas)</option>
+                           <option value="Bus (Beas to Delhi)">Bus (Beas to Delhi)</option>
                        <option value="Travel Only (Bus- Both Sides)">Travel Only (Bus- Both Sides)</option>
                        <option value="Travel Only (Bus- Delhi to Beas)">Travel Only (Bus- Delhi to Beas)</option>
                        <option value="Travel Only (Bus- Beas to Delhi)">Travel Only (Bus- Beas to Delhi)</option>
