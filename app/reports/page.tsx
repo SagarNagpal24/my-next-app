@@ -1751,6 +1751,7 @@ React.useEffect(() => {
             <select className={inputCls()} value={mode} onChange={(e) => setMode(e.target.value)}>
               <option value="">All</option>
               <option value="Train">Train</option>
+              <option value="Special Train">Special Train</option>
               <option value="Bus">Bus</option>
               <option value="Self">Self</option>
                      <option value="Bus (Both Sides)">Bus (Both Sides)</option>
@@ -2184,6 +2185,7 @@ React.useEffect(() => {
                   >
                     <option value="">Select</option>
                     <option value="Train">Train</option>
+                    <option value="Special Train">Special Train</option>
                     <option value="Bus">Bus</option>
                     <option value="Self">Self</option>
                            <option value="Bus (Both Sides)">Bus (Both Sides)</option>

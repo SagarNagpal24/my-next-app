@@ -2535,6 +2535,7 @@ function validateCreate(selectedIds: string[]) {
                     <select className={inputCls()} value={mode} onChange={(e) => setMode(e.target.value as any)}>
                       <option value="">Select</option>
                       <option value="Train">Train</option>
+                       <option value="Special Train">Special Train</option>
                       <option value="Bus">Bus</option>
                       <option value="Self">Self</option>
                          <option value="Bus (Both Sides)">Bus (Both Sides)</option>
@@ -2820,6 +2821,7 @@ function validateCreate(selectedIds: string[]) {
                 <select className={inputCls()} value={tableMode} onChange={(e) => setTableMode(e.target.value as any)}>
                   <option value="">All</option>
                   <option value="Train">Train</option>
+                  <option value="Special Train">Special Train</option>
                   <option value="Bus">Bus</option>
                   <option value="Self">Self</option>
                          <option value="Bus (Both Sides)">Bus (Both Sides)</option>
@@ -3126,6 +3128,7 @@ function validateCreate(selectedIds: string[]) {
                     <select className={inputCls()} value={String(editing.mode || "")} onChange={(e) => setEditing({ ...editing, mode: e.target.value as any })}>
                       <option value="">Select</option>
                       <option value="Train">Train</option>
+                      <option value="Special Train">Special Train</option>
                       <option value="Bus">Bus</option>
                       <option value="Self">Self</option>
                              <option value="Bus (Both Sides)">Bus (Both Sides)</option>
