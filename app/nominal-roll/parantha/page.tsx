@@ -168,6 +168,14 @@ function makeGroupLabel(n: number) {
   return `GROUP-${n}`;
 }
 
+function firstNonEmpty(values: any[]) {
+  for (const v of values) {
+    const s = String(v || "").trim();
+    if (s) return s;
+  }
+  return "";
+}
+
 function normalizeRoute(v: any): RouteType | "" {
   let s = String(v ?? "").trim().toUpperCase();
   if (!s) return "";
@@ -709,20 +717,36 @@ export default function ParanthaNominalRollPage() {
   }, [items]);
 
 
-  const busGroupCountMap = React.useMemo(() => {
+  const createBusGroupJathaScope = React.useMemo(() => {
+    return firstNonEmpty(jathaDateIds);
+  }, [jathaDateIds]);
+
+  const editBusGroupJathaScope = React.useMemo(() => {
+    return firstNonEmpty(editJathaDateIds) || String(editing?.jathaDateId || "").trim();
+  }, [editJathaDateIds, editing?.jathaDateId]);
+
+  function buildBusGroupCountMapForJatha(jathaId: string, excludeId = "") {
     const map = new Map<string, number>();
+    const scope = String(jathaId || "").trim();
+    const exclude = String(excludeId || "").trim();
+
+    if (!scope) return map;
 
     for (const r of items) {
+      if (exclude && String(r._id || "").trim() === exclude) continue;
+      if (String(r.jathaDateId || "").trim() !== scope) continue;
+
       const g = normalizeBusGroup(r.busGroup);
       if (!g) continue;
+
       map.set(g, (map.get(g) || 0) + 1);
     }
 
     return map;
-  }, [items]);
+  }
 
-  const busGroupOptions = React.useMemo(() => {
-    const used = Array.from(busGroupCountMap.keys()).sort((a, b) => {
+  function buildBusGroupOptionsFromMap(map: Map<string, number>) {
+    const used = Array.from(map.keys()).sort((a, b) => {
       const an = groupNumberFromLabel(a);
       const bn = groupNumberFromLabel(b);
 
@@ -738,21 +762,37 @@ export default function ParanthaNominalRollPage() {
 
     while (unused.length < 5) {
       const label = makeGroupLabel(next);
-      if (!busGroupCountMap.has(label)) unused.push(label);
+      if (!map.has(label)) unused.push(label);
       next++;
     }
 
     return [...used, ...unused];
-  }, [busGroupCountMap]);
+  }
 
-  function busGroupOptionLabel(group: string) {
+  const createBusGroupCountMap = React.useMemo(() => {
+    return buildBusGroupCountMapForJatha(createBusGroupJathaScope);
+  }, [items, createBusGroupJathaScope]);
+
+  const createBusGroupOptions = React.useMemo(() => {
+    return buildBusGroupOptionsFromMap(createBusGroupCountMap);
+  }, [createBusGroupCountMap]);
+
+  const editBusGroupCountMap = React.useMemo(() => {
+    return buildBusGroupCountMapForJatha(editBusGroupJathaScope, editing?._id || "");
+  }, [items, editBusGroupJathaScope, editing?._id]);
+
+  const editBusGroupOptions = React.useMemo(() => {
+    return buildBusGroupOptionsFromMap(editBusGroupCountMap);
+  }, [editBusGroupCountMap]);
+
+  function busGroupOptionLabel(group: string, countMap: Map<string, number>) {
     const g = normalizeBusGroup(group);
-    const count = busGroupCountMap.get(g) || 0;
+    const count = countMap.get(g) || 0;
     return count > 0 ? `${g} (${count})` : `${g} (new)`;
   }
 
-  function busGroupSelectCls(value: string) {
-    const count = busGroupCountMap.get(normalizeBusGroup(value)) || 0;
+  function busGroupSelectCls(value: string, countMap: Map<string, number>) {
+    const count = countMap.get(normalizeBusGroup(value)) || 0;
 
     if (count > 0) {
       return `${inputCls()} border-amber-300 bg-amber-50 font-semibold text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200`;
@@ -1076,6 +1116,11 @@ export default function ParanthaNominalRollPage() {
     if (!endTouched || !travelEndDate) setTravelEndDate(je);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jathaDateIds.join("|"), jathaDates]);
+
+  // ✅ Bus Group is Jatha-wise. When Jatha changes, group selection starts fresh.
+  React.useEffect(() => {
+    setBusGroup("");
+  }, [createBusGroupJathaScope]);
 
   async function loadJathaDates() {
     setLoadingJatha(true);
@@ -2713,16 +2758,15 @@ function validateCreate(selectedIds: string[]) {
                   <div className="sm:col-span-2 lg:col-span-3 rounded-xl border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/40 dark:bg-amber-950/20">
                     <div className="app-label">Bus Group / Friend Group</div>
                     <select
-                      className={busGroup ? busGroupSelectCls(busGroup) : inputCls()}
+                      className={busGroup ? busGroupSelectCls(busGroup, createBusGroupCountMap) : inputCls()}
                       value={busGroup}
                       onChange={(e) => setBusGroup(e.target.value)}
                     >
                       <option value="">No Group</option>
-                      {busGroupOptions.map((g) => {
-                        const count = busGroupCountMap.get(g) || 0;
+                      {createBusGroupOptions.map((g) => {
                         return (
                           <option key={g} value={g}>
-                            {busGroupOptionLabel(g)}
+                            {busGroupOptionLabel(g, createBusGroupCountMap)}
                           </option>
                         );
                       })}
@@ -2738,7 +2782,7 @@ function validateCreate(selectedIds: string[]) {
                     </div>
 
                     <div className="mt-1 text-xs text-amber-800 dark:text-amber-200">
-                      Same group name means these people should be placed in one bus only. Used groups show count, and next 5 unused groups are shown automatically.
+                      Group list is calculated separately for the selected Jatha Date. Every new Jatha Date starts again from GROUP-1. Used groups show count, and next 5 unused groups are shown automatically.
                     </div>
                   </div>
 
@@ -3375,14 +3419,14 @@ function validateCreate(selectedIds: string[]) {
                   <div className="sm:col-span-2 lg:col-span-3 rounded-xl border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/40 dark:bg-amber-950/20">
                     <div className="app-label">Bus Group / Friend Group</div>
                     <select
-                      className={editing.busGroup ? busGroupSelectCls(String(editing.busGroup || "")) : inputCls()}
+                      className={editing.busGroup ? busGroupSelectCls(String(editing.busGroup || ""), editBusGroupCountMap) : inputCls()}
                       value={String(editing.busGroup || "")}
                       onChange={(e) => setEditing({ ...editing, busGroup: e.target.value })}
                     >
                       <option value="">No Group</option>
-                      {busGroupOptions.map((g) => (
+                      {editBusGroupOptions.map((g) => (
                         <option key={g} value={g}>
-                          {busGroupOptionLabel(g)}
+                          {busGroupOptionLabel(g, editBusGroupCountMap)}
                         </option>
                       ))}
                     </select>
@@ -3397,7 +3441,7 @@ function validateCreate(selectedIds: string[]) {
                     </div>
 
                     <div className="mt-1 text-xs text-amber-800 dark:text-amber-200">
-                      Same group name means these people should be placed in one bus only. Used groups show count, and next 5 unused groups are shown automatically.
+                      Group list is calculated separately for the selected Jatha Date. Every new Jatha Date starts again from GROUP-1. Used groups show count, and next 5 unused groups are shown automatically.
                     </div>
                   </div>
 
