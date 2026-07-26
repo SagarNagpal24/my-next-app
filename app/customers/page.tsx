@@ -58,7 +58,9 @@ const DEPARTMENT_OPTIONS: Exclude<Department, "">[] = [
 
 // ✅ Image payload (compressed)
 type ImgData = {
-  dataUrl: string; // base64 compressed image data URL
+  storage?: "r2";
+  key?: string;
+  dataUrl?: string; // legacy base64 compressed image data URL
   filename?: string;
   mime: string;
   size: number; // bytes (approx)
@@ -255,8 +257,44 @@ function formatBytes(bytes?: number) {
 }
 
 function safeImgSrc(img?: ImgData) {
-  if (!img?.dataUrl) return "";
-  return img.dataUrl;
+  if (img?.key) return `/api/images/${img.key}`;
+  if (img?.dataUrl) return img.dataUrl;
+  return "";
+}
+
+const SLOT_MAP: Record<string, string> = {
+  passport: "passport",
+  aadhaarFront: "aadhaarFront",
+  aadhaarBack: "aadhaarBack",
+  medical: "medical",
+};
+
+async function uploadImage(
+  slot: string,
+  img: ImgData,
+  existingKey?: string
+): Promise<ImgData> {
+  if (!img?.dataUrl) return img;
+
+  const blob = await (await fetch(img.dataUrl)).blob();
+  const file = new File([blob], img.filename || "image", { type: img.mime });
+
+  const fd = new FormData();
+  fd.append("file", file);
+  fd.append("slot", SLOT_MAP[slot] || "");
+  if (existingKey) fd.append("key", existingKey);
+
+  const res = await fetch("/api/uploads", { method: "POST", body: fd });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data?.error || "Image upload failed");
+
+  return {
+    storage: "r2",
+    key: data.key,
+    mime: data.mime,
+    size: data.size,
+    filename: data.filename,
+  };
 }
 
 async function fileToCompressedImgData(
@@ -387,10 +425,10 @@ function customerSnapshot(c: Customer | null): string {
     emergencyNumber: c.emergencyNumber || "",
     medicalDate: c.medicalDate || "",
     notes: c.notes || "",
-    passportPhoto: c.passportPhoto?.dataUrl || "",
-    aadhaarFrontPhoto: c.aadhaarFrontPhoto?.dataUrl || "",
-    aadhaarBackPhoto: c.aadhaarBackPhoto?.dataUrl || "",
-    medicalPhoto: c.medicalPhoto?.dataUrl || "",
+    passportPhoto: c.passportPhoto?.key || c.passportPhoto?.dataUrl || "",
+    aadhaarFrontPhoto: c.aadhaarFrontPhoto?.key || c.aadhaarFrontPhoto?.dataUrl || "",
+    aadhaarBackPhoto: c.aadhaarBackPhoto?.key || c.aadhaarBackPhoto?.dataUrl || "",
+    medicalPhoto: c.medicalPhoto?.key || c.medicalPhoto?.dataUrl || "",
   });
 }
 
@@ -418,6 +456,7 @@ export default function CustomersPage() {
   const [editing, setEditing] = React.useState<Customer | null>(null);
   const [saving, setSaving] = React.useState(false);
   const [editInitialSnapshot, setEditInitialSnapshot] = React.useState("");
+  const editOriginalKeys = React.useRef<Record<string, string | undefined>>({});
 
   const [exporting, setExporting] = React.useState<"filtered" | "all" | null>(null);
 
@@ -531,6 +570,12 @@ export default function CustomersPage() {
       blacklisted: (c.blacklisted as any) || "No",
       department: (c.department as any) || "",
     };
+    editOriginalKeys.current = {
+      passport: c.passportPhoto?.key,
+      aadhaarFront: c.aadhaarFrontPhoto?.key,
+      aadhaarBack: c.aadhaarBackPhoto?.key,
+      medical: c.medicalPhoto?.key,
+    };
     setEditing(nextEditing);
     setEditInitialSnapshot(customerSnapshot(nextEditing));
   }
@@ -590,6 +635,15 @@ export default function CustomersPage() {
     try {
       const { _id, ...rest } = editing;
 
+      const orig = editOriginalKeys.current;
+      const [passportPhoto, aadhaarFrontPhoto, aadhaarBackPhoto, medicalPhoto] =
+        await Promise.all([
+          uploadImage("passport", rest.passportPhoto || null, orig.passport),
+          uploadImage("aadhaarFront", rest.aadhaarFrontPhoto || null, orig.aadhaarFront),
+          uploadImage("aadhaarBack", rest.aadhaarBackPhoto || null, orig.aadhaarBack),
+          uploadImage("medical", rest.medicalPhoto || null, orig.medical),
+        ]);
+
       const payload = {
         ...rest,
         dob: rest.dob ? String(rest.dob).slice(0, 10) : null,
@@ -599,10 +653,10 @@ export default function CustomersPage() {
         medicalDate: rest.medicalDate ? String(rest.medicalDate).slice(0, 10) : null,
         blacklisted: (rest.blacklisted as any) || "No",
         department: (rest.department as any) || "",
-        passportPhoto: rest.passportPhoto || null,
-        aadhaarFrontPhoto: rest.aadhaarFrontPhoto || null,
-        aadhaarBackPhoto: rest.aadhaarBackPhoto || null,
-        medicalPhoto: rest.medicalPhoto || null,
+        passportPhoto: passportPhoto || null,
+        aadhaarFrontPhoto: aadhaarFrontPhoto || null,
+        aadhaarBackPhoto: aadhaarBackPhoto || null,
+        medicalPhoto: medicalPhoto || null,
       };
 
       const res = await fetch(`/api/customers/${realId}`, {
@@ -650,10 +704,10 @@ export default function CustomersPage() {
         (c.blacklisted as any) || "No",
         c.emergencyNumber || "",
         fmtExcelDate(c.medicalDate),
-        c.passportPhoto?.dataUrl ? "Yes" : "No",
-        c.aadhaarFrontPhoto?.dataUrl ? "Yes" : "No",
-        c.aadhaarBackPhoto?.dataUrl ? "Yes" : "No",
-        c.medicalPhoto?.dataUrl ? "Yes" : "No",
+        c.passportPhoto?.key || c.passportPhoto?.dataUrl ? "Yes" : "No",
+        c.aadhaarFrontPhoto?.key || c.aadhaarFrontPhoto?.dataUrl ? "Yes" : "No",
+        c.aadhaarBackPhoto?.key || c.aadhaarBackPhoto?.dataUrl ? "Yes" : "No",
+        c.medicalPhoto?.key || c.medicalPhoto?.dataUrl ? "Yes" : "No",
         c.notes || "",
       ]);
     });

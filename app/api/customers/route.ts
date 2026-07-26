@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getDb } from "../../lib/mongodb";
+import { isValidImgRef, pickImgRef } from "../../lib/images";
 
 const COLLECTION = "customers";
 
@@ -146,46 +147,6 @@ function ymdToUtcRange(ymd: string): { start: Date; end: Date } | null {
   const end = new Date(start);
   end.setUTCDate(end.getUTCDate() + 1);
   return { start, end };
-}
-
-// ✅ image validation for compressed dataUrl payload
-type ImgData = {
-  dataUrl: string;
-  filename?: string;
-  mime: string;
-  size: number;
-};
-
-function isValidImgData(x: any) {
-  if (!x) return true; // allow null/undefined
-  if (typeof x !== "object") return false;
-  if (typeof x.dataUrl !== "string") return false;
-  if (typeof x.mime !== "string") return false;
-  if (typeof x.size !== "number") return false;
-
-  // allow only webp/jpeg payload from your compressor
-  if (!["image/webp", "image/jpeg"].includes(x.mime)) return false;
-
-  // must be a dataURL
-  if (!x.dataUrl.startsWith("data:image/")) return false;
-
-  // size cap to protect DB/server
-  if (x.size > 1_200_000) return false;
-
-  // optional filename ok
-  if (x.filename !== undefined && typeof x.filename !== "string") return false;
-
-  return true;
-}
-
-function pickImg(x: any): ImgData | null {
-  if (!x) return null;
-  return {
-    dataUrl: String(x.dataUrl || ""),
-    filename: x.filename ? String(x.filename) : undefined,
-    mime: String(x.mime || ""),
-    size: Number(x.size || 0),
-  };
 }
 
 // ✅ ensure unique indexes for badgeNo + adhaarNumber (only when non-empty)
@@ -443,22 +404,22 @@ export async function POST(req: Request) {
     const aadhaarBackPhoto = body.aadhaarBackPhoto ?? null;
     const medicalPhoto = body.medicalPhoto ?? null;
 
-    if (!isValidImgData(passportPhoto))
+    if (!isValidImgRef(passportPhoto))
       return NextResponse.json(
         { error: "Invalid passport photo payload" },
         { status: 400 }
       );
-    if (!isValidImgData(aadhaarFrontPhoto))
+    if (!isValidImgRef(aadhaarFrontPhoto))
       return NextResponse.json(
         { error: "Invalid Aadhaar front photo payload" },
         { status: 400 }
       );
-    if (!isValidImgData(aadhaarBackPhoto))
+    if (!isValidImgRef(aadhaarBackPhoto))
       return NextResponse.json(
         { error: "Invalid Aadhaar back photo payload" },
         { status: 400 }
       );
-    if (!isValidImgData(medicalPhoto))
+    if (!isValidImgRef(medicalPhoto))
       return NextResponse.json(
         { error: "Invalid medical photo payload" },
         { status: 400 }
@@ -513,10 +474,10 @@ export async function POST(req: Request) {
       medicalDate,
       notes: String(body.notes || "").trim(),
 
-      passportPhoto: pickImg(passportPhoto),
-      aadhaarFrontPhoto: pickImg(aadhaarFrontPhoto),
-      aadhaarBackPhoto: pickImg(aadhaarBackPhoto),
-      medicalPhoto: pickImg(medicalPhoto),
+      passportPhoto: pickImgRef(passportPhoto),
+      aadhaarFrontPhoto: pickImgRef(aadhaarFrontPhoto),
+      aadhaarBackPhoto: pickImgRef(aadhaarBackPhoto),
+      medicalPhoto: pickImgRef(medicalPhoto),
 
       createdAt: new Date(),
       updatedAt: new Date(),
