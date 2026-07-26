@@ -1,0 +1,21 @@
+package-lock.json
+  s_30c06c90d3e71d::t_4179bc616e145b 11,46-353,1900-1980,3243-3248
+package.json
+  s_30c06c90d3e71d::t_a8e14ec426f0ec 12
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "f487e3b9d8f64a1856627bd6291c23d731a51b8c",
+  "prompts": {},
+  "sessions": {
+    "s_30c06c90d3e71d": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_061b7fd54ffeF93B47y3Jsqr5r",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Akshit <akshitsadana@gmail.com>"
+    }
+  }
+}
