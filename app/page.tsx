@@ -54,7 +54,9 @@ const DEPARTMENT_OPTIONS: Exclude<Department, "">[] = [
 ];
 
 type ImgData = {
-  dataUrl: string;
+  storage?: "r2";
+  key?: string;
+  dataUrl?: string;
   filename?: string;
   mime: string;
   size: number;
@@ -249,6 +251,36 @@ async function compressImageToDataUrl(
   };
 }
 
+const SLOT_MAP: Record<string, string> = {
+  passportPhoto: "passport",
+  aadhaarFrontPhoto: "aadhaarFront",
+  aadhaarBackPhoto: "aadhaarBack",
+  medicalPhoto: "medical",
+};
+
+async function uploadImage(fieldKey: string, img: ImgData): Promise<ImgData> {
+  if (!img?.dataUrl) return img;
+
+  const blob = await (await fetch(img.dataUrl)).blob();
+  const file = new File([blob], img.filename || "image", { type: img.mime });
+
+  const fd = new FormData();
+  fd.append("file", file);
+  fd.append("slot", SLOT_MAP[fieldKey] || "");
+
+  const res = await fetch("/api/uploads", { method: "POST", body: fd });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data?.error || "Image upload failed");
+
+  return {
+    storage: "r2",
+    key: data.key,
+    mime: data.mime,
+    size: data.size,
+    filename: data.filename,
+  };
+}
+
 export default function Home() {
   const [form, setForm] = React.useState<FormState>({
     name: "",
@@ -395,17 +427,16 @@ export default function Home() {
       }
       if (key === "medicalPhoto") opts = { maxW: 900, maxH: 900, quality: 0.6 };
 
-      const compressed = await compressImageToDataUrl(file, opts);
+      let compressed = await compressImageToDataUrl(file, opts);
 
       if (compressed && compressed.size > 300 * 1024) {
-        const compressed2 = await compressImageToDataUrl(file, {
+        compressed = await compressImageToDataUrl(file, {
           ...opts,
           quality: Math.max(0.45, opts.quality - 0.15),
         });
-        setField(key, compressed2 as any);
-      } else {
-        setField(key, compressed as any);
       }
+
+      setField(key, compressed as any);
     } catch (err: any) {
       setErrors((p) => ({
         ...p,
@@ -432,6 +463,14 @@ export default function Home() {
 
     setSaving(true);
     try {
+      const [passportPhoto, aadhaarFrontPhoto, aadhaarBackPhoto, medicalPhoto] =
+        await Promise.all([
+          uploadImage("passportPhoto", form.passportPhoto),
+          uploadImage("aadhaarFrontPhoto", form.aadhaarFrontPhoto),
+          uploadImage("aadhaarBackPhoto", form.aadhaarBackPhoto),
+          uploadImage("medicalPhoto", form.medicalPhoto),
+        ]);
+
       const payload = {
         name: toUpperTrim(form.name),
         badgeNo: toUpperTrim(form.badgeNo),
@@ -450,10 +489,10 @@ export default function Home() {
         emergencyNumber: digitsOnly(form.emergencyNumber),
         medicalDate: form.medicalDate ? form.medicalDate : null,
         notes: toUpperTrim(form.notes),
-        passportPhoto: form.passportPhoto,
-        aadhaarFrontPhoto: form.aadhaarFrontPhoto,
-        aadhaarBackPhoto: form.aadhaarBackPhoto,
-        medicalPhoto: form.medicalPhoto,
+        passportPhoto,
+        aadhaarFrontPhoto,
+        aadhaarBackPhoto,
+        medicalPhoto,
       };
 
       const res = await fetch("/api/customers", {

@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { ObjectId } from "mongodb";
 import { getDb } from "../../../lib/mongodb"; // keep your current working relative path
+import { isValidImgRef, pickImgRef, keysFromDoc } from "../../../lib/images";
+import { deleteObject } from "../../../lib/r2";
 
 const COLLECTION = "customers";
 
@@ -105,37 +107,13 @@ function calcAgeFromDob(dob: Date): number {
   return age;
 }
 
-// ✅ image validation (same as POST route)
-type ImgData = {
-  dataUrl: string;
-  filename?: string;
-  mime: string;
-  size: number;
-};
-
-function isValidImgData(x: any) {
-  if (!x) return true; // allow null/undefined
-  if (typeof x !== "object") return false;
-  if (typeof x.dataUrl !== "string") return false;
-  if (typeof x.mime !== "string") return false;
-  if (typeof x.size !== "number") return false;
-
-  if (!["image/webp", "image/jpeg"].includes(x.mime)) return false;
-  if (!x.dataUrl.startsWith("data:image/")) return false;
-  if (x.size > 1_200_000) return false;
-
-  if (x.filename !== undefined && typeof x.filename !== "string") return false;
-  return true;
-}
-
-function pickImg(x: any): ImgData | null {
-  if (!x) return null;
-  return {
-    dataUrl: String(x.dataUrl || ""),
-    filename: x.filename ? String(x.filename) : undefined,
-    mime: String(x.mime || ""),
-    size: Number(x.size || 0),
-  };
+async function safeDeleteKey(key?: string) {
+  if (!key) return;
+  try {
+    await deleteObject(key);
+  } catch (e: any) {
+    console.error("R2 delete failed:", e?.message || e);
+  }
 }
 
 // ✅ ensure unique indexes for badgeNo + adhaarNumber (only when non-empty)
@@ -301,25 +279,25 @@ export async function PUT(
     );
     const hasMedical = Object.prototype.hasOwnProperty.call(body, "medicalPhoto");
 
-    if (hasPassport && !isValidImgData(body.passportPhoto)) {
+    if (hasPassport && !isValidImgRef(body.passportPhoto)) {
       return NextResponse.json(
         { error: "Invalid passport photo payload" },
         { status: 400 }
       );
     }
-    if (hasAadhaarFront && !isValidImgData(body.aadhaarFrontPhoto)) {
+    if (hasAadhaarFront && !isValidImgRef(body.aadhaarFrontPhoto)) {
       return NextResponse.json(
         { error: "Invalid Aadhaar front photo payload" },
         { status: 400 }
       );
     }
-    if (hasAadhaarBack && !isValidImgData(body.aadhaarBackPhoto)) {
+    if (hasAadhaarBack && !isValidImgRef(body.aadhaarBackPhoto)) {
       return NextResponse.json(
         { error: "Invalid Aadhaar back photo payload" },
         { status: 400 }
       );
     }
-    if (hasMedical && !isValidImgData(body.medicalPhoto)) {
+    if (hasMedical && !isValidImgRef(body.medicalPhoto)) {
       return NextResponse.json(
         { error: "Invalid medical photo payload" },
         { status: 400 }
@@ -423,17 +401,35 @@ export async function PUT(
       update.medicalDate = medicalDate;
     }
 
-    if (hasPassport) update.passportPhoto = pickImg(body.passportPhoto);
-    if (hasAadhaarFront) update.aadhaarFrontPhoto = pickImg(body.aadhaarFrontPhoto);
-    if (hasAadhaarBack) update.aadhaarBackPhoto = pickImg(body.aadhaarBackPhoto);
-    if (hasMedical) update.medicalPhoto = pickImg(body.medicalPhoto);
+    if (hasPassport) update.passportPhoto = pickImgRef(body.passportPhoto);
+    if (hasAadhaarFront) update.aadhaarFrontPhoto = pickImgRef(body.aadhaarFrontPhoto);
+    if (hasAadhaarBack) update.aadhaarBackPhoto = pickImgRef(body.aadhaarBackPhoto);
+    if (hasMedical) update.medicalPhoto = pickImgRef(body.medicalPhoto);
 
     delete update._id;
+
+    const existing = await col.findOne({ _id: oid });
+    if (!existing) {
+      return NextResponse.json({ error: "Customer not found" }, { status: 404 });
+    }
 
     const result = await col.updateOne({ _id: oid }, { $set: update });
 
     if (result.matchedCount === 0) {
       return NextResponse.json({ error: "Customer not found" }, { status: 404 });
+    }
+
+    const photoFields = [
+      "passportPhoto",
+      "aadhaarFrontPhoto",
+      "aadhaarBackPhoto",
+      "medicalPhoto",
+    ] as const;
+    for (const f of photoFields) {
+      if (!(f in update)) continue;
+      const oldKey = existing?.[f]?.key;
+      const newKey = update[f]?.key;
+      if (oldKey && oldKey !== newKey) await safeDeleteKey(oldKey);
     }
 
     return NextResponse.json({ ok: true });
@@ -458,10 +454,17 @@ export async function DELETE(
       return NextResponse.json({ error: "Invalid customer id" }, { status: 400 });
 
     const db = await getDb();
-    const result = await db.collection(COLLECTION).deleteOne({ _id: oid });
+    const col = db.collection(COLLECTION);
+
+    const existing = await col.findOne({ _id: oid });
+    const result = await col.deleteOne({ _id: oid });
 
     if (result.deletedCount === 0) {
       return NextResponse.json({ error: "Customer not found" }, { status: 404 });
+    }
+
+    for (const key of keysFromDoc(existing)) {
+      await safeDeleteKey(key);
     }
 
     return NextResponse.json({ ok: true });
