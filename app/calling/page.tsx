@@ -12,6 +12,97 @@ type PaidTo = "" | "Munish" | "Sagar" | "Gurjeet" | "Pulkit" | "Anjali" | "Jyoti
 const PAYMENT_MODE_OPTIONS: Exclude<PaymentMode, "">[] = ["Cash", "Online"];
 const PAID_TO_OPTIONS: Exclude<PaidTo, "">[] = ["Munish", "Sagar", "Gurjeet", "Pulkit", "Anjali", "Jyoti"];
 
+// ✅ same ALLOTED values as Reports page (dept report)
+const DEPT_ALLOTTED_BY_TAB: Record<string, Record<string, number>> = {
+  ladoo: {
+    PANDAL: 3,
+    SECURITY: 3,
+    SHK: 3,
+    FR: 4,
+    TRAFFIC: 2,
+    MNT: 2,
+    HRT: 1,
+    CANTEEN: 1,
+    "ENGLISH-SATSANG": 0,
+    Painting: 0,
+    BAV: 0,
+    "BAAL-SATSANG": 0,
+    COUPON: 0,
+    OFFICE: 0,
+    "SEWA-COLLECTION": 0,
+    WATER: 1,
+    "SEWA-SAMITI": 0,
+    MEDICAL: 0,
+    "VIP BLOCK": 0,
+    LANGAR: 0,
+    "GUEST-HOUSE": 0,
+    SANGAT: 0,
+    UNKNOWN: 0,
+  },
+  parantha: {
+    PANDAL: 10,
+    SECURITY: 8,
+    SHK: 8,
+    FR: 6,
+    TRAFFIC: 5,
+    MNT: 4,
+    HRT: 2,
+    CANTEEN: 1,
+    BAV: 1,
+    "ENGLISH-SATSANG": 0,
+    Painting: 0,
+    "BAAL-SATSANG": 0,
+    COUPON: 1,
+    OFFICE: 1,
+    "SEWA-COLLECTION": 1,
+    WATER: 1,
+    "SEWA-SAMITI": 1,
+    MEDICAL: 0,
+    "VIP BLOCK": 0,
+    LANGAR: 0,
+    "GUEST-HOUSE": 0,
+    SANGAT: 0,
+    UNKNOWN: 0,
+  },
+  bhati: {
+    PANDAL: 0,
+    SECURITY: 0,
+    SANITATION: 0,
+    FR: 0,
+    TRAFFIC: 0,
+    MNT: 0,
+    HRT: 0,
+    CANTEEN: 0,
+    BAV: 0,
+    "ENGLISH-SATSANG": 0,
+    Painting: 0,
+    "BAAL-SATSANG": 0,
+    COUPON: 0,
+    OFFICE: 0,
+    "SEWA-COLLECTION": 0,
+    WATER: 0,
+    "SEWA-SAMITI": 0,
+    MEDICAL: 0,
+    "VIP BLOCK": 0,
+    LANGAR: 0,
+    "GUEST-HOUSE": 0,
+    SANGAT: 0,
+    UNKNOWN: 0,
+  },
+};
+
+type DeptSummaryRow = {
+  dept: string;
+  sewadars: number;
+  sangat: number;
+  total: number;
+  alloted: number;
+  diff: number;
+  bus: number;
+  train: number;
+  self: number;
+};
+
 type FrequencyFilter = "" | "new" | "repeat" | "frequent" | "very-frequent";
 type FrequencySort = "" | "highest" | "lowest";
 
@@ -292,6 +383,7 @@ export default function CallingPage() {
 
   const [detailsOpen, setDetailsOpen] = React.useState(false);
   const [detailsRowKey, setDetailsRowKey] = React.useState("");
+  const [deptOpen, setDeptOpen] = React.useState(false);
 
   function rowKey(row: CallingRow) {
     return `${row.sourceType}_${row._id}`;
@@ -1030,6 +1122,167 @@ export default function CallingPage() {
     return { paymentSum, fareSum, pendingSum };
   }, [filteredRows, ticketFareMap, allJathaDates]);
 
+  // ✅ Department Summary — same shape as Reports -> Dept Report,
+  // but driven by Calling's filteredRows (respects ALL calling filters).
+  const deptSummary = React.useMemo<DeptSummaryRow[]>(() => {
+    const map = new Map<string, DeptSummaryRow>();
+
+    function normDept(v: any) {
+      const s = String(v || "").trim();
+      return s ? s.toUpperCase() : "";
+    }
+
+    function keyForRow(r: any) {
+      const sangat = String(r.sangat || "").trim().toLowerCase();
+      const dept = normDept(r.department);
+      if (sangat === "yes" && !dept) return "SANGAT";
+      return dept || "UNKNOWN";
+    }
+
+    function getAllotedForDept(dept: string) {
+      const key = String(dept || "").toUpperCase();
+      // When Type = All, sum alloted across ladoo+parantha+bhati.
+      // When a Type is selected, use that tab's alloted map (same as Reports).
+      if (!typeFilter) {
+        return (
+          Number(DEPT_ALLOTTED_BY_TAB.ladoo[key] ?? 0) +
+          Number(DEPT_ALLOTTED_BY_TAB.parantha[key] ?? 0) +
+          Number(DEPT_ALLOTTED_BY_TAB.bhati[key] ?? 0)
+        );
+      }
+      const tabMap = DEPT_ALLOTTED_BY_TAB[String(typeFilter).toLowerCase()] || {};
+      return Number(tabMap[key] ?? 0);
+    }
+
+    function createRow(dept: string): DeptSummaryRow {
+      return {
+        dept,
+        sewadars: 0,
+        sangat: 0,
+        total: 0,
+        alloted: getAllotedForDept(dept),
+        diff: 0,
+        bus: 0,
+        train: 0,
+        self: 0,
+      };
+    }
+
+    const tabMapForInit =
+      (typeFilter && DEPT_ALLOTTED_BY_TAB[String(typeFilter).toLowerCase()]) || null;
+
+    // ✅ STEP 1: Initialize ALL departments first (so empty depts still show)
+    if (tabMapForInit) {
+      Object.keys(tabMapForInit).forEach((dept) => {
+        map.set(dept, createRow(dept));
+      });
+    } else {
+      // Type = All: union of all tabs' dept keys
+      const union = new Set<string>();
+      Object.values(DEPT_ALLOTTED_BY_TAB).forEach((m) =>
+        Object.keys(m).forEach((k) => union.add(k))
+      );
+      union.forEach((dept) => map.set(dept, createRow(dept)));
+    }
+
+    // ✅ STEP 2: Fill actual data from filteredRows
+    for (const r of filteredRows) {
+      const draft = draftMap[rowKey(r as any)] || r;
+      const sangat = String((draft as any).sangat || "").trim().toLowerCase();
+      const deptKey = keyForRow(draft);
+
+      if (!map.has(deptKey)) map.set(deptKey, createRow(deptKey));
+
+      const row = map.get(deptKey)!;
+      const mode = String((draft as any).mode || "").trim().toLowerCase();
+      // count Bus variants / Train variants / Self (calling has many mode labels)
+      if (mode.includes("bus")) row.bus += 1;
+      else if (mode.includes("train")) row.train += 1;
+      else if (mode.includes("self")) row.self += 1;
+
+      if (sangat === "yes") row.sangat += 1;
+      else row.sewadars += 1;
+    }
+
+    // ✅ STEP 3: Totals + diff
+    const out = Array.from(map.values()).map((x) => {
+      const total = x.sewadars + x.sangat;
+      const alloted = getAllotedForDept(x.dept);
+      return { ...x, total, alloted, diff: total - alloted };
+    });
+
+    // ✅ STEP 4: Sort — tab order first, extras last
+    const ORDER = tabMapForInit
+      ? Object.keys(tabMapForInit)
+      : Object.keys(DEPT_ALLOTTED_BY_TAB.parantha || {});
+    out.sort((a, b) => {
+      const ai = ORDER.indexOf(a.dept);
+      const bi = ORDER.indexOf(b.dept);
+      if (ai === -1 && bi === -1) return a.dept.localeCompare(b.dept);
+      if (ai === -1) return 1;
+      if (bi === -1) return -1;
+      return ai - bi;
+    });
+
+    return out;
+  }, [filteredRows, draftMap, typeFilter]);
+
+  const deptTotals = React.useMemo(() => {
+    return deptSummary.reduce(
+      (acc, r) => {
+        acc.sewadars += r.sewadars;
+        acc.sangat += r.sangat;
+        acc.total += r.total;
+        acc.alloted += r.alloted;
+        acc.diff += r.diff;
+        acc.bus += r.bus;
+        acc.train += r.train;
+        acc.self += r.self;
+        return acc;
+      },
+      { sewadars: 0, sangat: 0, total: 0, alloted: 0, diff: 0, bus: 0, train: 0, self: 0 }
+    );
+  }, [deptSummary]);
+
+  function onExportDeptSummary() {
+    try {
+      const rows = deptSummary.map((r, idx) => ({
+        "S NO": idx + 1,
+        DEPTT: r.dept,
+        SEWADAR: r.sewadars,
+        SANGAT: r.sangat,
+        TOTAL: r.total,
+        ALLOTED: r.alloted,
+        "TOTAL - ALLOTED": r.diff,
+        BUS: r.bus,
+        "TRAIN/SELF": r.train + r.self,
+      }));
+
+      rows.push({
+        "S NO": "" as any,
+        DEPTT: "TOTAL",
+        SEWADAR: deptTotals.sewadars,
+        SANGAT: deptTotals.sangat,
+        TOTAL: deptTotals.total,
+        ALLOTED: deptTotals.alloted,
+        "TOTAL - ALLOTED": deptTotals.diff,
+        BUS: deptTotals.bus,
+        "TRAIN/SELF": deptTotals.train + deptTotals.self,
+      } as any);
+
+      const ws = XLSX.utils.json_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "DEPT_REPORT");
+      const fname = `DEPT_REPORT_CALLING_${(typeFilter || "all").toUpperCase()}_${new Date()
+        .toISOString()
+        .slice(0, 10)}.xlsx`;
+      XLSX.writeFile(wb, fname);
+    } catch (e) {
+      console.error(e);
+      alert("Failed to export Dept Report");
+    }
+  }
+
   function toggleRowSelection(key: string) {
     setSelectedKeys((prev) => (prev.includes(key) ? prev.filter((x) => x !== key) : [...prev, key]));
   }
@@ -1322,6 +1575,9 @@ export default function CallingPage() {
           <div className="flex flex-wrap items-center gap-2">
             <button onClick={exportExcel} className="app-btn app-btn-secondary h-10 px-4">
               Export Excel
+            </button>
+            <button onClick={() => setDeptOpen(true)} className="app-btn app-btn-secondary h-10 px-4">
+              Dept Report
             </button>
             <button onClick={loadAll} className="app-btn app-btn-primary h-10 px-4">
               Refresh
@@ -2184,6 +2440,142 @@ export default function CallingPage() {
     </div>
   </div>
 )}
+
+      {/* DEPT SUMMARY MODAL — same as Reports, counts from current filteredRows */}
+      {deptOpen && (
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-3"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setDeptOpen(false);
+          }}
+        >
+          <div className="w-screen h-screen rounded-none bg-white p-4 shadow-xl dark:bg-zinc-950 flex flex-col">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="text-lg font-semibold">Department Summary</div>
+                <div className="text-xs text-zinc-600 dark:text-zinc-400">
+                  Counts are based on current filtered results (all Calling filters applied).
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button onClick={onExportDeptSummary} className="app-btn app-btn-secondary h-9 px-4">
+                  Export Excel
+                </button>
+                <button onClick={() => setDeptOpen(false)} className="app-btn app-btn-primary h-9 px-4">
+                  Close
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-3 flex-1 overflow-auto rounded-xl border border-black/10 dark:border-white/10">
+              <table className="w-full min-w-[1100px] border-collapse text-sm">
+                <thead className="sticky top-0 z-10 bg-white dark:bg-zinc-950">
+                  <tr>
+                    <th
+                      colSpan={7}
+                      className="border border-black/10 bg-zinc-100 px-3 py-2 text-center text-base font-bold dark:border-white/10 dark:bg-zinc-900"
+                    >
+                      JATHA SEWA
+                    </th>
+                    <th
+                      colSpan={2}
+                      className="border border-black/10 bg-yellow-100 px-3 py-2 text-center text-base font-bold dark:border-white/10 dark:bg-yellow-900/30"
+                    >
+                      Travel Mode
+                    </th>
+                  </tr>
+
+                  <tr>
+                    <th
+                      colSpan={7}
+                      className="border border-black/10 bg-zinc-50 px-3 py-2 text-center font-semibold dark:border-white/10 dark:bg-zinc-900"
+                    >
+                      DETAILS OF THE DEPTT
+                    </th>
+                    <th className="border border-black/10 bg-yellow-50 px-3 py-2 dark:border-white/10 dark:bg-yellow-900/20" />
+                    <th className="border border-black/10 bg-yellow-50 px-3 py-2 dark:border-white/10 dark:bg-yellow-900/20" />
+                  </tr>
+
+                  <tr className="bg-zinc-50 dark:bg-zinc-900">
+                    <th className="border border-black/10 px-3 py-2 text-left dark:border-white/10">S NO</th>
+                    <th className="border border-black/10 px-3 py-2 text-left dark:border-white/10">DEPTT</th>
+                    <th className="border border-black/10 px-3 py-2 text-right dark:border-white/10">SEWADAR</th>
+                    <th className="border border-black/10 px-3 py-2 text-right dark:border-white/10">SANGAT</th>
+                    <th className="border border-black/10 bg-green-100 px-3 py-2 text-right font-semibold dark:border-white/10 dark:bg-green-900/30">
+                      TOTAL
+                    </th>
+                    <th className="border border-black/10 px-3 py-2 text-right dark:border-white/10">ALLOTED</th>
+                    <th className="border border-black/10 px-3 py-2 text-right dark:border-white/10">(Total - Alloted)</th>
+                    <th className="border border-black/10 bg-yellow-100 px-3 py-2 text-right dark:border-white/10 dark:bg-yellow-900/30">
+                      Bus
+                    </th>
+                    <th className="border border-black/10 bg-yellow-100 px-3 py-2 text-right dark:border-white/10 dark:bg-yellow-900/30">
+                      Train/self
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {deptSummary.map((r, idx) => (
+                    <tr key={r.dept} className="border-b border-black/5 dark:border-white/5">
+                      <td className="border border-black/10 px-3 py-2 dark:border-white/10">{idx + 1}</td>
+                      <td className="border border-black/10 px-3 py-2 font-medium dark:border-white/10">{r.dept}</td>
+                      <td className="border border-black/10 px-3 py-2 text-right dark:border-white/10">{r.sewadars}</td>
+                      <td className="border border-black/10 px-3 py-2 text-right dark:border-white/10">{r.sangat}</td>
+                      <td className="border border-black/10 bg-green-50 px-3 py-2 text-right font-semibold dark:border-white/10 dark:bg-green-900/20">
+                        {r.total}
+                      </td>
+                      <td className="border border-black/10 px-3 py-2 text-right dark:border-white/10">{r.alloted}</td>
+                      <td
+                        className={`border border-black/10 px-3 py-2 text-right font-semibold dark:border-white/10 ${
+                          r.diff < 0
+                            ? "bg-red-200 text-red-800 dark:bg-red-900/40 dark:text-red-300"
+                            : r.diff > 0
+                            ? "bg-zinc-100 dark:bg-zinc-800"
+                            : ""
+                        }`}
+                      >
+                        {r.diff}
+                      </td>
+                      <td className="border border-black/10 bg-yellow-50 px-3 py-2 text-right dark:border-white/10 dark:bg-yellow-900/20">
+                        {r.bus}
+                      </td>
+                      <td className="border border-black/10 bg-yellow-50 px-3 py-2 text-right dark:border-white/10 dark:bg-yellow-900/20">
+                        {r.train + r.self}
+                      </td>
+                    </tr>
+                  ))}
+                  <tr className="font-bold">
+                    <td className="border border-black/10 px-3 py-2 dark:border-white/10" />
+                    <td className="border border-black/10 px-3 py-2 dark:border-white/10">TOTAL</td>
+                    <td className="border border-black/10 px-3 py-2 text-right dark:border-white/10">{deptTotals.sewadars}</td>
+                    <td className="border border-black/10 px-3 py-2 text-right dark:border-white/10">{deptTotals.sangat}</td>
+                    <td className="border border-black/10 bg-green-100 px-3 py-2 text-right dark:border-white/10 dark:bg-green-900/30">
+                      {deptTotals.total}
+                    </td>
+                    <td className="border border-black/10 px-3 py-2 text-right dark:border-white/10">{deptTotals.alloted}</td>
+                    <td
+                      className={`border border-black/10 px-3 py-2 text-right dark:border-white/10 ${
+                        deptTotals.diff < 0
+                          ? "bg-red-200 text-red-800 dark:bg-red-900/40 dark:text-red-300"
+                          : "bg-zinc-100 dark:bg-zinc-800"
+                      }`}
+                    >
+                      {deptTotals.diff}
+                    </td>
+                    <td className="border border-black/10 bg-yellow-100 px-3 py-2 text-right dark:border-white/10 dark:bg-yellow-900/30">
+                      {deptTotals.bus}
+                    </td>
+                    <td className="border border-black/10 bg-yellow-100 px-3 py-2 text-right dark:border-white/10 dark:bg-yellow-900/30">
+                      {deptTotals.train + deptTotals.self}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
