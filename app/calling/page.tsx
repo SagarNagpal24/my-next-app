@@ -2469,7 +2469,7 @@ export default function CallingPage() {
             </div>
 
             <div className="mt-3 flex-1 overflow-auto rounded-xl border border-black/10 dark:border-white/10">
-              <table className="w-full min-w-[1100px] border-collapse text-sm">
+              <table className="w-auto min-w-full border-collapse text-sm">
                 <thead className="sticky top-0 z-10 bg-white dark:bg-zinc-950">
                   <tr>
                     <th
@@ -2498,19 +2498,19 @@ export default function CallingPage() {
                   </tr>
 
                   <tr className="bg-zinc-50 dark:bg-zinc-900">
-                    <th className="border border-black/10 px-3 py-2 text-left dark:border-white/10">S NO</th>
+                    <th className="border border-black/10 px-3 py-2 text-left dark:border-white/10 w-14">S NO</th>
                     <th className="border border-black/10 px-3 py-2 text-left dark:border-white/10">DEPTT</th>
-                    <th className="border border-black/10 px-3 py-2 text-right dark:border-white/10">SEWADAR</th>
-                    <th className="border border-black/10 px-3 py-2 text-right dark:border-white/10">SANGAT</th>
-                    <th className="border border-black/10 bg-green-100 px-3 py-2 text-right font-semibold dark:border-white/10 dark:bg-green-900/30">
+                    <th className="border border-black/10 px-3 py-2 text-right dark:border-white/10 w-24">SEWADAR</th>
+                    <th className="border border-black/10 px-3 py-2 text-right dark:border-white/10 w-24">SANGAT</th>
+                    <th className="border border-black/10 bg-green-100 px-3 py-2 text-right font-semibold dark:border-white/10 dark:bg-green-900/30 w-24">
                       TOTAL
                     </th>
-                    <th className="border border-black/10 px-3 py-2 text-right dark:border-white/10">ALLOTED</th>
-                    <th className="border border-black/10 px-3 py-2 text-right dark:border-white/10">(Total - Alloted)</th>
-                    <th className="border border-black/10 bg-yellow-100 px-3 py-2 text-right dark:border-white/10 dark:bg-yellow-900/30">
+                    <th className="border border-black/10 px-3 py-2 text-right dark:border-white/10 w-24">ALLOTED</th>
+                    <th className="border border-black/10 px-3 py-2 text-right dark:border-white/10 w-32 whitespace-nowrap">(Total - Alloted)</th>
+                    <th className="border border-black/10 bg-yellow-100 px-3 py-2 text-right dark:border-white/10 dark:bg-yellow-900/30 w-20">
                       Bus
                     </th>
-                    <th className="border border-black/10 bg-yellow-100 px-3 py-2 text-right dark:border-white/10 dark:bg-yellow-900/30">
+                    <th className="border border-black/10 bg-yellow-100 px-3 py-2 text-right dark:border-white/10 dark:bg-yellow-900/30 w-24 whitespace-nowrap">
                       Train/self
                     </th>
                   </tr>
