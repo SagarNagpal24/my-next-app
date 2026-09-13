@@ -2518,16 +2518,16 @@ export default function CallingPage() {
                 <tbody>
                   {deptSummary.map((r, idx) => (
                     <tr key={r.dept} className="border-b border-black/5 dark:border-white/5">
-                      <td className="border border-black/10 px-3 py-2 dark:border-white/10">{idx + 1}</td>
+                      <td className="border border-black/10 px-3 py-2 dark:border-white/10 w-14">{idx + 1}</td>
                       <td className="border border-black/10 px-3 py-2 font-medium dark:border-white/10">{r.dept}</td>
-                      <td className="border border-black/10 px-3 py-2 text-right dark:border-white/10">{r.sewadars}</td>
-                      <td className="border border-black/10 px-3 py-2 text-right dark:border-white/10">{r.sangat}</td>
-                      <td className="border border-black/10 bg-green-50 px-3 py-2 text-right font-semibold dark:border-white/10 dark:bg-green-900/20">
+                      <td className="border border-black/10 px-3 py-2 text-right dark:border-white/10 w-24">{r.sewadars}</td>
+                      <td className="border border-black/10 px-3 py-2 text-right dark:border-white/10 w-24">{r.sangat}</td>
+                      <td className="border border-black/10 bg-green-50 px-3 py-2 text-right font-semibold dark:border-white/10 dark:bg-green-900/20 w-24">
                         {r.total}
                       </td>
-                      <td className="border border-black/10 px-3 py-2 text-right dark:border-white/10">{r.alloted}</td>
+                      <td className="border border-black/10 px-3 py-2 text-right dark:border-white/10 w-24">{r.alloted}</td>
                       <td
-                        className={`border border-black/10 px-3 py-2 text-right font-semibold dark:border-white/10 ${
+                        className={`border border-black/10 px-3 py-2 text-right font-semibold dark:border-white/10 w-32 whitespace-nowrap ${
                           r.diff < 0
                             ? "bg-red-200 text-red-800 dark:bg-red-900/40 dark:text-red-300"
                             : r.diff > 0
@@ -2537,25 +2537,25 @@ export default function CallingPage() {
                       >
                         {r.diff}
                       </td>
-                      <td className="border border-black/10 bg-yellow-50 px-3 py-2 text-right dark:border-white/10 dark:bg-yellow-900/20">
+                      <td className="border border-black/10 bg-yellow-50 px-3 py-2 text-right dark:border-white/10 dark:bg-yellow-900/20 w-20">
                         {r.bus}
                       </td>
-                      <td className="border border-black/10 bg-yellow-50 px-3 py-2 text-right dark:border-white/10 dark:bg-yellow-900/20">
+                      <td className="border border-black/10 bg-yellow-50 px-3 py-2 text-right dark:border-white/10 dark:bg-yellow-900/20 w-24 whitespace-nowrap">
                         {r.train + r.self}
                       </td>
                     </tr>
                   ))}
                   <tr className="font-bold">
-                    <td className="border border-black/10 px-3 py-2 dark:border-white/10" />
+                    <td className="border border-black/10 px-3 py-2 dark:border-white/10 w-14" />
                     <td className="border border-black/10 px-3 py-2 dark:border-white/10">TOTAL</td>
-                    <td className="border border-black/10 px-3 py-2 text-right dark:border-white/10">{deptTotals.sewadars}</td>
-                    <td className="border border-black/10 px-3 py-2 text-right dark:border-white/10">{deptTotals.sangat}</td>
-                    <td className="border border-black/10 bg-green-100 px-3 py-2 text-right dark:border-white/10 dark:bg-green-900/30">
+                    <td className="border border-black/10 px-3 py-2 text-right dark:border-white/10 w-24">{deptTotals.sewadars}</td>
+                    <td className="border border-black/10 px-3 py-2 text-right dark:border-white/10 w-24">{deptTotals.sangat}</td>
+                    <td className="border border-black/10 bg-green-100 px-3 py-2 text-right dark:border-white/10 dark:bg-green-900/30 w-24">
                       {deptTotals.total}
                     </td>
-                    <td className="border border-black/10 px-3 py-2 text-right dark:border-white/10">{deptTotals.alloted}</td>
+                    <td className="border border-black/10 px-3 py-2 text-right dark:border-white/10 w-24">{deptTotals.alloted}</td>
                     <td
-                      className={`border border-black/10 px-3 py-2 text-right dark:border-white/10 ${
+                      className={`border border-black/10 px-3 py-2 text-right dark:border-white/10 w-32 whitespace-nowrap ${
                         deptTotals.diff < 0
                           ? "bg-red-200 text-red-800 dark:bg-red-900/40 dark:text-red-300"
                           : "bg-zinc-100 dark:bg-zinc-800"
@@ -2563,10 +2563,10 @@ export default function CallingPage() {
                     >
                       {deptTotals.diff}
                     </td>
-                    <td className="border border-black/10 bg-yellow-100 px-3 py-2 text-right dark:border-white/10 dark:bg-yellow-900/30">
+                    <td className="border border-black/10 bg-yellow-100 px-3 py-2 text-right dark:border-white/10 dark:bg-yellow-900/30 w-20">
                       {deptTotals.bus}
                     </td>
-                    <td className="border border-black/10 bg-yellow-100 px-3 py-2 text-right dark:border-white/10 dark:bg-yellow-900/30">
+                    <td className="border border-black/10 bg-yellow-100 px-3 py-2 text-right dark:border-white/10 dark:bg-yellow-900/30 w-24 whitespace-nowrap">
                       {deptTotals.train + deptTotals.self}
                     </td>
                   </tr>
