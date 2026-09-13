@@ -2468,7 +2468,7 @@ export default function CallingPage() {
               </div>
             </div>
 
-            <div className="mt-3 flex-1 overflow-hidden rounded-xl border border-black/10 dark:border-white/10">
+            <div className="mt-3 flex-1 overflow-y-auto overflow-x-hidden rounded-xl border border-black/10 dark:border-white/10">
               <table className="w-full table-fixed border-collapse text-xs">
                 <colgroup>
                   <col style={{ width: "7%" }} />
