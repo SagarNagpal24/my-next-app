@@ -90,6 +90,15 @@ export async function PUT(req: Request, ctx: Ctx) {
     const mode = asString(body.mode);
     const payment = asString(body.payment);
 
+    const department = asString(body.department);
+    const sangat = asString(body.sangat);
+
+    let bookingReqDelhiBeas = asString(body.bookingReqDelhiBeas);
+    let bookingReqBeasDelhi = asString(body.bookingReqBeasDelhi);
+
+    let ticketDelhiBeas = asString(body.ticketDelhiBeas);
+    let ticketBeasDelhi = asString(body.ticketBeasDelhi);
+
     // ✅ NEW FIELDS
     // Preserve existing values if this route is called from an older page/API payload
     // that does not send paymentMode or paidTo.
@@ -142,9 +151,30 @@ export async function PUT(req: Request, ctx: Ctx) {
       return NextResponse.json({ error: "Mode is required" }, { status: 400 });
     }
 
+    // ✅ Match create route behaviour: clear booking/tickets when mode is not Train,
+    // and clear a ticket when its booking requirement is "No".
+    if (mode !== "Train") {
+      bookingReqDelhiBeas = "";
+      bookingReqBeasDelhi = "";
+      ticketDelhiBeas = "";
+      ticketBeasDelhi = "";
+    } else {
+      if (bookingReqDelhiBeas === "No") ticketDelhiBeas = "";
+      if (bookingReqBeasDelhi === "No") ticketBeasDelhi = "";
+    }
+
     const update: any = {
       mode,
       payment,
+
+      department,
+      sangat,
+
+      bookingReqDelhiBeas,
+      bookingReqBeasDelhi,
+
+      ticketDelhiBeas,
+      ticketBeasDelhi,
 
       // ✅ NEW FIELDS
       paymentMode,
@@ -178,6 +208,19 @@ export async function PUT(req: Request, ctx: Ctx) {
       return NextResponse.json({ ok: true });
     } catch (err: any) {
       if (err?.code === 11000) {
+        const msg = String(err?.message || "");
+        if (msg.includes("uniq_ticket_delhi_beas")) {
+          return NextResponse.json(
+            { error: "Ticket (Delhi–Beas) is already assigned to someone else." },
+            { status: 409 }
+          );
+        }
+        if (msg.includes("uniq_ticket_beas_delhi")) {
+          return NextResponse.json(
+            { error: "Ticket (Beas–Delhi) is already assigned to someone else." },
+            { status: 409 }
+          );
+        }
         return NextResponse.json(
           {
             error:
