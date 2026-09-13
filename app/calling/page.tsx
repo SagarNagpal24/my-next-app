@@ -2468,8 +2468,19 @@ export default function CallingPage() {
               </div>
             </div>
 
-            <div className="mt-3 flex-1 overflow-auto rounded-xl border border-black/10 dark:border-white/10">
-              <table className="w-full min-w-[1100px] border-collapse text-sm">
+            <div className="mt-3 flex-1 overflow-y-auto overflow-x-hidden rounded-xl border border-black/10 dark:border-white/10">
+              <table className="w-full table-fixed border-collapse text-xs sm:text-sm">
+                <colgroup>
+                  <col style={{ width: "6%" }} />
+                  <col style={{ width: "22%" }} />
+                  <col style={{ width: "9%" }} />
+                  <col style={{ width: "9%" }} />
+                  <col style={{ width: "10%" }} />
+                  <col style={{ width: "9%" }} />
+                  <col style={{ width: "13%" }} />
+                  <col style={{ width: "11%" }} />
+                  <col style={{ width: "11%" }} />
+                </colgroup>
                 <thead className="sticky top-0 z-10 bg-white dark:bg-zinc-950">
                   <tr>
                     <th
