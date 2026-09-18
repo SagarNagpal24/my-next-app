@@ -453,11 +453,12 @@ export default function CustomersPage() {
     { label: "Delete", width: "w-20" },
   ];
 
-  async function load() {
+  async function load(qOverride?: string) {
     setLoading(true);
     try {
       const params = new URLSearchParams();
-      if (q.trim()) params.set("q", q.trim());
+      const qVal = qOverride !== undefined ? qOverride : q;
+      if (qVal.trim()) params.set("q", qVal.trim());
       if (gender) params.set("gender", gender);
       if (department) params.set("department", department);
       if (blacklisted) params.set("blacklisted", blacklisted);
@@ -467,6 +468,14 @@ export default function CustomersPage() {
       if (medTo) params.set("medTo", medTo);
 
       const res = await fetch(`/api/customers?${params.toString()}`, { cache: "no-store" });
+
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        alert(`Failed to load data: ${errBody.error || res.statusText || "Server error"}`);
+        setItems([]);
+        return;
+      }
+
       const data = await res.json().catch(() => ({}));
 
       const safe: Customer[] = (data.items || [])
@@ -486,6 +495,9 @@ export default function CustomersPage() {
 
       setItems(safe);
       setPage(1);
+    } catch (e: any) {
+      alert(`Failed to load data: ${e?.message || "Network error"}`);
+      setItems([]);
     } finally {
       setLoading(false);
     }
@@ -494,6 +506,15 @@ export default function CustomersPage() {
   React.useEffect(() => {
     load();
   }, []);
+
+  const filtersMountedRef = React.useRef(false);
+  React.useEffect(() => {
+    if (!filtersMountedRef.current) {
+      filtersMountedRef.current = true;
+      return;
+    }
+    load();
+  }, [gender, department, blacklisted, ageMin, ageMax, medFrom, medTo]);
 
   function clearFilters() {
     setQ("");
@@ -667,6 +688,10 @@ export default function CustomersPage() {
   async function onExportFiltered() {
     try {
       setExporting("filtered");
+      if (items.length === 0) {
+        alert("No data to export. Please load data first or adjust your filters.");
+        return;
+      }
       await exportCustomersToExcel(
         items,
         `customers_filtered_${new Date().toISOString().slice(0, 10)}.xlsx`
@@ -682,6 +707,13 @@ export default function CustomersPage() {
     try {
       setExporting("all");
       const res = await fetch(`/api/customers?limit=10000`, { cache: "no-store" });
+
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        alert(`Export failed: ${errBody.error || res.statusText || "Server error"}`);
+        return;
+      }
+
       const data = await res.json().catch(() => ({}));
 
       const safe: Customer[] = (data.items || [])
@@ -692,6 +724,11 @@ export default function CustomersPage() {
           medicalDate: toYmdAny(x.medicalDate) || null,
         }))
         .filter((x: any) => /^[a-fA-F0-9]{24}$/.test(x._id));
+
+      if (safe.length === 0) {
+        alert("No records found to export.");
+        return;
+      }
 
       await exportCustomersToExcel(
         safe,
@@ -769,10 +806,11 @@ export default function CustomersPage() {
   }, []);
 
   function pickSuggestion(s: string) {
-    setQ(s);
+    const name = s.split("(")[0].trim();
+    setQ(name);
     setSugOpen(false);
     setHighlightIndex(-1);
-    load();
+    load(name);
   }
 
   function onSearchKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
@@ -894,7 +932,7 @@ export default function CustomersPage() {
               Clear
             </button>
 
-            <button onClick={load} className="app-btn app-btn-primary h-10 px-4">
+            <button onClick={() => load()} className="app-btn app-btn-primary h-10 px-4">
               Search
             </button>
 

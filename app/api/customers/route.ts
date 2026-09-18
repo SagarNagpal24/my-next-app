@@ -226,7 +226,7 @@ export async function GET(req: Request) {
 
     // ✅ limit support (needed for Export All)
     const limitRaw = toNum(searchParams.get("limit"));
-    const limit = Math.min(Math.max(limitRaw ?? 200, 1), 10000);
+    const limit = limitRaw != null ? Math.min(Math.max(limitRaw, 1), 10000) : 50000;
 
     const filter: any = {};
 
@@ -294,9 +294,14 @@ export async function GET(req: Request) {
     const items = await db
       .collection(COLLECTION)
       .find(filter)
-      .sort({ createdAt: -1 })
       .limit(limit)
       .toArray();
+
+    items.sort((a: any, b: any) => {
+      const da = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const db2 = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return db2 - da;
+    });
 
     // ✅ ALWAYS compute age from DOB when DOB exists (so age auto-updates every year)
     // ✅ ALWAYS return DOB as YYYY-MM-DD (string) so UI reliably shows it

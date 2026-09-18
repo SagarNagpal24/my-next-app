@@ -130,7 +130,13 @@ export async function GET(req: Request) {
     }
 
     const db = await getDb();
-    const items = await db.collection(COLLECTION).find(filter).sort({ createdAt: -1 }).limit(limit).toArray();
+    const items = await db.collection(COLLECTION).find(filter).limit(limit).toArray();
+
+    items.sort((a: any, b: any) => {
+      const da = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const db2 = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return db2 - da;
+    });
 
     const safe = items.map((x: any) => ({
       ...x,
