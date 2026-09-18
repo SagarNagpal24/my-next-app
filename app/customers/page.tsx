@@ -874,11 +874,20 @@ export default function CustomersPage() {
 
     setImgUploading((s) => ({ ...s, [kind]: true }));
     try {
-      const imgData = await fileToCompressedImgData(file, {
-        maxW: 900,
-        maxH: 900,
-        quality: 0.75,
-      });
+      let opts = { maxW: 900, maxH: 900, quality: 0.6 };
+      if (kind === "passport") opts = { maxW: 600, maxH: 600, quality: 0.6 };
+      if (kind === "aadhaarFront" || kind === "aadhaarBack") {
+        opts = { maxW: 1200, maxH: 800, quality: 0.6 };
+      }
+
+      let imgData = await fileToCompressedImgData(file, opts);
+
+      if (imgData && imgData.size > 300 * 1024) {
+        imgData = await fileToCompressedImgData(file, {
+          ...opts,
+          quality: Math.max(0.45, opts.quality - 0.15),
+        });
+      }
 
       setEditing((prev) => {
         if (!prev) return prev;
@@ -1534,190 +1543,77 @@ export default function CustomersPage() {
               <div className="sm:col-span-2 lg:col-span-3 mt-2 rounded-2xl border border-black/5 p-4 dark:border-white/10">
                 <div className="text-sm font-semibold mb-3">Photos</div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div className="rounded-xl border border-black/5 p-3 dark:border-white/10">
-                    <div className="text-xs font-semibold mb-2">Passport Photo</div>
-                    <div className="flex items-center gap-3">
-                      <button
-                        type="button"
-                        className="h-14 w-14 overflow-hidden rounded-xl border border-black/10 bg-white dark:border-white/10 dark:bg-zinc-950"
-                        onClick={() => {
-                          const src = safeImgSrc(editing.passportPhoto);
-                          if (src) setImgPreview({ title: `${editing.name} - Passport`, src });
-                        }}
-                        title="Preview"
-                      >
-                        <img
-                          src={
-                            safeImgSrc(editing.passportPhoto) ||
-                            "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80'%3E%3Crect width='100%25' height='100%25' fill='%23eee'/%3E%3Ctext x='50%25' y='52%25' dominant-baseline='middle' text-anchor='middle' fill='%23999' font-size='12'%3ENo%20Photo%3C/text%3E%3C/svg%3E"
-                          }
-                          alt="Passport"
-                          className="h-full w-full object-cover"
-                        />
-                      </button>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  {([
+                    { kind: "passport" as const, label: "Passport", field: "passportPhoto" as const },
+                    { kind: "aadhaarFront" as const, label: "Aadhaar Front", field: "aadhaarFrontPhoto" as const },
+                    { kind: "aadhaarBack" as const, label: "Aadhaar Back", field: "aadhaarBackPhoto" as const },
+                    { kind: "medical" as const, label: "Medical", field: "medicalPhoto" as const },
+                  ]).map(({ kind, label, field }) => {
+                    const photo = editing[field];
+                    const src = safeImgSrc(photo);
+                    const uploading = !!imgUploading[kind === "passport" ? "passport" : kind === "aadhaarFront" ? "aadhaarFront" : kind === "aadhaarBack" ? "aadhaarBack" : "medical"];
+                    return (
+                      <div key={kind} className="rounded-xl border border-black/5 p-3 dark:border-white/10 flex flex-col items-center gap-2">
+                        <button
+                          type="button"
+                          className="relative h-20 w-20 overflow-hidden rounded-xl border border-black/10 bg-white dark:border-white/10 dark:bg-zinc-950"
+                          onClick={() => {
+                            if (src) setImgPreview({ title: `${editing.name} - ${label}`, src });
+                          }}
+                          title="Click to preview"
+                        >
+                          <img
+                            src={src || "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80'%3E%3Crect width='100%25' height='100%25' fill='%23f5f5f5'/%3E%3Ctext x='50%25' y='52%25' dominant-baseline='middle' text-anchor='middle' fill='%23aaa' font-size='10'%3ENo%20Photo%3C/text%3E%3C/svg%3E"}
+                            alt={label}
+                            className="h-full w-full object-cover"
+                          />
+                          {uploading && (
+                            <div className="absolute inset-0 flex items-center justify-center bg-black/40">
+                              <div className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                            </div>
+                          )}
+                        </button>
 
-                      <div className="flex-1">
-                        <input
-                          type="file"
-                          accept="image/*"
-                          className="block w-full text-xs"
-                          onChange={(e) => onPickEditImage("passport", e.target.files?.[0] || null)}
-                          disabled={!!imgUploading.passport}
-                        />
-                        <div className="mt-1 text-[11px] text-zinc-600 dark:text-zinc-400">
-                          {editing.passportPhoto ? `Selected: ${formatBytes(editing.passportPhoto.size)}` : "No image"}
+                        <div className="w-full text-center">
+                          <div className="text-[11px] font-semibold truncate">{label}</div>
+                          {photo ? (
+                            <div className="text-[10px] text-green-600 dark:text-green-400 truncate">
+                              {formatBytes(photo.size)}
+                            </div>
+                          ) : (
+                            <div className="text-[10px] text-zinc-400">No image</div>
+                          )}
+                        </div>
+
+                        <div className="w-full flex flex-col gap-1">
+                          <label className="app-btn app-btn-secondary h-7 w-full cursor-pointer text-center text-[11px]">
+                            {uploading ? "Uploading..." : photo ? "Change" : "Upload"}
+                            <input
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              onChange={(e) => onPickEditImage(kind, e.target.files?.[0] || null)}
+                              disabled={uploading}
+                            />
+                          </label>
+                          {photo && (
+                            <button
+                              type="button"
+                              onClick={() => clearEditImage(kind)}
+                              className="h-7 w-full rounded-lg border border-red-200 bg-white text-[11px] font-semibold text-red-600 hover:bg-red-50 dark:border-red-900/30 dark:bg-zinc-950 dark:text-red-400 dark:hover:bg-red-900/20"
+                            >
+                              Remove
+                            </button>
+                          )}
                         </div>
                       </div>
-
-                      <button
-                        type="button"
-                        onClick={() => clearEditImage("passport")}
-                        className="h-9 rounded-xl border border-black/10 bg-white px-3 text-xs font-semibold hover:bg-zinc-50 dark:border-white/10 dark:bg-zinc-950 dark:hover:bg-zinc-900/40"
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="rounded-xl border border-black/5 p-3 dark:border-white/10">
-                    <div className="text-xs font-semibold mb-2">Aadhaar Front</div>
-                    <div className="flex items-center gap-3">
-                      <button
-                        type="button"
-                        className="h-14 w-14 overflow-hidden rounded-xl border border-black/10 bg-white dark:border-white/10 dark:bg-zinc-950"
-                        onClick={() => {
-                          const src = safeImgSrc(editing.aadhaarFrontPhoto);
-                          if (src) setImgPreview({ title: `${editing.name} - Aadhaar Front`, src });
-                        }}
-                        title="Preview"
-                      >
-                        <img
-                          src={
-                            safeImgSrc(editing.aadhaarFrontPhoto) ||
-                            "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80'%3E%3Crect width='100%25' height='100%25' fill='%23eee'/%3E%3Ctext x='50%25' y='52%25' dominant-baseline='middle' text-anchor='middle' fill='%23999' font-size='12'%3ENo%20Photo%3C/text%3E%3C/svg%3E"
-                          }
-                          alt="Aadhaar Front"
-                          className="h-full w-full object-cover"
-                        />
-                      </button>
-
-                      <div className="flex-1">
-                        <input
-                          type="file"
-                          accept="image/*"
-                          className="block w-full text-xs"
-                          onChange={(e) => onPickEditImage("aadhaarFront", e.target.files?.[0] || null)}
-                          disabled={!!imgUploading.aadhaarFront}
-                        />
-                        <div className="mt-1 text-[11px] text-zinc-600 dark:text-zinc-400">
-                          {editing.aadhaarFrontPhoto ? `Selected: ${formatBytes(editing.aadhaarFrontPhoto.size)}` : "No image"}
-                        </div>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => clearEditImage("aadhaarFront")}
-                        className="h-9 rounded-xl border border-black/10 bg-white px-3 text-xs font-semibold hover:bg-zinc-50 dark:border-white/10 dark:bg-zinc-950 dark:hover:bg-zinc-900/40"
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="rounded-xl border border-black/5 p-3 dark:border-white/10">
-                    <div className="text-xs font-semibold mb-2">Aadhaar Back</div>
-                    <div className="flex items-center gap-3">
-                      <button
-                        type="button"
-                        className="h-14 w-14 overflow-hidden rounded-xl border border-black/10 bg-white dark:border-white/10 dark:bg-zinc-950"
-                        onClick={() => {
-                          const src = safeImgSrc(editing.aadhaarBackPhoto);
-                          if (src) setImgPreview({ title: `${editing.name} - Aadhaar Back`, src });
-                        }}
-                        title="Preview"
-                      >
-                        <img
-                          src={
-                            safeImgSrc(editing.aadhaarBackPhoto) ||
-                            "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80'%3E%3Crect width='100%25' height='100%25' fill='%23eee'/%3E%3Ctext x='50%25' y='52%25' dominant-baseline='middle' text-anchor='middle' fill='%23999' font-size='12'%3ENo%20Photo%3C/text%3E%3C/svg%3E"
-                          }
-                          alt="Aadhaar Back"
-                          className="h-full w-full object-cover"
-                        />
-                      </button>
-
-                      <div className="flex-1">
-                        <input
-                          type="file"
-                          accept="image/*"
-                          className="block w-full text-xs"
-                          onChange={(e) => onPickEditImage("aadhaarBack", e.target.files?.[0] || null)}
-                          disabled={!!imgUploading.aadhaarBack}
-                        />
-                        <div className="mt-1 text-[11px] text-zinc-600 dark:text-zinc-400">
-                          {editing.aadhaarBackPhoto ? `Selected: ${formatBytes(editing.aadhaarBackPhoto.size)}` : "No image"}
-                        </div>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => clearEditImage("aadhaarBack")}
-                        className="h-9 rounded-xl border border-black/10 bg-white px-3 text-xs font-semibold hover:bg-zinc-50 dark:border-white/10 dark:bg-zinc-950 dark:hover:bg-zinc-900/40"
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="rounded-xl border border-black/5 p-3 dark:border-white/10">
-                    <div className="text-xs font-semibold mb-2">Medical Photo</div>
-                    <div className="flex items-center gap-3">
-                      <button
-                        type="button"
-                        className="h-14 w-14 overflow-hidden rounded-xl border border-black/10 bg-white dark:border-white/10 dark:bg-zinc-950"
-                        onClick={() => {
-                          const src = safeImgSrc(editing.medicalPhoto);
-                          if (src) setImgPreview({ title: `${editing.name} - Medical`, src });
-                        }}
-                        title="Preview"
-                      >
-                        <img
-                          src={
-                            safeImgSrc(editing.medicalPhoto) ||
-                            "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80'%3E%3Crect width='100%25' height='100%25' fill='%23eee'/%3E%3Ctext x='50%25' y='52%25' dominant-baseline='middle' text-anchor='middle' fill='%23999' font-size='12'%3ENo%20Photo%3C/text%3E%3C/svg%3E"
-                          }
-                          alt="Medical"
-                          className="h-full w-full object-cover"
-                        />
-                      </button>
-
-                      <div className="flex-1">
-                        <input
-                          type="file"
-                          accept="image/*"
-                          className="block w-full text-xs"
-                          onChange={(e) => onPickEditImage("medical", e.target.files?.[0] || null)}
-                          disabled={!!imgUploading.medical}
-                        />
-                        <div className="mt-1 text-[11px] text-zinc-600 dark:text-zinc-400">
-                          {editing.medicalPhoto ? `Selected: ${formatBytes(editing.medicalPhoto.size)}` : "No image"}
-                        </div>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => clearEditImage("medical")}
-                        className="h-9 rounded-xl border border-black/10 bg-white px-3 text-xs font-semibold hover:bg-zinc-50 dark:border-white/10 dark:bg-zinc-950 dark:hover:bg-zinc-900/40"
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  </div>
+                    );
+                  })}
                 </div>
 
                 <div className="mt-2 text-[11px] text-zinc-600 dark:text-zinc-400">
-                  Supported: JPG/JPEG, PNG, WEBP (any <code>image/*</code>). Images are auto-compressed before saving.
+                  Supported: JPG/JPEG, PNG, WEBP. Images are auto-compressed before saving.
                 </div>
               </div>
 

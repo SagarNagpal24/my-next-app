@@ -684,66 +684,54 @@ export default function Home() {
             <div className="mb-4">
               <div className="text-sm font-semibold">Photos</div>
               <div className="text-xs text-zinc-600 dark:text-zinc-400">
-                Supports all common formats. Images are auto-compressed to reduce server memory.
+                Supports JPG, PNG, WEBP. Images are auto-compressed before saving.
               </div>
             </div>
 
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              <Field label="Passport Photo" error={errors.passportPhoto}>
-                <input
-                  type="file"
-                  accept="image/*"
-                  className="app-input"
-                  onChange={(e) => handleImagePick("passportPhoto", e.target.files?.[0] || null)}
-                />
-                {form.passportPhoto && (
-                  <div className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
-                    Saved: {formatBytes(form.passportPhoto.size)} ({form.passportPhoto.mime})
-                  </div>
-                )}
-              </Field>
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+              {([
+                { key: "passportPhoto" as const, label: "Passport" },
+                { key: "aadhaarFrontPhoto" as const, label: "Aadhaar Front" },
+                { key: "aadhaarBackPhoto" as const, label: "Aadhaar Back" },
+                { key: "medicalPhoto" as const, label: "Medical" },
+              ]).map(({ key, label }) => {
+                const photo = form[key];
+                const src = photo?.dataUrl || "";
+                return (
+                  <div key={key} className="rounded-xl border border-black/5 p-3 dark:border-white/10 flex flex-col items-center gap-2">
+                    <div className="h-20 w-20 overflow-hidden rounded-xl border border-black/10 bg-white dark:border-white/10 dark:bg-zinc-950">
+                      <img
+                        src={src || "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80'%3E%3Crect width='100%25' height='100%25' fill='%23f5f5f5'/%3E%3Ctext x='50%25' y='52%25' dominant-baseline='middle' text-anchor='middle' fill='%23aaa' font-size='10'%3ENo%20Photo%3C/text%3E%3C/svg%3E"}
+                        alt={label}
+                        className="h-full w-full object-cover"
+                      />
+                    </div>
 
-              <Field label="Aadhaar Front" error={errors.aadhaarFrontPhoto}>
-                <input
-                  type="file"
-                  accept="image/*"
-                  className="app-input"
-                  onChange={(e) => handleImagePick("aadhaarFrontPhoto", e.target.files?.[0] || null)}
-                />
-                {form.aadhaarFrontPhoto && (
-                  <div className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
-                    Saved: {formatBytes(form.aadhaarFrontPhoto.size)} ({form.aadhaarFrontPhoto.mime})
-                  </div>
-                )}
-              </Field>
+                    <div className="w-full text-center">
+                      <div className="text-[11px] font-semibold truncate">{label}</div>
+                      {photo ? (
+                        <div className="text-[10px] text-green-600 dark:text-green-400 truncate">
+                          {formatBytes(photo.size)}
+                        </div>
+                      ) : (
+                        <div className="text-[10px] text-zinc-400">No image</div>
+                      )}
+                    </div>
 
-              <Field label="Aadhaar Back" error={errors.aadhaarBackPhoto}>
-                <input
-                  type="file"
-                  accept="image/*"
-                  className="app-input"
-                  onChange={(e) => handleImagePick("aadhaarBackPhoto", e.target.files?.[0] || null)}
-                />
-                {form.aadhaarBackPhoto && (
-                  <div className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
-                    Saved: {formatBytes(form.aadhaarBackPhoto.size)} ({form.aadhaarBackPhoto.mime})
+                    <Field label="" error={errors[key]}>
+                      <label className="app-btn app-btn-secondary h-7 w-full cursor-pointer text-center text-[11px]">
+                        {photo ? "Change" : "Upload"}
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(e) => handleImagePick(key, e.target.files?.[0] || null)}
+                        />
+                      </label>
+                    </Field>
                   </div>
-                )}
-              </Field>
-
-              <Field label="Medical Photo" error={errors.medicalPhoto}>
-                <input
-                  type="file"
-                  accept="image/*"
-                  className="app-input"
-                  onChange={(e) => handleImagePick("medicalPhoto", e.target.files?.[0] || null)}
-                />
-                {form.medicalPhoto && (
-                  <div className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
-                    Saved: {formatBytes(form.medicalPhoto.size)} ({form.medicalPhoto.mime})
-                  </div>
-                )}
-              </Field>
+                );
+              })}
             </div>
           </div>
 

@@ -120,9 +120,9 @@ function isValidImgData(x: any) {
   if (typeof x.mime !== "string") return false;
   if (typeof x.size !== "number") return false;
 
-  if (!["image/webp", "image/jpeg"].includes(x.mime)) return false;
+  if (!["image/webp", "image/jpeg", "image/png"].includes(x.mime)) return false;
   if (!x.dataUrl.startsWith("data:image/")) return false;
-  if (x.size > 1_200_000) return false;
+  if (x.size > 5_000_000) return false;
 
   if (x.filename !== undefined && typeof x.filename !== "string") return false;
   return true;
