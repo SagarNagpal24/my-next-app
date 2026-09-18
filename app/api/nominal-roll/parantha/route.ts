@@ -99,9 +99,14 @@ export async function GET() {
     const items = await db
       .collection(COLLECTION)
       .find({})
-      .sort({ createdAt: -1 })
-      .limit(1500)
+      .limit(5000)
       .toArray();
+
+    items.sort((a: any, b: any) => {
+      const da = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const db2 = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return db2 - da;
+    });
 
     const safe = items.map((x: any) => ({
       ...x,
