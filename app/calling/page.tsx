@@ -1216,7 +1216,10 @@ export default function CallingPage() {
     const ORDER = tabMapForInit
       ? Object.keys(tabMapForInit)
       : Object.keys(DEPT_ALLOTTED_BY_TAB.parantha || {});
-    out.sort((a, b) => {
+
+    const filtered = out.filter((x) => x.total > 0 || x.alloted > 0);
+
+    filtered.sort((a, b) => {
       const ai = ORDER.indexOf(a.dept);
       const bi = ORDER.indexOf(b.dept);
       if (ai === -1 && bi === -1) return a.dept.localeCompare(b.dept);
@@ -1225,7 +1228,7 @@ export default function CallingPage() {
       return ai - bi;
     });
 
-    return out;
+    return filtered;
   }, [filteredRows, draftMap, typeFilter]);
 
   const deptTotals = React.useMemo(() => {
