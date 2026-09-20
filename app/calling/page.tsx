@@ -2455,19 +2455,19 @@ export default function CallingPage() {
         >
           <div className="w-screen h-screen rounded-none bg-white p-2 shadow-xl dark:bg-zinc-950 flex flex-col">
             <div className="flex items-center justify-between gap-2 shrink-0">
-              <div className="text-sm font-semibold">Department Summary</div>
-              <div className="flex items-center gap-2">
-                <button onClick={onExportDeptSummary} className="app-btn app-btn-secondary h-7 px-3 text-xs">
-                  Export Excel
+              <div className="text-sm font-semibold truncate">Department Summary</div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button onClick={onExportDeptSummary} className="app-btn app-btn-secondary h-7 px-2 text-[11px] whitespace-nowrap">
+                  Export
                 </button>
-                <button onClick={() => setDeptOpen(false)} className="app-btn app-btn-primary h-7 px-3 text-xs">
+                <button onClick={() => setDeptOpen(false)} className="app-btn app-btn-primary h-7 px-2 text-[11px] whitespace-nowrap">
                   Close
                 </button>
               </div>
             </div>
 
-            <div className="mt-1 flex-1 overflow-hidden rounded border border-black/10 dark:border-white/10">
-              <table className="w-full table-fixed border-collapse text-[11px] leading-tight">
+            <div className="mt-1 flex-1 overflow-x-auto overflow-y-auto rounded border border-black/10 dark:border-white/10">
+              <table className="w-full table-fixed border-collapse text-[11px] leading-tight" style={{ minWidth: "640px" }}>
                 <colgroup>
                   <col style={{ width: "4%" }} />
                   <col style={{ width: "20%" }} />
@@ -2483,15 +2483,15 @@ export default function CallingPage() {
                   <tr>
                     <th
                       colSpan={7}
-                      className="border border-black/10 bg-zinc-100 px-1 py-0.5 text-center text-xs font-bold dark:border-white/10 dark:bg-zinc-900"
+                      className="border border-black/10 bg-zinc-100 px-1 py-0.5 text-center text-[10px] font-bold dark:border-white/10 dark:bg-zinc-900"
                     >
                       JATHA SEWA
                     </th>
                     <th
                       colSpan={2}
-                      className="border border-black/10 bg-yellow-100 px-1 py-0.5 text-center text-xs font-bold dark:border-white/10 dark:bg-yellow-900/30"
+                      className="border border-black/10 bg-yellow-100 px-1 py-0.5 text-center text-[10px] font-bold dark:border-white/10 dark:bg-yellow-900/30"
                     >
-                      Travel Mode
+                      Travel
                     </th>
                   </tr>
 
@@ -2500,26 +2500,26 @@ export default function CallingPage() {
                       colSpan={7}
                       className="border border-black/10 bg-zinc-50 px-1 py-0.5 text-center text-[10px] font-semibold dark:border-white/10 dark:bg-zinc-900"
                     >
-                      DETAILS OF THE DEPTT
+                      DEPARTMENT DETAILS
                     </th>
                     <th className="border border-black/10 bg-yellow-50 px-1 py-0.5 dark:border-white/10 dark:bg-yellow-900/20" />
                     <th className="border border-black/10 bg-yellow-50 px-1 py-0.5 dark:border-white/10 dark:bg-yellow-900/20" />
                   </tr>
 
                   <tr className="bg-zinc-50 dark:bg-zinc-900">
-                    <th className="border border-black/10 px-1 py-0.5 text-left dark:border-white/10">S NO</th>
-                    <th className="border border-black/10 px-1 py-0.5 text-left dark:border-white/10">DEPTT</th>
-                    <th className="border border-black/10 px-1 py-0.5 text-right dark:border-white/10">SEWADAR</th>
-                    <th className="border border-black/10 px-1 py-0.5 text-right dark:border-white/10">SANGAT</th>
+                    <th className="border border-black/10 px-1 py-0.5 text-left dark:border-white/10">S.No</th>
+                    <th className="border border-black/10 px-1 py-0.5 text-left dark:border-white/10">Dept</th>
+                    <th className="border border-black/10 px-1 py-0.5 text-right dark:border-white/10">Sewadar</th>
+                    <th className="border border-black/10 px-1 py-0.5 text-right dark:border-white/10">Sangat</th>
                     <th className="border border-black/10 bg-green-100 px-1 py-0.5 text-right font-semibold dark:border-white/10 dark:bg-green-900/30">
-                      TOTAL
+                      Total
                     </th>
-                    <th className="border border-black/10 px-1 py-0.5 text-right dark:border-white/10">ALLOTED</th>
-                    <th className="border border-black/10 px-1 py-0.5 text-right dark:border-white/10 whitespace-nowrap">(Total-Alloted)</th>
+                    <th className="border border-black/10 px-1 py-0.5 text-right dark:border-white/10">Alloted</th>
+                    <th className="border border-black/10 px-1 py-0.5 text-right dark:border-white/10 whitespace-nowrap">Diff</th>
                     <th className="border border-black/10 bg-yellow-100 px-1 py-0.5 text-right dark:border-white/10 dark:bg-yellow-900/30">
                       Bus
                     </th>
-                    <th className="border border-black/10 bg-yellow-100 px-1 py-0.5 text-right dark:border-white/10 dark:bg-yellow-900/30 whitespace-nowrap">
+                    <th className="border border-black/10 bg-yellow-100 px-1 py-0.5 text-right dark:border-white/10 dark:bg-yellow-900/30">
                       Train/Self
                     </th>
                   </tr>
