@@ -40,6 +40,10 @@ type FormState = {
 };
 
 const ROUTE_OPTIONS: RouteType[] = ["DELHI-BEAS", "BEAS-DELHI"];
+const BOARDING_OPTIONS = ["New Delhi", "Beas"];
+const TRAIN_NAME_OPTIONS = ["Shane Punjab Express", "Pathankot Express"];
+const TRAIN_TIME_OPTIONS = ["06:40", "10:00"];
+const FARE_OPTIONS = ["185", "205"];
 
 function normalizeId(raw: any): string {
   const candidate =
@@ -1137,13 +1141,17 @@ html, body {
 
           <input className="app-input app-input-sm" value={form.pnrNumber} onChange={(e) => setForm({ ...form, pnrNumber: e.target.value })} placeholder="PNR *" required />
 
-          <input
+          <select
             className="app-input app-input-sm"
             value={form.trainName}
             onChange={(e) => setForm({ ...form, trainName: e.target.value })}
-            placeholder="Train Name *"
             required
-          />
+          >
+            <option value="">Train Name *</option>
+            {TRAIN_NAME_OPTIONS.map((t) => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </select>
 
           <select className="app-input app-input-sm" value={form.route} onChange={(e) => setForm({ ...form, route: e.target.value as any })} required>
             <option value="">Route *</option>
@@ -1154,32 +1162,43 @@ html, body {
             ))}
           </select>
 
-          <input
-            type="time"
+          <select
             className="app-input app-input-sm"
             value={form.trainTime}
             onChange={(e) => setForm({ ...form, trainTime: e.target.value })}
             required
-          />
+          >
+            <option value="">Time *</option>
+            {TRAIN_TIME_OPTIONS.map((t) => (
+              <option key={t} value={t}>{t === "06:40" ? "6:40 AM" : "10:00 AM"}</option>
+            ))}
+          </select>
 
-          <input
+          <select
             className="app-input app-input-sm"
             value={form.boardingStation}
             onChange={(e) => setForm({ ...form, boardingStation: e.target.value })}
-            placeholder="Boarding Station/Drop Station *"
             required
-          />
+          >
+            <option value="">Boarding Station *</option>
+            {BOARDING_OPTIONS.map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
 
           <input type="date" className="app-input app-input-sm" value={form.travelDate} onChange={(e) => setForm({ ...form, travelDate: e.target.value })} required />
 
-          <input
+          <select
             className="app-input app-input-sm"
             value={form.fare}
-            onChange={(e) => setForm({ ...form, fare: e.target.value.replace(/[^\d.]/g, "") })}
-            placeholder="Fare *"
-            inputMode="decimal"
+            onChange={(e) => setForm({ ...form, fare: e.target.value })}
             required
-          />
+          >
+            <option value="">Fare *</option>
+            {FARE_OPTIONS.map((f) => (
+              <option key={f} value={f}>₹{f}</option>
+            ))}
+          </select>
 
           <div className="sm:col-span-2 lg:col-span-3 mt-2 flex items-center justify-end gap-2">
             <button type="button" onClick={resetForm} className="app-btn app-btn-secondary h-10 px-4">
@@ -1226,12 +1245,12 @@ html, body {
 
           <div>
             <div className="app-label">Train</div>
-            <input
-              className="app-input app-input-sm"
-              value={fTrain}
-              onChange={(e) => setFTrain(e.target.value)}
-              placeholder="Type train name"
-            />
+            <select className="app-input app-input-sm" value={fTrain} onChange={(e) => setFTrain(e.target.value)}>
+              <option value="">All</option>
+              {TRAIN_NAME_OPTIONS.map((t) => (
+                <option key={t} value={t}>{t}</option>
+              ))}
+            </select>
           </div>
 
           <div>
@@ -1248,12 +1267,12 @@ html, body {
 
           <div>
             <div className="app-label">Boarding</div>
-            <input
-              className="app-input app-input-sm"
-              value={fBoarding}
-              onChange={(e) => setFBoarding(e.target.value)}
-              placeholder="Type boarding station"
-            />
+            <select className="app-input app-input-sm" value={fBoarding} onChange={(e) => setFBoarding(e.target.value)}>
+              <option value="">All</option>
+              {BOARDING_OPTIONS.map((s) => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
           </div>
 
           <div>
@@ -1472,13 +1491,17 @@ html, body {
 
               <input className="app-input app-input-sm" value={editing.pnrNumber || ""} onChange={(e) => setEditing({ ...editing, pnrNumber: e.target.value })} placeholder="PNR *" required />
 
-              <input
+              <select
                 className="app-input app-input-sm"
                 value={String((editing.trainName as any) || "")}
                 onChange={(e) => setEditing({ ...editing, trainName: e.target.value as any })}
-                placeholder="Train Name *"
                 required
-              />
+              >
+                <option value="">Train Name *</option>
+                {TRAIN_NAME_OPTIONS.map((t) => (
+                  <option key={t} value={t}>{t}</option>
+                ))}
+              </select>
 
               <select className="app-input app-input-sm" value={(editing.route as any) || ""} onChange={(e) => setEditing({ ...editing, route: e.target.value as any })} required>
                 <option value="">Route *</option>
@@ -1489,32 +1512,43 @@ html, body {
                 ))}
               </select>
 
-              <input
-                type="time"
+              <select
                 className="app-input app-input-sm"
                 value={String(editing.trainTime || "")}
                 onChange={(e) => setEditing({ ...editing, trainTime: e.target.value })}
                 required
-              />
+              >
+                <option value="">Time *</option>
+                {TRAIN_TIME_OPTIONS.map((t) => (
+                  <option key={t} value={t}>{t === "06:40" ? "6:40 AM" : "10:00 AM"}</option>
+                ))}
+              </select>
 
-              <input
+              <select
                 className="app-input app-input-sm"
                 value={String((editing.boardingStation as any) || "")}
                 onChange={(e) => setEditing({ ...editing, boardingStation: e.target.value as any })}
-                placeholder="Boarding Station *"
                 required
-              />
+              >
+                <option value="">Boarding Station *</option>
+                {BOARDING_OPTIONS.map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
 
               <input type="date" className="app-input app-input-sm" value={(editing.travelDate as any) || ""} onChange={(e) => setEditing({ ...editing, travelDate: e.target.value })} required />
 
-              <input
+              <select
                 className="app-input app-input-sm"
                 value={String((editing as any).fare ?? "")}
                 onChange={(e) => setEditing({ ...editing, fare: e.target.value ? Number(e.target.value) : 0 } as any)}
-                placeholder="Fare *"
-                inputMode="decimal"
                 required
-              />
+              >
+                <option value="">Fare *</option>
+                {FARE_OPTIONS.map((f) => (
+                  <option key={f} value={f}>₹{f}</option>
+                ))}
+              </select>
 
               <div className="sm:col-span-2 lg:col-span-3 mt-2 flex items-center justify-end gap-2">
                 <button type="button" onClick={() => setEditing(null)} className="app-btn app-btn-secondary h-10 px-4">
