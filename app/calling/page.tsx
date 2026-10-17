@@ -2467,29 +2467,18 @@ export default function CallingPage() {
             </div>
 
             <div className="mt-1 flex-1 overflow-x-auto overflow-y-auto rounded border border-black/10 dark:border-white/10">
-              <table className="w-full table-fixed border-collapse text-[11px] leading-tight" style={{ minWidth: "640px" }}>
-                <colgroup>
-                  <col style={{ width: "4%" }} />
-                  <col style={{ width: "20%" }} />
-                  <col style={{ width: "9%" }} />
-                  <col style={{ width: "9%" }} />
-                  <col style={{ width: "9%" }} />
-                  <col style={{ width: "9%" }} />
-                  <col style={{ width: "16%" }} />
-                  <col style={{ width: "10%" }} />
-                  <col style={{ width: "14%" }} />
-                </colgroup>
+              <table className="w-full border-collapse text-sm leading-snug">
                 <thead>
                   <tr>
                     <th
                       colSpan={7}
-                      className="border border-black/10 bg-zinc-100 px-1 py-0.5 text-center text-[10px] font-bold dark:border-white/10 dark:bg-zinc-900"
+                      className="border border-black/10 bg-zinc-100 px-2 py-1 text-center text-xs font-bold tracking-wide dark:border-white/10 dark:bg-zinc-900"
                     >
                       JATHA SEWA
                     </th>
                     <th
                       colSpan={2}
-                      className="border border-black/10 bg-yellow-100 px-1 py-0.5 text-center text-[10px] font-bold dark:border-white/10 dark:bg-yellow-900/30"
+                      className="border border-black/10 bg-yellow-100 px-2 py-1 text-center text-xs font-bold tracking-wide dark:border-white/10 dark:bg-yellow-900/30"
                     >
                       Travel
                     </th>
@@ -2498,28 +2487,28 @@ export default function CallingPage() {
                   <tr>
                     <th
                       colSpan={7}
-                      className="border border-black/10 bg-zinc-50 px-1 py-0.5 text-center text-[10px] font-semibold dark:border-white/10 dark:bg-zinc-900"
+                      className="border border-black/10 bg-zinc-50 px-2 py-1 text-center text-xs font-semibold tracking-wide dark:border-white/10 dark:bg-zinc-900"
                     >
                       DEPARTMENT DETAILS
                     </th>
-                    <th className="border border-black/10 bg-yellow-50 px-1 py-0.5 dark:border-white/10 dark:bg-yellow-900/20" />
-                    <th className="border border-black/10 bg-yellow-50 px-1 py-0.5 dark:border-white/10 dark:bg-yellow-900/20" />
+                    <th className="border border-black/10 bg-yellow-50 px-2 py-1 dark:border-white/10 dark:bg-yellow-900/20" />
+                    <th className="border border-black/10 bg-yellow-50 px-2 py-1 dark:border-white/10 dark:bg-yellow-900/20" />
                   </tr>
 
                   <tr className="bg-zinc-50 dark:bg-zinc-900">
-                    <th className="border border-black/10 px-1 py-0.5 text-left dark:border-white/10">S.No</th>
-                    <th className="border border-black/10 px-1 py-0.5 text-left dark:border-white/10">Dept</th>
-                    <th className="border border-black/10 px-1 py-0.5 text-right dark:border-white/10">Sewadar</th>
-                    <th className="border border-black/10 px-1 py-0.5 text-right dark:border-white/10">Sangat</th>
-                    <th className="border border-black/10 bg-green-100 px-1 py-0.5 text-right font-semibold dark:border-white/10 dark:bg-green-900/30">
+                    <th className="border border-black/10 px-2 py-1 text-left whitespace-nowrap dark:border-white/10">S.No</th>
+                    <th className="border border-black/10 px-2 py-1 text-left dark:border-white/10">Dept</th>
+                    <th className="border border-black/10 px-2 py-1 text-right whitespace-nowrap dark:border-white/10">Sewadar</th>
+                    <th className="border border-black/10 px-2 py-1 text-right whitespace-nowrap dark:border-white/10">Sangat</th>
+                    <th className="border border-black/10 bg-green-100 px-2 py-1 text-right font-semibold whitespace-nowrap dark:border-white/10 dark:bg-green-900/30">
                       Total
                     </th>
-                    <th className="border border-black/10 px-1 py-0.5 text-right dark:border-white/10">Alloted</th>
-                    <th className="border border-black/10 px-1 py-0.5 text-right dark:border-white/10 whitespace-nowrap">Diff</th>
-                    <th className="border border-black/10 bg-yellow-100 px-1 py-0.5 text-right dark:border-white/10 dark:bg-yellow-900/30">
+                    <th className="border border-black/10 px-2 py-1 text-right whitespace-nowrap dark:border-white/10">Alloted</th>
+                    <th className="border border-black/10 px-2 py-1 text-right whitespace-nowrap dark:border-white/10">Diff</th>
+                    <th className="border border-black/10 bg-yellow-100 px-2 py-1 text-right whitespace-nowrap dark:border-white/10 dark:bg-yellow-900/30">
                       Bus
                     </th>
-                    <th className="border border-black/10 bg-yellow-100 px-1 py-0.5 text-right dark:border-white/10 dark:bg-yellow-900/30">
+                    <th className="border border-black/10 bg-yellow-100 px-2 py-1 text-right whitespace-nowrap dark:border-white/10 dark:bg-yellow-900/30">
                       Train/Self
                     </th>
                   </tr>
@@ -2527,16 +2516,16 @@ export default function CallingPage() {
                 <tbody>
                   {deptSummary.map((r, idx) => (
                     <tr key={r.dept} className="border-b border-black/5 dark:border-white/5">
-                      <td className="border border-black/10 px-1 py-0.5 dark:border-white/10">{idx + 1}</td>
-                      <td className="border border-black/10 px-1 py-0.5 font-medium dark:border-white/10">{r.dept}</td>
-                      <td className="border border-black/10 px-1 py-0.5 text-right dark:border-white/10">{r.sewadars}</td>
-                      <td className="border border-black/10 px-1 py-0.5 text-right dark:border-white/10">{r.sangat}</td>
-                      <td className="border border-black/10 bg-green-50 px-1 py-0.5 text-right font-semibold dark:border-white/10 dark:bg-green-900/20">
+                      <td className="border border-black/10 px-2 py-1 whitespace-nowrap tabular-nums dark:border-white/10">{idx + 1}</td>
+                      <td className="border border-black/10 px-2 py-1 font-semibold whitespace-nowrap dark:border-white/10">{r.dept}</td>
+                      <td className="border border-black/10 px-2 py-1 text-right whitespace-nowrap tabular-nums dark:border-white/10">{r.sewadars}</td>
+                      <td className="border border-black/10 px-2 py-1 text-right whitespace-nowrap tabular-nums dark:border-white/10">{r.sangat}</td>
+                      <td className="border border-black/10 bg-green-50 px-2 py-1 text-right font-semibold whitespace-nowrap tabular-nums dark:border-white/10 dark:bg-green-900/20">
                         {r.total}
                       </td>
-                      <td className="border border-black/10 px-1 py-0.5 text-right dark:border-white/10">{r.alloted}</td>
+                      <td className="border border-black/10 px-2 py-1 text-right whitespace-nowrap tabular-nums dark:border-white/10">{r.alloted}</td>
                       <td
-                        className={`border border-black/10 px-1 py-0.5 text-right font-semibold dark:border-white/10 whitespace-nowrap ${
+                        className={`border border-black/10 px-2 py-1 text-right font-semibold whitespace-nowrap tabular-nums dark:border-white/10 ${
                           r.diff < 0
                             ? "bg-red-200 text-red-800 dark:bg-red-900/40 dark:text-red-300"
                             : r.diff > 0
@@ -2546,25 +2535,25 @@ export default function CallingPage() {
                       >
                         {r.diff}
                       </td>
-                      <td className="border border-black/10 bg-yellow-50 px-1 py-0.5 text-right dark:border-white/10 dark:bg-yellow-900/20">
+                      <td className="border border-black/10 bg-yellow-50 px-2 py-1 text-right whitespace-nowrap tabular-nums dark:border-white/10 dark:bg-yellow-900/20">
                         {r.bus}
                       </td>
-                      <td className="border border-black/10 bg-yellow-50 px-1 py-0.5 text-right dark:border-white/10 dark:bg-yellow-900/20 whitespace-nowrap">
+                      <td className="border border-black/10 bg-yellow-50 px-2 py-1 text-right whitespace-nowrap tabular-nums dark:border-white/10 dark:bg-yellow-900/20">
                         {r.train + r.self}
                       </td>
                     </tr>
                   ))}
                   <tr className="font-bold">
-                    <td className="border border-black/10 px-1 py-0.5 dark:border-white/10" />
-                    <td className="border border-black/10 px-1 py-0.5 dark:border-white/10">TOTAL</td>
-                    <td className="border border-black/10 px-1 py-0.5 text-right dark:border-white/10">{deptTotals.sewadars}</td>
-                    <td className="border border-black/10 px-1 py-0.5 text-right dark:border-white/10">{deptTotals.sangat}</td>
-                    <td className="border border-black/10 bg-green-100 px-1 py-0.5 text-right dark:border-white/10 dark:bg-green-900/30">
+                    <td className="border border-black/10 px-2 py-1 dark:border-white/10" />
+                    <td className="border border-black/10 px-2 py-1 whitespace-nowrap dark:border-white/10">TOTAL</td>
+                    <td className="border border-black/10 px-2 py-1 text-right whitespace-nowrap tabular-nums dark:border-white/10">{deptTotals.sewadars}</td>
+                    <td className="border border-black/10 px-2 py-1 text-right whitespace-nowrap tabular-nums dark:border-white/10">{deptTotals.sangat}</td>
+                    <td className="border border-black/10 bg-green-100 px-2 py-1 text-right whitespace-nowrap tabular-nums dark:border-white/10 dark:bg-green-900/30">
                       {deptTotals.total}
                     </td>
-                    <td className="border border-black/10 px-1 py-0.5 text-right dark:border-white/10">{deptTotals.alloted}</td>
+                    <td className="border border-black/10 px-2 py-1 text-right whitespace-nowrap tabular-nums dark:border-white/10">{deptTotals.alloted}</td>
                     <td
-                      className={`border border-black/10 px-1 py-0.5 text-right dark:border-white/10 whitespace-nowrap ${
+                      className={`border border-black/10 px-2 py-1 text-right whitespace-nowrap tabular-nums dark:border-white/10 ${
                         deptTotals.diff < 0
                           ? "bg-red-200 text-red-800 dark:bg-red-900/40 dark:text-red-300"
                           : "bg-zinc-100 dark:bg-zinc-800"
@@ -2572,10 +2561,10 @@ export default function CallingPage() {
                     >
                       {deptTotals.diff}
                     </td>
-                    <td className="border border-black/10 bg-yellow-100 px-1 py-0.5 text-right dark:border-white/10 dark:bg-yellow-900/30">
+                    <td className="border border-black/10 bg-yellow-100 px-2 py-1 text-right whitespace-nowrap tabular-nums dark:border-white/10 dark:bg-yellow-900/30">
                       {deptTotals.bus}
                     </td>
-                    <td className="border border-black/10 bg-yellow-100 px-1 py-0.5 text-right dark:border-white/10 dark:bg-yellow-900/30 whitespace-nowrap">
+                    <td className="border border-black/10 bg-yellow-100 px-2 py-1 text-right whitespace-nowrap tabular-nums dark:border-white/10 dark:bg-yellow-900/30">
                       {deptTotals.train + deptTotals.self}
                     </td>
                   </tr>
