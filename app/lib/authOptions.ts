@@ -1,6 +1,6 @@
 import type { NextAuthOptions } from "next-auth";
 import Google from "next-auth/providers/google";
-import clientPromise from "./mongodb";
+import { getDb } from "./mongodb";
 
 type Role = "admin" | "user";
 
@@ -13,6 +13,7 @@ export type Permissions = {
   reports?: boolean;
   jathaDate?: boolean;
   calling?: boolean; // ✅ NEW
+  followup?: boolean;
 };
 
 type AllowedUser = {
@@ -36,32 +37,39 @@ export const authOptions: NextAuthOptions = {
       const email = (user.email || "").toLowerCase().trim();
       if (!email) return false;
 
-      const client = await clientPromise;
-      const db = client.db(process.env.MONGODB_DB || "jatha");
+      try {
+        const db = await getDb();
 
-      const allowed = await db
-        .collection<AllowedUser>("allowed_users")
-        .findOne({ email, active: true });
+        const allowed = await db
+          .collection<AllowedUser>("allowed_users")
+          .findOne({ email, active: true });
 
-      return !!allowed;
+        return !!allowed;
+      } catch (e) {
+        console.error("MongoDB unavailable during signIn:", e);
+        return false;
+      }
     },
 
     async jwt({ token }) {
       const email = (token.email || "").toLowerCase().trim();
       if (!email) return token;
 
-      const client = await clientPromise;
-      const db = client.db(process.env.MONGODB_DB || "jatha");
+      try {
+        const db = await getDb();
 
-      const allowed = await db
-        .collection<AllowedUser>("allowed_users")
-        .findOne({ email, active: true });
+        const allowed = await db
+          .collection<AllowedUser>("allowed_users")
+          .findOne({ email, active: true });
 
-      (token as any).role = allowed?.role || "user";
-      (token as any).isAllowed = !!allowed;
+        (token as any).role = allowed?.role || "user";
+        (token as any).isAllowed = !!allowed;
 
-      // ✅ include permissions in token (admins can be treated as "all true" later)
-      (token as any).permissions = allowed?.permissions || {};
+        // ✅ include permissions in token (admins can be treated as "all true" later)
+        (token as any).permissions = allowed?.permissions || {};
+      } catch (e) {
+        console.error("MongoDB unavailable during jwt:", e);
+      }
 
       return token;
     },
@@ -74,15 +82,19 @@ export const authOptions: NextAuthOptions = {
 
   // ✅ ALWAYS fetch latest permissions from DB (so navbar updates immediately)
   if (email) {
-    const client = await clientPromise;
-    const db = client.db(process.env.MONGODB_DB || "jatha");
+    try {
+      const db = await getDb();
 
-    const allowed = await db
-      .collection("allowed_users")
-      .findOne({ email, active: true });
+      const allowed = await db
+        .collection("allowed_users")
+        .findOne({ email, active: true });
 
-    (session as any).permissions = allowed?.permissions || {};
-    (session as any).role = allowed?.role || (session as any).role; // keep role synced too
+      (session as any).permissions = allowed?.permissions || {};
+      (session as any).role = allowed?.role || (session as any).role; // keep role synced too
+    } catch (e) {
+      console.error("MongoDB unavailable during session:", e);
+      (session as any).permissions = (token as any).permissions || {};
+    }
   } else {
     (session as any).permissions = (token as any).permissions || {};
   }

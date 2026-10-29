@@ -13,6 +13,7 @@ type Permissions = {
   reports?: boolean;
   jathaDate?: boolean;
   calling?: boolean;
+  followup?: boolean;
 };
 
 type AllowedUser = {
@@ -32,6 +33,7 @@ const PERM_FIELDS: { key: keyof Permissions; label: string }[] = [
   { key: "reports", label: "Reports" },
   { key: "jathaDate", label: "Jatha Date" },
   { key: "calling", label: "Calling" },
+  { key: "followup", label: "Followup" },
 ];
 
 function cleanEmail(v: string) {
@@ -67,6 +69,7 @@ export default function AdminUsersPage() {
     reports: true,
     jathaDate: true,
     calling: true,
+    followup: true,
   });
 
   async function load() {

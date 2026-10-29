@@ -1,7 +1,7 @@
 // auth.ts (project root)
 import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
-import clientPromise from "./app/lib/mongodb"; // ✅ adjust if your mongodb file is elsewhere
+import { getDb } from "./app/lib/mongodb";
 
 type AllowedUser = { email: string; role: "admin" | "user"; active: boolean };
 
@@ -20,8 +20,7 @@ export const { handlers, auth } = NextAuth({
       const email = (user.email || "").toLowerCase().trim();
       if (!email) return false;
 
-      const client = await clientPromise;
-      const db = client.db(process.env.MONGODB_DB || "jatha");
+      const db = await getDb();
       const allowed = await db
         .collection<AllowedUser>("allowed_users")
         .findOne({ email, active: true });
@@ -33,8 +32,7 @@ export const { handlers, auth } = NextAuth({
       const email = (token.email || "").toLowerCase().trim();
       if (!email) return token;
 
-      const client = await clientPromise;
-      const db = client.db(process.env.MONGODB_DB || "jatha");
+      const db = await getDb();
       const allowed = await db
         .collection<AllowedUser>("allowed_users")
         .findOne({ email, active: true });
@@ -51,8 +49,7 @@ export const { handlers, auth } = NextAuth({
   (session as any).isAllowed = (token as any).isAllowed || false;
 
   if (email) {
-    const client = await clientPromise;
-    const db = client.db(process.env.MONGODB_DB || "jatha");
+    const db = await getDb();
     const allowed = await db.collection("allowed_users").findOne({ email, active: true });
 
     (session as any).permissions = allowed?.permissions || {};

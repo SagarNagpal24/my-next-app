@@ -1,6 +1,6 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "../../../lib/authOptions";
-import clientPromise from "../../../lib/mongodb";
+import { getDb } from "../../../lib/mongodb";
 
 type Role = "admin" | "user";
 
@@ -16,8 +16,7 @@ export async function GET() {
   const session = await getServerSession(authOptions);
   if (!isAdmin(session)) return new Response("Forbidden", { status: 403 });
 
-  const client = await clientPromise;
-  const db = client.db(process.env.MONGODB_DB || "jatha");
+  const db = await getDb();
 
   const users = await db
     .collection("allowed_users")
@@ -43,8 +42,7 @@ export async function POST(req: Request) {
   // permissions object optional
   const permissions = body.permissions && typeof body.permissions === "object" ? body.permissions : {};
 
-  const client = await clientPromise;
-  const db = client.db(process.env.MONGODB_DB || "jatha");
+  const db = await getDb();
 
   await db.collection("allowed_users").updateOne(
     { email },
@@ -73,8 +71,7 @@ export async function PATCH(req: Request) {
 
   if (!Object.keys(updates).length) return new Response("No updates", { status: 400 });
 
-  const client = await clientPromise;
-  const db = client.db(process.env.MONGODB_DB || "jatha");
+  const db = await getDb();
 
   await db.collection("allowed_users").updateOne({ email }, { $set: updates });
 
@@ -89,8 +86,7 @@ export async function DELETE(req: Request) {
   const email = cleanEmail(searchParams.get("email"));
   if (!email) return new Response("Missing email", { status: 400 });
 
-  const client = await clientPromise;
-  const db = client.db(process.env.MONGODB_DB || "jatha");
+  const db = await getDb();
 
   await db.collection("allowed_users").deleteOne({ email });
 

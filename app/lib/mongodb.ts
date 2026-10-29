@@ -1,32 +1,49 @@
-import { MongoClient } from "mongodb";
+import { MongoClient, Db } from "mongodb";
 
 const uri = process.env.MONGODB_URI!;
 if (!uri) throw new Error("Missing MONGODB_URI in .env.local");
 
-let client: MongoClient;
-let clientPromise: Promise<MongoClient>;
-
-// Reuse in dev (hot reload safe)
 declare global {
   // eslint-disable-next-line no-var
   var _mongoClientPromise: Promise<MongoClient> | undefined;
 }
 
-if (process.env.NODE_ENV === "development") {
-  if (!global._mongoClientPromise) {
-    client = new MongoClient(uri);
-    global._mongoClientPromise = client.connect();
-  }
-  clientPromise = global._mongoClientPromise;
-} else {
-  client = new MongoClient(uri);
-  clientPromise = client.connect();
+function createConnection() {
+  const client = new MongoClient(uri, {
+    serverSelectionTimeoutMS: 15000,
+    connectTimeoutMS: 15000,
+  });
+  return client.connect();
 }
 
-export default clientPromise;
+export async function getClient(): Promise<MongoClient> {
+  const existing = global._mongoClientPromise;
 
-export async function getDb() {
+  if (existing) {
+    try {
+      return await existing;
+    } catch {
+      global._mongoClientPromise = undefined;
+    }
+  }
+
+  const promise = createConnection();
+  global._mongoClientPromise = promise;
+
+  try {
+    return await promise;
+  } catch (err) {
+    if (global._mongoClientPromise === promise) {
+      global._mongoClientPromise = undefined;
+    }
+    throw err;
+  }
+}
+
+export async function getDb(): Promise<Db> {
+  const client = await getClient();
   const dbName = process.env.MONGODB_DB || "jatha";
-  const client = await clientPromise;
   return client.db(dbName);
 }
+
+export default getClient;

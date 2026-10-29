@@ -136,6 +136,14 @@ export async function PUT(req: Request, ctx: Ctx) {
       ? asString(body.remarks)
       : asString(existing.remarks);
 
+    const assignedTo = hasOwn("assignedTo")
+      ? asString(body.assignedTo)
+      : asString(existing.assignedTo);
+
+    const followupRemarks = hasOwn("followupRemarks")
+      ? asString(body.followupRemarks)
+      : asString(existing.followupRemarks);
+
     if (!jathaDateId) {
       return NextResponse.json({ error: "Jatha date required" }, { status: 400 });
     }
@@ -189,6 +197,8 @@ export async function PUT(req: Request, ctx: Ctx) {
       confirm,
       ferry,
       remarks,
+      assignedTo,
+      followupRemarks,
       updatedAt: new Date(),
     };
 

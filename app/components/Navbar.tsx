@@ -25,6 +25,7 @@ const BASE_TABS: Tab[] = [
   { href: "/reports", label: "Reports", key: "reports" },
   { href: "/jatha-date", label: "Jatha Date", key: "jathaDate" },
   { href: "/calling", label: "Calling", key: "calling" }, // ✅ new
+  { href: "/followup", label: "Followup", key: "followup" },
 ];
 
 export default function Navbar() {

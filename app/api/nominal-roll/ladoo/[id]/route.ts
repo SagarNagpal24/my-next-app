@@ -182,6 +182,14 @@ export async function PUT(req: Request, ctx: Ctx) {
       ? asString(body.remarks)
       : asString(current.remarks);
 
+    const assignedTo = hasOwn("assignedTo")
+      ? asString(body.assignedTo)
+      : asString(current.assignedTo);
+
+    const followupRemarks = hasOwn("followupRemarks")
+      ? asString(body.followupRemarks)
+      : asString(current.followupRemarks);
+
     // ✅ duplicate prevention by SAME NAME + SAME JATHA DATE, excluding current row
     const existingDuplicate = await db.collection(COLLECTION).findOne({
       _id: { $ne: oid },
@@ -236,6 +244,10 @@ export async function PUT(req: Request, ctx: Ctx) {
       confirm,
       ferry,
       remarks,
+
+      // Followup tab fields - save permanently in DB
+      assignedTo,
+      followupRemarks,
 
       // ✅ keep normalized key aligned for old rows that may not have it
       customerNameKey,

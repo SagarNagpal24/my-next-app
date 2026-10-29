@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import clientPromise from "@/app/lib/mongodb";
+import { getDb } from "@/app/lib/mongodb";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/lib/authOptions";
 
@@ -21,8 +21,7 @@ export async function PUT(req: Request) {
       permissions[k] = v === true || v === "true" || v === 1 || v === "1";
     }
 
-    const client = await clientPromise;
-    const db = client.db(process.env.MONGODB_DB || "jatha");
+    const db = await getDb();
 
     const res = await db.collection("allowed_users").updateOne(
       { email, active: true },
