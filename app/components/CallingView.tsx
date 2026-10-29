@@ -399,6 +399,8 @@ export default function CallingView({ followup = false }: { followup?: boolean }
   const [frequencySort, setFrequencySort] = React.useState<FrequencySort>("");
   const [assignedFilter, setAssignedFilter] = React.useState("");
   const [bulkAssignee, setBulkAssignee] = React.useState("");
+  const [rangeFrom, setRangeFrom] = React.useState("");
+  const [rangeTo, setRangeTo] = React.useState("");
 
   const [draftMap, setDraftMap] = React.useState<Record<string, CallingRow>>({});
   const [selectedKeys, setSelectedKeys] = React.useState<string[]>([]);
@@ -1548,6 +1550,80 @@ export default function CallingView({ followup = false }: { followup?: boolean }
     });
   }
 
+  function getRowsInRange(fromRaw: string, toRaw: string) {
+    const from = Number(fromRaw);
+    const to = Number(toRaw);
+
+    if (!Number.isFinite(from) || !Number.isFinite(to)) {
+      alert("Enter a valid S.No range");
+      return [];
+    }
+
+    const min = Math.floor(Math.min(from, to));
+    const max = Math.floor(Math.max(from, to));
+
+    if (min < 1 || max < 1) {
+      alert("S.No must be 1 or greater");
+      return [];
+    }
+
+    const rows = filteredRows.filter((_, idx) => {
+      const sNo = idx + 1;
+      return sNo >= min && sNo <= max;
+    });
+
+    if (rows.length === 0) {
+      alert("No rows found in this S.No range");
+    }
+
+    return rows;
+  }
+
+  function applyRangeAssign(value: string) {
+    if (!value) {
+      alert("Select a name to assign");
+      return;
+    }
+
+    const rows = getRowsInRange(rangeFrom, rangeTo);
+    if (rows.length === 0) return;
+
+    setDraftMap((prev) => {
+      const next = { ...prev };
+      for (const row of rows) {
+        next[rowKey(row)] = {
+          ...getRowDraft(row),
+          assignedTo: value,
+        };
+      }
+      return next;
+    });
+
+    setSelectedKeys((prev) =>
+      Array.from(new Set([...prev, ...rows.map((row) => rowKey(row))]))
+    );
+  }
+
+  function clearRangeAssign() {
+    const rows = getRowsInRange(rangeFrom, rangeTo);
+    if (rows.length === 0) return;
+
+    setDraftMap((prev) => {
+      const next = { ...prev };
+      for (const row of rows) {
+        next[rowKey(row)] = {
+          ...getRowDraft(row),
+          assignedTo: "",
+        };
+      }
+      return next;
+    });
+
+    setSelectedKeys((prev) =>
+      Array.from(new Set([...prev, ...rows.map((row) => rowKey(row))]))
+    );
+  }
+
   function clearSelectedCallingFields() {
     setDraftMap((prev) => {
       const next = { ...prev };
@@ -1952,6 +2028,8 @@ export default function CallingView({ followup = false }: { followup?: boolean }
               setFrequencyFilter("");
               setFrequencySort("");
               setAssignedFilter("");
+              setRangeFrom("");
+              setRangeTo("");
               setSelectedKeys([]);
             }}
           >
@@ -1993,6 +2071,48 @@ export default function CallingView({ followup = false }: { followup?: boolean }
                 Unassign Selected
               </button>
             </>
+          )}
+
+          {followup && (
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-black/10 bg-zinc-50 px-2 py-1.5 dark:border-white/10 dark:bg-white/5">
+              <span className="text-xs font-semibold">Assign by S.No</span>
+              <input
+                type="number"
+                min={1}
+                className="app-input app-input-sm w-20"
+                value={rangeFrom}
+                onChange={(e) => setRangeFrom(e.target.value)}
+                placeholder="From"
+              />
+              <span className="text-xs">to</span>
+              <input
+                type="number"
+                min={1}
+                className="app-input app-input-sm w-20"
+                value={rangeTo}
+                onChange={(e) => setRangeTo(e.target.value)}
+                placeholder="To"
+              />
+              <button
+                type="button"
+                className="app-btn app-btn-secondary h-9 px-3"
+                onClick={() => applyRangeAssign(bulkAssignee)}
+                disabled={!bulkAssignee || !rangeFrom || !rangeTo}
+              >
+                Assign Range
+              </button>
+              <button
+                type="button"
+                className="app-btn app-btn-secondary h-9 px-3"
+                onClick={clearRangeAssign}
+                disabled={!rangeFrom || !rangeTo}
+              >
+                Unassign Range
+              </button>
+              <span className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                Uses the name selected above. Assigns rows by their S.No, then click Save Selected.
+              </span>
+            </div>
           )}
 
           <button
