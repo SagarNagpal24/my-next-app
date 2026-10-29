@@ -2075,6 +2075,8 @@ export default function CallingView({ followup = false }: { followup?: boolean }
                 <th className="th w-28 px-2 py-2">Type</th>
                 <th className="th w-56 px-2 py-2">Name</th>
                 {followup && <th className="th w-44 px-2 py-2">Assigned Name</th>}
+                {followup && <th className="th w-64 px-2 py-2">Followup Remarks</th>}
+                {followup && <th className="th w-28 px-2 py-2">Save</th>}
                 <th className="th w-32 px-2 py-2">Tag</th>
                 <th className="th w-24 px-2 py-2">Ladoo</th>
                 <th className="th w-24 px-2 py-2">Parantha</th>
@@ -2092,25 +2094,32 @@ export default function CallingView({ followup = false }: { followup?: boolean }
                 <th className="th w-20 px-2 py-2">Mode</th>
                 <th className="th w-40 px-2 py-2">Department</th>
                 <th className="th w-20 px-2 py-2">Sangat</th>
-                <th className="th w-20 px-2 py-2">REQ D-B</th>
-                <th className="th w-20 px-2 py-2">REQ B-D</th>
-                <th className="th w-[520px] px-2 py-2">Ticket D-B</th>
-                <th className="th w-[520px] px-2 py-2">Ticket B-D</th>
-                <th className="th w-24 px-2 py-2">Fare Total</th>
-                <th className="th w-24 px-2 py-2">Pending</th>
-                <th className="th w-32 px-2 py-2">Payment</th>
-                <th className="th w-32 px-2 py-2">Payment Mode</th>
-                <th className="th w-32 px-2 py-2">Paid To</th>
-                <th className="th w-32 px-2 py-2">Bus Group</th>
-                <th className="th w-44 px-2 py-2">Jatha Date</th>
-                <th className="th w-28 px-2 py-2">Travel Start</th>
-                <th className="th w-28 px-2 py-2">Travel End</th>
-                <th className="th w-64 px-2 py-2">Notes</th>
-                <th className="th w-24 px-2 py-2">Confirm</th>
-                <th className="th w-24 px-2 py-2">Ferry</th>
+                {!followup && (
+                  <>
+                    <th className="th w-20 px-2 py-2">REQ D-B</th>
+                    <th className="th w-20 px-2 py-2">REQ B-D</th>
+                    <th className="th w-[520px] px-2 py-2">Ticket D-B</th>
+                    <th className="th w-[520px] px-2 py-2">Ticket B-D</th>
+                  </>
+                )}
+                {!followup && (
+                  <>
+                    <th className="th w-24 px-2 py-2">Fare Total</th>
+                    <th className="th w-24 px-2 py-2">Pending</th>
+                    <th className="th w-32 px-2 py-2">Payment</th>
+                    <th className="th w-32 px-2 py-2">Payment Mode</th>
+                    <th className="th w-32 px-2 py-2">Paid To</th>
+                    <th className="th w-32 px-2 py-2">Bus Group</th>
+                    <th className="th w-44 px-2 py-2">Jatha Date</th>
+                    <th className="th w-28 px-2 py-2">Travel Start</th>
+                    <th className="th w-28 px-2 py-2">Travel End</th>
+                    <th className="th w-64 px-2 py-2">Notes</th>
+                    <th className="th w-24 px-2 py-2">Confirm</th>
+                    <th className="th w-24 px-2 py-2">Ferry</th>
+                  </>
+                )}
                 <th className="th w-64 px-2 py-2">Remarks</th>
-                {followup && <th className="th w-64 px-2 py-2">Followup Remarks</th>}
-                <th className="th w-28 px-2 py-2">Save</th>
+                {!followup && <th className="th w-28 px-2 py-2">Save</th>}
                 <th className="th w-32 px-2 py-2">Created</th>
                 <th className="th w-32 px-2 py-2">Updated</th>
               </tr>
@@ -2119,13 +2128,13 @@ export default function CallingView({ followup = false }: { followup?: boolean }
             <tbody className="divide-y divide-black/5 dark:divide-white/10">
               {loading ? (
                 <tr>
-                  <td className="td px-2 py-2 text-zinc-600 dark:text-zinc-400" colSpan={43}>
+                  <td className="td px-2 py-2 text-zinc-600 dark:text-zinc-400" colSpan={followup ? 27 : 41}>
                     Loading...
                   </td>
                 </tr>
               ) : filteredRows.length === 0 ? (
                 <tr>
-                  <td className="td px-2 py-2 text-zinc-600 dark:text-zinc-400" colSpan={43}>
+                  <td className="td px-2 py-2 text-zinc-600 dark:text-zinc-400" colSpan={followup ? 27 : 41}>
                     No records found.
                   </td>
                 </tr>
@@ -2194,6 +2203,37 @@ export default function CallingView({ followup = false }: { followup?: boolean }
                         </td>
                       )}
 
+                      {followup && (
+                        <td className="td px-2 py-2">
+                          <textarea
+                            className={inputCls()}
+                            style={{ minHeight: 48 }}
+                            value={draft.followupRemarks || ""}
+                            onClick={stopRowClick}
+                            onChange={(e) =>
+                              updateDraft(r, { followupRemarks: e.target.value })
+                            }
+                            placeholder="Followup remark"
+                          />
+                        </td>
+                      )}
+
+                      {followup && (
+                        <td className="td px-2 py-2">
+                          <button
+                            type="button"
+                            className="app-btn app-btn-secondary h-9 px-3"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              saveOneRow(r);
+                            }}
+                            disabled={!dirty || saving}
+                          >
+                            {saving ? "Saving..." : dirty ? "Save" : "Saved"}
+                          </button>
+                        </td>
+                      )}
+
                       <td className="td px-2 py-2">
                         <span className={frequencyBadgeCls(totalCount)}>
                           {getTravellerTag(totalCount)}
@@ -2225,90 +2265,84 @@ export default function CallingView({ followup = false }: { followup?: boolean }
                         {draft.department || "-"}
                       </td>
                       <td className="td px-2 py-2">{draft.sangat || "-"}</td>
-                      <td className="td px-2 py-2">{draft.bookingReqDelhiBeas || "-"}</td>
-                      <td className="td px-2 py-2">{draft.bookingReqBeasDelhi || "-"}</td>
-                      <td className="td px-2 py-2 whitespace-normal break-words">
-                        {renderTicket(draft.ticketDelhiBeas)}
-                      </td>
-                      <td className="td px-2 py-2 whitespace-normal break-words">
-                        {renderTicket(draft.ticketBeasDelhi)}
-                      </td>
-                      <td className="td px-2 py-2">{c.fareTotal || "-"}</td>
-                      <td className="td px-2 py-2">{c.pending || "-"}</td>
-                      <td className="td px-2 py-2">{pay || "-"}</td>
-                      <td className="td px-2 py-2">{draft.paymentMode || "-"}</td>
-                      <td className="td px-2 py-2">{draft.paidTo || "-"}</td>
-                      <td className="td px-2 py-2 font-semibold text-amber-700 dark:text-amber-300">{draft.busGroup || "-"}</td>
-                      <td className="td px-2 py-2 whitespace-nowrap">{getJathaLabel(draft)}</td>
-                      <td className="td px-2 py-2 whitespace-nowrap">
-                        {formatDDMonYYYY(draft.travelStartDate) || "-"}
-                      </td>
-                      <td className="td px-2 py-2 whitespace-nowrap">
-                        {formatDDMonYYYY(draft.travelEndDate) || "-"}
-                      </td>
-                      <td className="td px-2 py-2 whitespace-normal break-words">
-                        {draft.notes || "-"}
-                      </td>
+                      {!followup && (
+                        <>
+                          <td className="td px-2 py-2">{draft.bookingReqDelhiBeas || "-"}</td>
+                          <td className="td px-2 py-2">{draft.bookingReqBeasDelhi || "-"}</td>
+                          <td className="td px-2 py-2 whitespace-normal break-words">
+                            {renderTicket(draft.ticketDelhiBeas)}
+                          </td>
+                          <td className="td px-2 py-2 whitespace-normal break-words">
+                            {renderTicket(draft.ticketBeasDelhi)}
+                          </td>
+                        </>
+                      )}
+                      {!followup && (
+                        <>
+                          <td className="td px-2 py-2">{c.fareTotal || "-"}</td>
+                          <td className="td px-2 py-2">{c.pending || "-"}</td>
+                          <td className="td px-2 py-2">{pay || "-"}</td>
+                          <td className="td px-2 py-2">{draft.paymentMode || "-"}</td>
+                          <td className="td px-2 py-2">{draft.paidTo || "-"}</td>
+                          <td className="td px-2 py-2 font-semibold text-amber-700 dark:text-amber-300">{draft.busGroup || "-"}</td>
+                          <td className="td px-2 py-2 whitespace-nowrap">{getJathaLabel(draft)}</td>
+                          <td className="td px-2 py-2 whitespace-nowrap">
+                            {formatDDMonYYYY(draft.travelStartDate) || "-"}
+                          </td>
+                          <td className="td px-2 py-2 whitespace-nowrap">
+                            {formatDDMonYYYY(draft.travelEndDate) || "-"}
+                          </td>
+                          <td className="td px-2 py-2 whitespace-normal break-words">
+                            {draft.notes || "-"}
+                          </td>
 
-                      <td className="td px-2 py-2">
-                        <select
-                          className={inputCls()}
-                          value={draft.confirm || ""}
-                          onClick={stopRowClick}
-                          onChange={(e) => updateDraft(r, { confirm: e.target.value as YesNo })}
-                        >
-                          <option value="">Pending</option>
-                          <option value="Yes">Yes</option>
-                          <option value="No">No</option>
-                          
-                        </select>
-                      </td>
+                          <td className="td px-2 py-2">
+                            <select
+                              className={inputCls()}
+                              value={draft.confirm || ""}
+                              onClick={stopRowClick}
+                              onChange={(e) => updateDraft(r, { confirm: e.target.value as YesNo })}
+                            >
+                              <option value="">Pending</option>
+                              <option value="Yes">Yes</option>
+                              <option value="No">No</option>
+                            </select>
+                          </td>
 
-                      <td className="td px-2 py-2">
-                        <select
-                          className={inputCls()}
-                          value={draft.ferry || ""}
-                          onClick={stopRowClick}
-                          onChange={(e) => updateDraft(r, { ferry: e.target.value as YesNo })}
-                        >
-                          <option value="">Select</option>
-                          <option value="Yes">Yes</option>
-                          <option value="No">No</option>
-                        </select>
-                      </td>
+                          <td className="td px-2 py-2">
+                            <select
+                              className={inputCls()}
+                              value={draft.ferry || ""}
+                              onClick={stopRowClick}
+                              onChange={(e) => updateDraft(r, { ferry: e.target.value as YesNo })}
+                            >
+                              <option value="">Select</option>
+                              <option value="Yes">Yes</option>
+                              <option value="No">No</option>
+                            </select>
+                          </td>
+                        </>
+                      )}
 
                       <td className="td px-2 py-2 whitespace-normal break-words">
                         {draft.remarks || "-"}
                       </td>
 
-                      {followup && (
+                      {!followup && (
                         <td className="td px-2 py-2">
-                          <textarea
-                            className={inputCls()}
-                            style={{ minHeight: 48 }}
-                            value={draft.followupRemarks || ""}
-                            onClick={stopRowClick}
-                            onChange={(e) =>
-                              updateDraft(r, { followupRemarks: e.target.value })
-                            }
-                            placeholder="Followup remark"
-                          />
+                          <button
+                            type="button"
+                            className="app-btn app-btn-secondary h-9 px-3"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              saveOneRow(r);
+                            }}
+                            disabled={!dirty || saving}
+                          >
+                            {saving ? "Saving..." : dirty ? "Save" : "Saved"}
+                          </button>
                         </td>
                       )}
-
-                      <td className="td px-2 py-2">
-                        <button
-                          type="button"
-                          className="app-btn app-btn-secondary h-9 px-3"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            saveOneRow(r);
-                          }}
-                          disabled={!dirty || saving}
-                        >
-                          {saving ? "Saving..." : dirty ? "Save" : "Saved"}
-                        </button>
-                      </td>
 
                       <td className="td px-2 py-2 whitespace-nowrap">
                         {formatDDMonYYYY(draft.createdAt) || "-"}
