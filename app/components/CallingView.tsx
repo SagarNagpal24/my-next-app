@@ -12,6 +12,14 @@ type PaidTo = "" | "Munish" | "Sagar" | "Gurjeet" | "Pulkit" | "Anjali" | "Jyoti
 const PAYMENT_MODE_OPTIONS: Exclude<PaymentMode, "">[] = ["Cash", "Online"];
 const PAID_TO_OPTIONS: Exclude<PaidTo, "">[] = ["Munish", "Sagar", "Gurjeet", "Pulkit", "Anjali", "Jyoti"];
 
+const FOLLOWUP_REMARK_OPTIONS = [
+  "Interested in sewa",
+  "Not Interested",
+  "Do not Call again",
+  "Will do Sewa After some time",
+  "Others",
+];
+
 // ✅ same ALLOTED values as Reports page (dept report)
 const DEPT_ALLOTTED_BY_TAB: Record<string, Record<string, number>> = {
   ladoo: {
@@ -398,9 +406,17 @@ export default function CallingView({ followup = false }: { followup?: boolean }
   const [frequencyFilter, setFrequencyFilter] = React.useState<FrequencyFilter>("");
   const [frequencySort, setFrequencySort] = React.useState<FrequencySort>("");
   const [assignedFilter, setAssignedFilter] = React.useState("");
+  const [followupRemarksFilter, setFollowupRemarksFilter] = React.useState("");
   const [bulkAssignee, setBulkAssignee] = React.useState("");
   const [rangeFrom, setRangeFrom] = React.useState("");
   const [rangeTo, setRangeTo] = React.useState("");
+  const [savingRange, setSavingRange] = React.useState(false);
+
+  const tableScrollRef = React.useRef<HTMLDivElement | null>(null);
+  const topScrollRef = React.useRef<HTMLDivElement | null>(null);
+  const headerRowRef = React.useRef<HTMLTableRowElement | null>(null);
+  const [tableScrollWidth, setTableScrollWidth] = React.useState(0);
+  const [stickyLefts, setStickyLefts] = React.useState<number[]>([0, 48, 104, 216]);
 
   const [draftMap, setDraftMap] = React.useState<Record<string, CallingRow>>({});
   const [selectedKeys, setSelectedKeys] = React.useState<string[]>([]);
@@ -713,6 +729,65 @@ export default function CallingView({ followup = false }: { followup?: boolean }
   React.useEffect(() => {
     setJathaDateFilter("");
   }, [typeFilter]);
+
+  React.useEffect(() => {
+    const el = tableScrollRef.current;
+    if (!el) return;
+
+    const update = () => setTableScrollWidth(el.scrollWidth);
+    update();
+
+    const ro = new ResizeObserver(update);
+    const table = el.querySelector("table");
+    if (table) ro.observe(table);
+    ro.observe(el);
+
+    return () => ro.disconnect();
+  }, [loading, followup]);
+
+  React.useEffect(() => {
+    const row = headerRowRef.current;
+    if (!row) return;
+
+    const measure = () => {
+      const cells = Array.from(row.children).slice(0, 4) as HTMLElement[];
+      if (cells.length < 4) return;
+
+      let left = 0;
+      const next = cells.map((cell) => {
+        const start = left;
+        left += cell.getBoundingClientRect().width;
+        return start;
+      });
+
+      setStickyLefts(next);
+    };
+
+    measure();
+
+    const ro = new ResizeObserver(measure);
+    const table = row.closest("table");
+    if (table) ro.observe(table);
+    Array.from(row.children).forEach((cell) => ro.observe(cell));
+
+    window.addEventListener("resize", measure);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, [loading, followup]);
+
+  function syncTopScroll() {
+    if (tableScrollRef.current && topScrollRef.current) {
+      tableScrollRef.current.scrollLeft = topScrollRef.current.scrollLeft;
+    }
+  }
+
+  function syncTableScroll() {
+    if (tableScrollRef.current && topScrollRef.current) {
+      topScrollRef.current.scrollLeft = tableScrollRef.current.scrollLeft;
+    }
+  }
 
   const ticketLabelMap = React.useMemo(() => {
     const map = new Map<string, string>();
@@ -1074,6 +1149,9 @@ export default function CallingView({ followup = false }: { followup?: boolean }
       const matchesFreq = matchesFrequency(totalCount);
       const matchesAssigned =
         !assignedFilter || String(r.assignedTo || "").trim() === assignedFilter;
+      const matchesFollowupRemarks =
+        !followupRemarksFilter ||
+        String(r.followupRemarks || "").trim() === followupRemarksFilter;
 
       return (
         matchesSearch &&
@@ -1087,7 +1165,8 @@ export default function CallingView({ followup = false }: { followup?: boolean }
         matchesConfirm &&
         matchesFerry &&
         matchesFreq &&
-        matchesAssigned
+        matchesAssigned &&
+        matchesFollowupRemarks
       );
     });
 
@@ -1120,6 +1199,7 @@ export default function CallingView({ followup = false }: { followup?: boolean }
     frequencyFilter,
     frequencySort,
     assignedFilter,
+    followupRemarksFilter,
     allJathaDates,
     ticketLabelMap,
     travellerSummaryMap,
@@ -1405,8 +1485,8 @@ export default function CallingView({ followup = false }: { followup?: boolean }
     );
   }
 
-  function buildSavePayload(row: CallingRow) {
-    const draft = getRowDraft(row);
+  function buildSavePayload(row: CallingRow, override?: Partial<CallingRow>) {
+    const draft = { ...getRowDraft(row), ...(override || {}) };
 
     const payload: Record<string, any> = {
       mode: String(draft.mode || ""),
@@ -1440,14 +1520,17 @@ export default function CallingView({ followup = false }: { followup?: boolean }
     return payload;
   }
 
-  async function saveOneRow(row: CallingRow) {
+  async function saveOneRow(
+    row: CallingRow,
+    options?: { override?: Partial<CallingRow>; silent?: boolean }
+  ) {
     const key = rowKey(row);
-    const draft = getRowDraft(row);
+    const draft = { ...getRowDraft(row), ...(options?.override || {}) };
 
     try {
       setSavingKeys((prev) => [...prev, key]);
 
-      const payload = buildSavePayload(row);
+      const payload = buildSavePayload(row, options?.override);
 
       const res = await fetch(
         `/api/nominal-roll/${draft.sourceType}/${encodeURIComponent(draft._id)}`,
@@ -1462,7 +1545,7 @@ export default function CallingView({ followup = false }: { followup?: boolean }
 
       if (!res.ok) {
         alert(data?.error || data?.message || "Failed to save row");
-        return;
+        return false;
       }
 
       setRows((prev) =>
@@ -1499,7 +1582,12 @@ export default function CallingView({ followup = false }: { followup?: boolean }
         setDetailsRowKey("");
       }
 
-      alert("Data saved successfully");
+      if (!options?.silent) alert("Data saved successfully");
+      return true;
+    } catch (e) {
+      console.error("Failed to save row", e);
+      if (!options?.silent) alert("Failed to save row");
+      return false;
     } finally {
       setSavingKeys((prev) => prev.filter((x) => x !== key));
     }
@@ -1535,21 +1623,6 @@ export default function CallingView({ followup = false }: { followup?: boolean }
     });
   }
 
-  function applyBulkAssign(value: string) {
-    setDraftMap((prev) => {
-      const next = { ...prev };
-      for (const row of filteredRows) {
-        const key = rowKey(row);
-        if (!selectedKeys.includes(key)) continue;
-        next[key] = {
-          ...getRowDraft(row),
-          assignedTo: value,
-        };
-      }
-      return next;
-    });
-  }
-
   function getRowsInRange(fromRaw: string, toRaw: string) {
     const from = Number(fromRaw);
     const to = Number(toRaw);
@@ -1579,7 +1652,41 @@ export default function CallingView({ followup = false }: { followup?: boolean }
     return rows;
   }
 
-  function applyRangeAssign(value: string) {
+  async function bulkAssignRows(rows: CallingRow[], value: string) {
+    setSavingRange(true);
+    try {
+      const res = await fetch("/api/followup/assign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          assignedTo: value,
+          items: rows.map((row) => ({ sourceType: row.sourceType, id: row._id })),
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        alert(data?.error || "Failed to save assignments");
+        return false;
+      }
+
+      const keys = new Set(rows.map((row) => rowKey(row)));
+      setRows((prev) =>
+        prev.map((r) => (keys.has(rowKey(r)) ? { ...r, assignedTo: value } : r))
+      );
+
+      return true;
+    } catch (e) {
+      console.error("Failed to save assignments", e);
+      alert("Failed to save assignments");
+      return false;
+    } finally {
+      setSavingRange(false);
+    }
+  }
+
+  async function applyRangeAssign(value: string) {
     if (!value) {
       alert("Select a name to assign");
       return;
@@ -1602,9 +1709,14 @@ export default function CallingView({ followup = false }: { followup?: boolean }
     setSelectedKeys((prev) =>
       Array.from(new Set([...prev, ...rows.map((row) => rowKey(row))]))
     );
+
+    const ok = await bulkAssignRows(rows, value);
+    if (ok) {
+      alert(`Assigned ${rows.length} row(s) to ${getAssigneeLabel(value)}.`);
+    }
   }
 
-  function clearRangeAssign() {
+  async function clearRangeAssign() {
     const rows = getRowsInRange(rangeFrom, rangeTo);
     if (rows.length === 0) return;
 
@@ -1622,6 +1734,11 @@ export default function CallingView({ followup = false }: { followup?: boolean }
     setSelectedKeys((prev) =>
       Array.from(new Set([...prev, ...rows.map((row) => rowKey(row))]))
     );
+
+    const ok = await bulkAssignRows(rows, "");
+    if (ok) {
+      alert(`Unassigned ${rows.length} row(s).`);
+    }
   }
 
   function clearSelectedCallingFields() {
@@ -1758,9 +1875,14 @@ export default function CallingView({ followup = false }: { followup?: boolean }
             <button onClick={exportExcel} className="app-btn app-btn-secondary h-10 px-4">
               Export Excel
             </button>
-            <button onClick={() => setDeptOpen(true)} className="app-btn app-btn-secondary h-10 px-4">
-              Dept Report
-            </button>
+            {!followup && (
+              <button
+                onClick={() => setDeptOpen(true)}
+                className="app-btn app-btn-secondary h-10 px-4"
+              >
+                Dept Report
+              </button>
+            )}
             <button onClick={loadAll} className="app-btn app-btn-primary h-10 px-4">
               Refresh
             </button>
@@ -1987,6 +2109,24 @@ export default function CallingView({ followup = false }: { followup?: boolean }
               </select>
             </div>
           )}
+
+          {followup && (
+            <div>
+              <div className="app-label">Followup Remarks</div>
+              <select
+                className={inputCls()}
+                value={followupRemarksFilter}
+                onChange={(e) => setFollowupRemarksFilter(e.target.value)}
+              >
+                <option value="">All</option>
+                {FOLLOWUP_REMARK_OPTIONS.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
 
         <div className="mt-3 flex items-center justify-between gap-2">
@@ -2028,6 +2168,7 @@ export default function CallingView({ followup = false }: { followup?: boolean }
               setFrequencyFilter("");
               setFrequencySort("");
               setAssignedFilter("");
+              setFollowupRemarksFilter("");
               setRangeFrom("");
               setRangeTo("");
               setSelectedKeys([]);
@@ -2041,36 +2182,18 @@ export default function CallingView({ followup = false }: { followup?: boolean }
           <div className="text-sm font-medium">Selected: {selectedKeys.length}</div>
 
           {followup && (
-            <>
-              <select
-                className={inputCls()}
-                value={bulkAssignee}
-                onChange={(e) => setBulkAssignee(e.target.value)}
-              >
-                <option value="">Assign to...</option>
-                {assignees.map((a) => (
-                  <option key={a.email} value={a.email}>
-                    {a.name}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="button"
-                className="app-btn app-btn-secondary h-9 px-3"
-                onClick={() => applyBulkAssign(bulkAssignee)}
-                disabled={selectedKeys.length === 0 || !bulkAssignee}
-              >
-                Assign Selected
-              </button>
-              <button
-                type="button"
-                className="app-btn app-btn-secondary h-9 px-3"
-                onClick={() => applyBulkAssign("")}
-                disabled={selectedKeys.length === 0}
-              >
-                Unassign Selected
-              </button>
-            </>
+            <select
+              className={inputCls()}
+              value={bulkAssignee}
+              onChange={(e) => setBulkAssignee(e.target.value)}
+            >
+              <option value="">Assign to...</option>
+              {assignees.map((a) => (
+                <option key={a.email} value={a.email}>
+                  {a.name}
+                </option>
+              ))}
+            </select>
           )}
 
           {followup && (
@@ -2095,95 +2218,113 @@ export default function CallingView({ followup = false }: { followup?: boolean }
               />
               <button
                 type="button"
-                className="app-btn app-btn-secondary h-9 px-3"
+                className="app-btn app-btn-primary h-9 px-3"
                 onClick={() => applyRangeAssign(bulkAssignee)}
-                disabled={!bulkAssignee || !rangeFrom || !rangeTo}
+                disabled={!bulkAssignee || !rangeFrom || !rangeTo || savingRange}
               >
-                Assign Range
+                {savingRange ? "Saving..." : "Assign & Save Range"}
               </button>
               <button
                 type="button"
                 className="app-btn app-btn-secondary h-9 px-3"
                 onClick={clearRangeAssign}
-                disabled={!rangeFrom || !rangeTo}
+                disabled={!rangeFrom || !rangeTo || savingRange}
               >
                 Unassign Range
               </button>
-              <span className="text-[11px] text-zinc-500 dark:text-zinc-400">
-                Uses the name selected above. Assigns rows by their S.No, then click Save Selected.
-              </span>
             </div>
           )}
 
-          <button
-            type="button"
-            className="app-btn app-btn-secondary h-9 px-3"
-            onClick={() => applyBulkConfirm("Yes")}
-            disabled={selectedKeys.length === 0}
-          >
-            Confirm Yes
-          </button>
+          {!followup && (
+            <>
+              <button
+                type="button"
+                className="app-btn app-btn-secondary h-9 px-3"
+                onClick={() => applyBulkConfirm("Yes")}
+                disabled={selectedKeys.length === 0}
+              >
+                Confirm Yes
+              </button>
 
-          <button
-            type="button"
-            className="app-btn app-btn-secondary h-9 px-3"
-            onClick={() => applyBulkConfirm("No")}
-            disabled={selectedKeys.length === 0}
-          >
-            Confirm No
-          </button>
+              <button
+                type="button"
+                className="app-btn app-btn-secondary h-9 px-3"
+                onClick={() => applyBulkConfirm("No")}
+                disabled={selectedKeys.length === 0}
+              >
+                Confirm No
+              </button>
 
-          <button
-            type="button"
-            className="app-btn app-btn-secondary h-9 px-3"
-            onClick={() => applyBulkConfirm("")}
-            disabled={selectedKeys.length === 0}
-          >
-            Confirm Pending
-          </button>
+              <button
+                type="button"
+                className="app-btn app-btn-secondary h-9 px-3"
+                onClick={() => applyBulkConfirm("")}
+                disabled={selectedKeys.length === 0}
+              >
+                Confirm Pending
+              </button>
 
-          <button
-            type="button"
-            className="app-btn app-btn-secondary h-9 px-3"
-            onClick={() => applyBulkFerry("Yes")}
-            disabled={selectedKeys.length === 0}
-          >
-            Ferry Yes
-          </button>
+              <button
+                type="button"
+                className="app-btn app-btn-secondary h-9 px-3"
+                onClick={() => applyBulkFerry("Yes")}
+                disabled={selectedKeys.length === 0}
+              >
+                Ferry Yes
+              </button>
 
-          <button
-            type="button"
-            className="app-btn app-btn-secondary h-9 px-3"
-            onClick={() => applyBulkFerry("No")}
-            disabled={selectedKeys.length === 0}
-          >
-            Ferry No
-          </button>
+              <button
+                type="button"
+                className="app-btn app-btn-secondary h-9 px-3"
+                onClick={() => applyBulkFerry("No")}
+                disabled={selectedKeys.length === 0}
+              >
+                Ferry No
+              </button>
 
-          <button
-            type="button"
-            className="app-btn app-btn-secondary h-9 px-3"
-            onClick={clearSelectedCallingFields}
-            disabled={selectedKeys.length === 0}
-          >
-            Clear Selected
-          </button>
+              <button
+                type="button"
+                className="app-btn app-btn-secondary h-9 px-3"
+                onClick={clearSelectedCallingFields}
+                disabled={selectedKeys.length === 0}
+              >
+                Clear Selected
+              </button>
+            </>
+          )}
 
-          <button
-            type="button"
-            className="app-btn app-btn-primary h-9 px-3"
-            onClick={saveSelectedRows}
-            disabled={selectedKeys.length === 0}
-          >
-            Save Selected
-          </button>
+          {!followup && (
+            <button
+              type="button"
+              className="app-btn app-btn-primary h-9 px-3"
+              onClick={saveSelectedRows}
+              disabled={selectedKeys.length === 0}
+            >
+              Save Selected
+            </button>
+          )}
+        </div>
+        <div
+          ref={topScrollRef}
+          onScroll={syncTopScroll}
+          className="mt-4 w-full overflow-x-auto"
+          aria-hidden
+        >
+          <div style={{ width: tableScrollWidth, height: 1 }} />
         </div>
 
-        <div className="w-full overflow-x-auto mt-4">
+        <div
+          ref={tableScrollRef}
+          onScroll={syncTableScroll}
+          className="w-full overflow-auto max-h-[75vh]"
+        >
           <table className="min-w-[3400px] table-fixed border-collapse text-xs">
             <thead className="thead">
-              <tr>
-                <th className="th w-12 px-2 py-2">
+              <tr ref={headerRowRef}>
+                <th
+                  className="th w-12 px-2 py-2 sticky z-20 bg-zinc-50 dark:bg-zinc-900"
+                  style={{ left: stickyLefts[0] }}
+                >
                   <input
                     type="checkbox"
                     checked={allVisibleSelected}
@@ -2191,9 +2332,25 @@ export default function CallingView({ followup = false }: { followup?: boolean }
                     onChange={toggleSelectAllVisible}
                   />
                 </th>
-                <th className="th w-14 px-2 py-2">S.No</th>
-                <th className="th w-28 px-2 py-2">Type</th>
-                <th className="th w-56 px-2 py-2">Name</th>
+                <th
+                  className="th w-14 px-2 py-2 sticky z-20 bg-zinc-50 dark:bg-zinc-900"
+                  style={{ left: stickyLefts[1] }}
+                >
+                  S.No
+                </th>
+                <th
+                  className="th w-28 px-2 py-2 sticky z-20 bg-zinc-50 dark:bg-zinc-900"
+                  style={{ left: stickyLefts[2] }}
+                >
+                  Type
+                </th>
+                <th
+                  className="th w-56 px-2 py-2 sticky z-20 bg-zinc-50 dark:bg-zinc-900"
+                  style={{ left: stickyLefts[3] }}
+                >
+                  Name
+                </th>
+                {followup && <th className="th w-32 px-2 py-2">Mobile</th>}
                 {followup && <th className="th w-44 px-2 py-2">Assigned Name</th>}
                 {followup && <th className="th w-64 px-2 py-2">Followup Remarks</th>}
                 {followup && <th className="th w-28 px-2 py-2">Save</th>}
@@ -2206,7 +2363,7 @@ export default function CallingView({ followup = false }: { followup?: boolean }
                 <th className="th w-48 px-2 py-2">Father/Husband</th>
                 <th className="th w-24 px-2 py-2">Gender</th>
                 <th className="th w-16 px-2 py-2">Age</th>
-                <th className="th w-32 px-2 py-2">Mobile</th>
+                {!followup && <th className="th w-32 px-2 py-2">Mobile</th>}
                 <th className="th w-36 px-2 py-2">Emergency</th>
                 <th className="th w-72 px-2 py-2">Address</th>
                 <th className="th w-28 px-2 py-2">Badge</th>
@@ -2268,6 +2425,10 @@ export default function CallingView({ followup = false }: { followup?: boolean }
                   const pay = paymentToNumber(draft.payment);
                   const summary = getSummaryForRow(draft);
                   const totalCount = summary?.totalCount || 1;
+                  const stickyBg =
+                    i % 2 === 0
+                      ? "bg-white dark:bg-zinc-950"
+                      : "bg-zinc-50 dark:bg-zinc-900";
 
                   return (
                     <tr
@@ -2279,7 +2440,10 @@ export default function CallingView({ followup = false }: { followup?: boolean }
                       onClick={() => openDetails(r)}
                       title="Click row to edit"
                     >
-                      <td className="td px-2 py-2">
+                      <td
+                        className={`td px-2 py-2 sticky z-[5] ${stickyBg}`}
+                        style={{ left: stickyLefts[0] }}
+                      >
                         <input
                           type="checkbox"
                           checked={selectedKeys.includes(key)}
@@ -2288,16 +2452,33 @@ export default function CallingView({ followup = false }: { followup?: boolean }
                         />
                       </td>
 
-                      <td className="td px-2 py-2">{i + 1}</td>
-                      <td className="td px-2 py-2">{draft.sourceLabel || "-"}</td>
+                      <td
+                        className={`td px-2 py-2 sticky z-[5] ${stickyBg}`}
+                        style={{ left: stickyLefts[1] }}
+                      >
+                        {i + 1}
+                      </td>
+                      <td
+                        className={`td px-2 py-2 sticky z-[5] ${stickyBg}`}
+                        style={{ left: stickyLefts[2] }}
+                      >
+                        {draft.sourceLabel || "-"}
+                      </td>
 
-                      <td className="td px-2 py-2 whitespace-normal break-words font-medium">
+                      <td
+                        className={`td px-2 py-2 whitespace-normal break-words font-medium sticky z-[5] ${stickyBg}`}
+                        style={{ left: stickyLefts[3] }}
+                      >
                         <div>{draft.customerName || "-"}</div>
                         <div className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
                           L:{summary?.ladooCount || 0} | P:{summary?.paranthaCount || 0} | B:
                           {summary?.bhatiCount || 0} | T:{totalCount}
                         </div>
                       </td>
+
+                      {followup && (
+                        <td className="td px-2 py-2 whitespace-nowrap">{draft.mobile || "-"}</td>
+                      )}
 
                       {followup && (
                         <td className="td px-2 py-2">
@@ -2325,16 +2506,27 @@ export default function CallingView({ followup = false }: { followup?: boolean }
 
                       {followup && (
                         <td className="td px-2 py-2">
-                          <textarea
+                          <select
                             className={inputCls()}
-                            style={{ minHeight: 48 }}
                             value={draft.followupRemarks || ""}
                             onClick={stopRowClick}
                             onChange={(e) =>
                               updateDraft(r, { followupRemarks: e.target.value })
                             }
-                            placeholder="Followup remark"
-                          />
+                          >
+                            <option value="">Select</option>
+                            {draft.followupRemarks &&
+                            !FOLLOWUP_REMARK_OPTIONS.includes(draft.followupRemarks) ? (
+                              <option value={draft.followupRemarks}>
+                                {draft.followupRemarks}
+                              </option>
+                            ) : null}
+                            {FOLLOWUP_REMARK_OPTIONS.map((option) => (
+                              <option key={option} value={option}>
+                                {option}
+                              </option>
+                            ))}
+                          </select>
                         </td>
                       )}
 
@@ -2373,7 +2565,9 @@ export default function CallingView({ followup = false }: { followup?: boolean }
                       </td>
                       <td className="td px-2 py-2">{draft.gender || "-"}</td>
                       <td className="td px-2 py-2">{draft.age ?? "-"}</td>
-                      <td className="td px-2 py-2">{draft.mobile || "-"}</td>
+                      {!followup && (
+                        <td className="td px-2 py-2">{draft.mobile || "-"}</td>
+                      )}
                       <td className="td px-2 py-2">{getEmergencyNumber(draft) || "-"}</td>
                       <td className="td px-2 py-2 whitespace-normal break-words">
                         {draft.address || "-"}
@@ -2744,15 +2938,26 @@ export default function CallingView({ followup = false }: { followup?: boolean }
           {followup && (
             <div className="md:col-span-2">
               <div className="app-label">Followup Remarks</div>
-              <textarea
+              <select
                 className={inputCls()}
-                style={{ minHeight: 100 }}
                 value={modalDraft.followupRemarks || ""}
                 onChange={(e) =>
                   updateDraft(modalBaseRow, { followupRemarks: e.target.value })
                 }
-                placeholder="e.g. Not interested in future jatha, call again next month..."
-              />
+              >
+                <option value="">Select</option>
+                {modalDraft.followupRemarks &&
+                !FOLLOWUP_REMARK_OPTIONS.includes(modalDraft.followupRemarks) ? (
+                  <option value={modalDraft.followupRemarks}>
+                    {modalDraft.followupRemarks}
+                  </option>
+                ) : null}
+                {FOLLOWUP_REMARK_OPTIONS.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
             </div>
           )}
 
@@ -2767,53 +2972,57 @@ export default function CallingView({ followup = false }: { followup?: boolean }
             />
           </div>
 
-          <div>
-            <div className="app-label">Ticket (Delhi-Beas)</div>
-            <div className="flex gap-2">
-              <input
-                className={inputCls()}
-                value={normalizeTicketId(modalDraft.ticketDelhiBeas)}
-                onChange={(e) =>
-                  updateDraft(modalBaseRow, { ticketDelhiBeas: e.target.value })
-                }
-                placeholder="Ticket ID"
-              />
-              <button
-                type="button"
-                className="app-btn app-btn-secondary h-10 px-3"
-                onClick={() => updateDraft(modalBaseRow, { ticketDelhiBeas: "" })}
-              >
-                Clear
-              </button>
-            </div>
-            <div className="mt-1 text-[11px] text-zinc-600 dark:text-zinc-400">
-              {renderTicket(modalDraft.ticketDelhiBeas)}
-            </div>
-          </div>
+          {!followup && (
+            <>
+              <div>
+                <div className="app-label">Ticket (Delhi-Beas)</div>
+                <div className="flex gap-2">
+                  <input
+                    className={inputCls()}
+                    value={normalizeTicketId(modalDraft.ticketDelhiBeas)}
+                    onChange={(e) =>
+                      updateDraft(modalBaseRow, { ticketDelhiBeas: e.target.value })
+                    }
+                    placeholder="Ticket ID"
+                  />
+                  <button
+                    type="button"
+                    className="app-btn app-btn-secondary h-10 px-3"
+                    onClick={() => updateDraft(modalBaseRow, { ticketDelhiBeas: "" })}
+                  >
+                    Clear
+                  </button>
+                </div>
+                <div className="mt-1 text-[11px] text-zinc-600 dark:text-zinc-400">
+                  {renderTicket(modalDraft.ticketDelhiBeas)}
+                </div>
+              </div>
 
-          <div>
-            <div className="app-label">Ticket (Beas-Delhi)</div>
-            <div className="flex gap-2">
-              <input
-                className={inputCls()}
-                value={normalizeTicketId(modalDraft.ticketBeasDelhi)}
-                onChange={(e) =>
-                  updateDraft(modalBaseRow, { ticketBeasDelhi: e.target.value })
-                }
-                placeholder="Ticket ID"
-              />
-              <button
-                type="button"
-                className="app-btn app-btn-secondary h-10 px-3"
-                onClick={() => updateDraft(modalBaseRow, { ticketBeasDelhi: "" })}
-              >
-                Clear
-              </button>
-            </div>
-            <div className="mt-1 text-[11px] text-zinc-600 dark:text-zinc-400">
-              {renderTicket(modalDraft.ticketBeasDelhi)}
-            </div>
-          </div>
+              <div>
+                <div className="app-label">Ticket (Beas-Delhi)</div>
+                <div className="flex gap-2">
+                  <input
+                    className={inputCls()}
+                    value={normalizeTicketId(modalDraft.ticketBeasDelhi)}
+                    onChange={(e) =>
+                      updateDraft(modalBaseRow, { ticketBeasDelhi: e.target.value })
+                    }
+                    placeholder="Ticket ID"
+                  />
+                  <button
+                    type="button"
+                    className="app-btn app-btn-secondary h-10 px-3"
+                    onClick={() => updateDraft(modalBaseRow, { ticketBeasDelhi: "" })}
+                  >
+                    Clear
+                  </button>
+                </div>
+                <div className="mt-1 text-[11px] text-zinc-600 dark:text-zinc-400">
+                  {renderTicket(modalDraft.ticketBeasDelhi)}
+                </div>
+              </div>
+            </>
+          )}
         </div>
       </div>
 
