@@ -777,6 +777,26 @@ export default function CallingView({ followup = false }: { followup?: boolean }
     };
   }, [loading, followup]);
 
+  React.useEffect(() => {
+    if (tableScrollRef.current) {
+      tableScrollRef.current.scrollTop = 0;
+      tableScrollRef.current.scrollLeft = 0;
+    }
+    if (topScrollRef.current) {
+      topScrollRef.current.scrollLeft = 0;
+    }
+  }, [
+    typeFilter,
+    frequencyFilter,
+    jathaDateFilter,
+    search,
+    busGroupFilter,
+    assignedFilter,
+    followupRemarksFilter,
+    modeFilters,
+    frequencySort,
+  ]);
+
   function syncTopScroll() {
     if (tableScrollRef.current && topScrollRef.current) {
       tableScrollRef.current.scrollLeft = topScrollRef.current.scrollLeft;
@@ -1113,7 +1133,9 @@ export default function CallingView({ followup = false }: { followup?: boolean }
           .toLowerCase()
           .includes(q);
 
-      const matchesType = !typeFilter || r.sourceType === typeFilter;
+      const matchesType =
+        !typeFilter ||
+        String(r.sourceType || "").trim().toLowerCase() === typeFilter.toLowerCase();
 
       const matchesJatha =
         !jathaDateFilter ||
@@ -2133,6 +2155,12 @@ export default function CallingView({ followup = false }: { followup?: boolean }
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-zinc-600 dark:text-zinc-400">
             <span>
               Total Records: <span className="font-semibold">{filteredRows.length}</span>
+              {filteredRows.length !== rows.length ? (
+                <span className="text-zinc-500 dark:text-zinc-400">
+                  {" "}
+                  of {rows.length}
+                </span>
+              ) : null}
             </span>
             <span>
               Male: <span className="font-semibold">{genderStats.male}</span>
