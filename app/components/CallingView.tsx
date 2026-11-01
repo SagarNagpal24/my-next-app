@@ -2382,6 +2382,7 @@ export default function CallingView({ followup = false }: { followup?: boolean }
                 {followup && <th className="th w-44 px-2 py-2">Assigned Name</th>}
                 {followup && <th className="th w-64 px-2 py-2">Followup Remarks</th>}
                 {followup && <th className="th w-28 px-2 py-2">Save</th>}
+                {followup && <th className="th w-64 px-2 py-2">Remarks</th>}
                 <th className="th w-32 px-2 py-2">Tag</th>
                 <th className="th w-24 px-2 py-2">Ladoo</th>
                 <th className="th w-24 px-2 py-2">Parantha</th>
@@ -2423,7 +2424,7 @@ export default function CallingView({ followup = false }: { followup?: boolean }
                     <th className="th w-24 px-2 py-2">Ferry</th>
                   </>
                 )}
-                <th className="th w-64 px-2 py-2">Remarks</th>
+                {!followup && <th className="th w-64 px-2 py-2">Remarks</th>}
                 {!followup && <th className="th w-28 px-2 py-2">Save</th>}
                 <th className="th w-32 px-2 py-2">Created</th>
                 <th className="th w-32 px-2 py-2">Updated</th>
@@ -2574,6 +2575,19 @@ export default function CallingView({ followup = false }: { followup?: boolean }
                         </td>
                       )}
 
+                      {followup && (
+                        <td className="td px-2 py-2">
+                          <textarea
+                            className={inputCls()}
+                            style={{ minHeight: 48 }}
+                            value={draft.remarks || ""}
+                            onClick={stopRowClick}
+                            onChange={(e) => updateDraft(r, { remarks: e.target.value })}
+                            placeholder="Remarks"
+                          />
+                        </td>
+                      )}
+
                       <td className="td px-2 py-2">
                         <span className={frequencyBadgeCls(totalCount)}>
                           {getTravellerTag(totalCount)}
@@ -2666,9 +2680,11 @@ export default function CallingView({ followup = false }: { followup?: boolean }
                         </>
                       )}
 
-                      <td className="td px-2 py-2 whitespace-normal break-words">
-                        {draft.remarks || "-"}
-                      </td>
+                      {!followup && (
+                        <td className="td px-2 py-2 whitespace-normal break-words">
+                          {draft.remarks || "-"}
+                        </td>
+                      )}
 
                       {!followup && (
                         <td className="td px-2 py-2">
