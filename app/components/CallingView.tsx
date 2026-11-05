@@ -1444,22 +1444,6 @@ export default function CallingView({ followup = false }: { followup?: boolean }
     return max + 1;
   }, [rows, followup]);
 
-  const remarkColumnDates = React.useMemo(() => {
-    const dates: string[] = [];
-    if (!followup) return dates;
-
-    for (const r of rows) {
-      const history = Array.isArray(r.remarksHistory) ? r.remarksHistory : [];
-      history.forEach((h, idx) => {
-        const s = String(h.createdAt || "");
-        if (!s) return;
-        if (!dates[idx] || s > dates[idx]) dates[idx] = s;
-      });
-    }
-
-    return dates;
-  }, [rows, followup]);
-
   const allVisibleSelected =
     visibleKeys.length > 0 && visibleKeys.every((k) => selectedKeys.includes(k));
 
@@ -2725,12 +2709,7 @@ export default function CallingView({ followup = false }: { followup?: boolean }
                 {followup &&
                   Array.from({ length: followupRemarkColumns }).map((_, idx) => (
                     <th key={`remarks-head-${idx}`} className="th w-64 px-2 py-2">
-                      <div>{idx === 0 ? "Remarks" : `Remarks ${idx + 1}`}</div>
-                      {remarkColumnDates[idx] ? (
-                        <div className="mt-0.5 text-[10px] font-normal text-zinc-500 dark:text-zinc-400">
-                          {formatRemarkDateTime(remarkColumnDates[idx])}
-                        </div>
-                      ) : null}
+                      {idx === 0 ? "Remarks" : `Remarks ${idx + 1}`}
                     </th>
                   ))}
                 <th className="th w-32 px-2 py-2">Tag</th>
@@ -2942,18 +2921,28 @@ export default function CallingView({ followup = false }: { followup?: boolean }
                             <td key={`remarks-cell-${idx}`} className="td px-2 py-2">
                               {existing ? (
                                 <>
-                                  <div className="text-[10px] text-zinc-500 dark:text-zinc-400">
-                                    {formatRemarkDateTime(existing.createdAt)}
-                                  </div>
+                                  {String(existing.text || "").trim() &&
+                                  existing.createdAt ? (
+                                    <div className="text-[10px] text-zinc-500 dark:text-zinc-400">
+                                      {formatRemarkDateTime(existing.createdAt)}
+                                    </div>
+                                  ) : null}
                                   <textarea
                                     className={inputCls()}
                                     style={{ minHeight: 48 }}
                                     value={existing.text || ""}
                                     onClick={stopRowClick}
                                     onChange={(e) => {
+                                      const nextText = e.target.value;
                                       const nextHistory = history.map((h, i) =>
                                         i === idx
-                                          ? { ...h, text: e.target.value }
+                                          ? {
+                                              ...h,
+                                              text: nextText,
+                                              createdAt: nextText.trim()
+                                                ? new Date().toISOString()
+                                                : "",
+                                            }
                                           : h
                                       );
                                       updateDraft(r, {
@@ -3580,9 +3569,11 @@ export default function CallingView({ followup = false }: { followup?: boolean }
                   : []
                 ).map((h, idx) => (
                   <div key={`modal-remark-${idx}`}>
-                    <div className="text-[10px] text-zinc-500 dark:text-zinc-400">
-                      {formatRemarkDateTime(h.createdAt)}
-                    </div>
+                    {String(h.text || "").trim() && h.createdAt ? (
+                      <div className="text-[10px] text-zinc-500 dark:text-zinc-400">
+                        {formatRemarkDateTime(h.createdAt)}
+                      </div>
+                    ) : null}
                     <textarea
                       className={inputCls()}
                       style={{ minHeight: 72 }}
@@ -3591,8 +3582,17 @@ export default function CallingView({ followup = false }: { followup?: boolean }
                         const source = Array.isArray(modalDraft.remarksHistory)
                           ? modalDraft.remarksHistory
                           : [];
+                        const nextText = e.target.value;
                         const next = source.map((x, i) =>
-                          i === idx ? { ...x, text: e.target.value } : x
+                          i === idx
+                            ? {
+                                ...x,
+                                text: nextText,
+                                createdAt: nextText.trim()
+                                  ? new Date().toISOString()
+                                  : "",
+                              }
+                            : x
                         );
                         updateDraft(modalBaseRow, { remarksHistory: next });
                       }}
