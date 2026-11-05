@@ -459,48 +459,126 @@ export async function PATCH(
 
     const body = await req.json().catch(() => ({}));
 
-    const update: any = { updatedAt: new Date() };
-
-    if (Object.prototype.hasOwnProperty.call(body, "assignedTo")) {
-      update.assignedTo = String(body.assignedTo || "").trim();
-    }
-    if (Object.prototype.hasOwnProperty.call(body, "followupRemarks")) {
-      update.followupRemarks = String(body.followupRemarks || "");
-    }
-    if (Object.prototype.hasOwnProperty.call(body, "remarks")) {
-      update.remarks = String(body.remarks || "");
-    }
-    if (Object.prototype.hasOwnProperty.call(body, "mode")) {
-      update.mode = String(body.mode || "");
-    }
-    if (Object.prototype.hasOwnProperty.call(body, "department")) {
-      update.department = String(body.department || "");
-    }
-    if (Object.prototype.hasOwnProperty.call(body, "payment")) {
-      update.payment = String(body.payment || "");
-    }
-    if (Object.prototype.hasOwnProperty.call(body, "paymentMode")) {
-      update.paymentMode = String(body.paymentMode || "");
-    }
-    if (Object.prototype.hasOwnProperty.call(body, "paidTo")) {
-      update.paidTo = String(body.paidTo || "");
-    }
-    if (Object.prototype.hasOwnProperty.call(body, "busGroup")) {
-      update.busGroup = String(body.busGroup || "").trim().toUpperCase();
-    }
-    if (Object.prototype.hasOwnProperty.call(body, "confirm")) {
-      update.confirm = String(body.confirm || "");
-    }
-    if (Object.prototype.hasOwnProperty.call(body, "ferry")) {
-      update.ferry = String(body.ferry || "");
-    }
-
     const db = await getDb();
     const col = db.collection(COLLECTION);
 
-    const newRemark = String(body?.newRemark || "").trim();
+    const hasOwn = (key: string) =>
+      Object.prototype.hasOwnProperty.call(body, key);
 
-    if (newRemark) {
+    const update: any = { updatedAt: new Date() };
+
+    if (hasOwn("assignedTo")) {
+      update.assignedTo = String(body.assignedTo || "").trim();
+    }
+    if (hasOwn("followupRemarks")) {
+      update.followupRemarks = String(body.followupRemarks || "");
+    }
+    if (hasOwn("remarks")) {
+      update.remarks = String(body.remarks || "");
+    }
+    if (hasOwn("name")) {
+      update.name = String(body.name || "").trim();
+    }
+    if (hasOwn("fatherOrHusbandName")) {
+      update.fatherOrHusbandName = String(
+        body.fatherOrHusbandName || ""
+      ).trim();
+    }
+    if (hasOwn("gender")) {
+      update.gender = String(body.gender || "").trim();
+    }
+    if (hasOwn("mobile")) {
+      update.mobile = digitsOnly(body.mobile || "");
+    }
+    if (hasOwn("address")) {
+      update.address = String(body.address || "").trim();
+    }
+    if (hasOwn("emergencyNumber")) {
+      update.emergencyNumber = digitsOnly(body.emergencyNumber || "");
+    }
+    if (hasOwn("badgeNo")) {
+      update.badgeNo = String(body.badgeNo || "").trim();
+    }
+    if (hasOwn("adhaarNumber")) {
+      update.adhaarNumber = digitsOnly(body.adhaarNumber || "").slice(0, 12);
+    }
+    if (hasOwn("sangat")) {
+      update.sangat = String(body.sangat || "").trim();
+    }
+    if (hasOwn("mode")) {
+      update.mode = String(body.mode || "");
+    }
+    if (hasOwn("department")) {
+      update.department = String(body.department || "");
+    }
+    if (hasOwn("payment")) {
+      update.payment = String(body.payment || "");
+    }
+    if (hasOwn("paymentMode")) {
+      update.paymentMode = String(body.paymentMode || "");
+    }
+    if (hasOwn("paidTo")) {
+      update.paidTo = String(body.paidTo || "");
+    }
+    if (hasOwn("busGroup")) {
+      update.busGroup = String(body.busGroup || "").trim().toUpperCase();
+    }
+    if (hasOwn("confirm")) {
+      update.confirm = String(body.confirm || "");
+    }
+    if (hasOwn("ferry")) {
+      update.ferry = String(body.ferry || "");
+    }
+
+    if (hasOwn("age")) {
+      const rawAge = body.age;
+
+      if (rawAge === "" || rawAge === null || rawAge === undefined) {
+        update.age = null;
+      } else {
+        const n = Number(rawAge);
+        if (!Number.isFinite(n) || n <= 0 || n > 120) {
+          return NextResponse.json(
+            { error: "Age must be 1-120" },
+            { status: 400 }
+          );
+        }
+        update.age = n;
+      }
+
+      update.dob = null;
+    }
+
+    if (typeof update.badgeNo === "string" && update.badgeNo) {
+      const dup = await col.findOne(
+        { badgeNo: update.badgeNo, _id: { $ne: oid } },
+        { projection: { _id: 1 } }
+      );
+      if (dup) {
+        return NextResponse.json(
+          { error: "Badge No already exists in database." },
+          { status: 409 }
+        );
+      }
+    }
+
+    if (typeof update.adhaarNumber === "string" && update.adhaarNumber) {
+      const dup = await col.findOne(
+        { adhaarNumber: update.adhaarNumber, _id: { $ne: oid } },
+        { projection: { _id: 1 } }
+      );
+      if (dup) {
+        return NextResponse.json(
+          { error: "Aadhaar already exists in database." },
+          { status: 409 }
+        );
+      }
+    }
+
+    const newRemark = String(body?.newRemark || "").trim();
+    const hasIncomingHistory = Array.isArray(body?.remarksHistory);
+
+    if (hasIncomingHistory || newRemark) {
       const existing = await col.findOne(
         { _id: oid },
         {
@@ -520,24 +598,43 @@ export async function PATCH(
         );
       }
 
-      const history = Array.isArray(existing.remarksHistory)
-        ? [...existing.remarksHistory]
-        : [];
+      let history: any[] = [];
 
-      if (history.length === 0) {
-        const legacy = String(existing.remarks || "").trim();
-        if (legacy && legacy !== newRemark) {
-          history.push({
-            text: legacy,
-            createdAt: existing.updatedAt || existing.createdAt || new Date(),
-          });
+      if (hasIncomingHistory) {
+        history = (body.remarksHistory as any[])
+          .map((h: any) => {
+            const text = String(h?.text || "").trim();
+            if (!text) return null;
+
+            const parsed = h?.createdAt ? new Date(h.createdAt) : new Date();
+            return {
+              text,
+              createdAt: Number.isNaN(parsed.getTime()) ? new Date() : parsed,
+            };
+          })
+          .filter(Boolean);
+      } else {
+        history = Array.isArray(existing.remarksHistory)
+          ? [...existing.remarksHistory]
+          : [];
+
+        if (history.length === 0) {
+          const legacy = String(existing.remarks || "").trim();
+          if (legacy && legacy !== newRemark) {
+            history.push({
+              text: legacy,
+              createdAt: existing.updatedAt || existing.createdAt || new Date(),
+            });
+          }
         }
       }
 
-      history.push({ text: newRemark, createdAt: new Date() });
+      if (newRemark) {
+        history.push({ text: newRemark, createdAt: new Date() });
+        update.remarks = newRemark;
+      }
 
       update.remarksHistory = history;
-      update.remarks = newRemark;
     }
 
     const result = await col.updateOne({ _id: oid }, { $set: update });
@@ -546,7 +643,12 @@ export async function PATCH(
       return NextResponse.json({ error: "Customer not found" }, { status: 404 });
     }
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({
+      ok: true,
+      ...(Array.isArray(update.remarksHistory)
+        ? { remarksHistory: update.remarksHistory }
+        : {}),
+    });
   } catch (e: any) {
     console.error("PATCH error:", e);
     return NextResponse.json(

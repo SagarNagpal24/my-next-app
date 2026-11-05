@@ -1717,7 +1717,20 @@ export default function CallingView({ followup = false }: { followup?: boolean }
     const draft = draftMap[key];
     if (!draft) return false;
 
+    const draftHistory = Array.isArray(draft.remarksHistory)
+      ? draft.remarksHistory
+      : [];
+    const rowHistory = Array.isArray(row.remarksHistory) ? row.remarksHistory : [];
+    const remarksHistoryDirty =
+      draftHistory.length !== rowHistory.length ||
+      draftHistory.some(
+        (h, i) =>
+          String(h?.text || "") !== String(rowHistory[i]?.text || "") ||
+          String(h?.createdAt || "") !== String(rowHistory[i]?.createdAt || "")
+      );
+
     return (
+      remarksHistoryDirty ||
       String(draft.confirm || "") !== String(row.confirm || "") ||
       String(draft.ferry || "") !== String(row.ferry || "") ||
       String(draft.remarks || "") !== String(row.remarks || "") ||
@@ -1729,6 +1742,17 @@ export default function CallingView({ followup = false }: { followup?: boolean }
       String(draft.department || "") !== String(row.department || "") ||
       String(draft.assignedTo || "") !== String(row.assignedTo || "") ||
       String(draft.followupRemarks || "") !== String(row.followupRemarks || "") ||
+      String(draft.customerName || "") !== String(row.customerName || "") ||
+      String(draft.fatherOrHusbandName || "") !==
+        String(row.fatherOrHusbandName || "") ||
+      String(draft.gender || "") !== String(row.gender || "") ||
+      String(draft.age ?? "") !== String(row.age ?? "") ||
+      String(draft.mobile || "") !== String(row.mobile || "") ||
+      String(draft.address || "") !== String(row.address || "") ||
+      String(draft.emergencyNumber || "") !== String(row.emergencyNumber || "") ||
+      String(draft.badgeNo || "") !== String(row.badgeNo || "") ||
+      String(draft.adhaarNumber || "") !== String(row.adhaarNumber || "") ||
+      String(draft.sangat || "") !== String(row.sangat || "") ||
       String(normalizeTicketId(draft.ticketDelhiBeas) || "") !==
         String(normalizeTicketId(row.ticketDelhiBeas) || "") ||
       String(normalizeTicketId(draft.ticketBeasDelhi) || "") !==
@@ -1781,43 +1805,12 @@ export default function CallingView({ followup = false }: { followup?: boolean }
     try {
       setSavingKeys((prev) => [...prev, key]);
 
-      const res = followup
-        ? await fetch(`/api/customers/${encodeURIComponent(draft._id)}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              assignedTo: String(draft.assignedTo || ""),
-              followupRemarks: String(draft.followupRemarks || ""),
-              newRemark: String(draft.remarks || "").trim(),
-              mode: String(draft.mode || ""),
-              department: String(draft.department || ""),
-              payment: String(draft.payment || ""),
-              paymentMode: String(draft.paymentMode || ""),
-              paidTo: String(draft.paidTo || ""),
-              busGroup: String(draft.busGroup || "").trim().toUpperCase(),
-              confirm: draft.confirm || "",
-              ferry: draft.ferry || "",
-            }),
-          })
-        : await fetch(
-            `/api/nominal-roll/${draft.sourceType}/${encodeURIComponent(draft._id)}`,
-            {
-              method: "PUT",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(buildSavePayload(row, options?.override)),
-            }
-          );
-
-      const data = await res.json().catch(() => ({}));
-
-      if (!res.ok) {
-        alert(data?.error || data?.message || "Failed to save row");
-        return false;
-      }
-
       const newRemarkText = followup ? String(draft.remarks || "").trim() : "";
       const baseRemarksHistory = Array.isArray(draft.remarksHistory)
-        ? draft.remarksHistory
+        ? draft.remarksHistory.map((h) => ({
+            text: String(h?.text || ""),
+            createdAt: String(h?.createdAt || ""),
+          }))
         : [];
       const savedRemarksHistory =
         followup && newRemarkText
@@ -1826,6 +1819,70 @@ export default function CallingView({ followup = false }: { followup?: boolean }
               { text: newRemarkText, createdAt: new Date().toISOString() },
             ]
           : baseRemarksHistory;
+
+      let res: Response;
+
+      if (followup) {
+        const payload: Record<string, any> = {
+          assignedTo: String(draft.assignedTo || ""),
+          followupRemarks: String(draft.followupRemarks || ""),
+          newRemark: newRemarkText,
+          remarksHistory: baseRemarksHistory,
+          name: String(draft.customerName || "").trim(),
+          fatherOrHusbandName: String(draft.fatherOrHusbandName || "").trim(),
+          gender: String(draft.gender || "").trim(),
+          mobile: String(draft.mobile || "").trim(),
+          address: String(draft.address || "").trim(),
+          emergencyNumber: String(draft.emergencyNumber || "").trim(),
+          badgeNo: String(draft.badgeNo || "").trim(),
+          adhaarNumber: String(draft.adhaarNumber || "").trim(),
+          sangat: String(draft.sangat || "").trim(),
+          mode: String(draft.mode || ""),
+          department: String(draft.department || ""),
+          payment: String(draft.payment || ""),
+          paymentMode: String(draft.paymentMode || ""),
+          paidTo: String(draft.paidTo || ""),
+          busGroup: String(draft.busGroup || "").trim().toUpperCase(),
+          confirm: draft.confirm || "",
+          ferry: draft.ferry || "",
+        };
+
+        if (String(draft.age ?? "") !== String(row.age ?? "")) {
+          payload.age = draft.age ?? "";
+        }
+
+        res = await fetch(`/api/customers/${encodeURIComponent(draft._id)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+      } else {
+        res = await fetch(
+          `/api/nominal-roll/${draft.sourceType}/${encodeURIComponent(draft._id)}`,
+          {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(buildSavePayload(row, options?.override)),
+          }
+        );
+      }
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        alert(data?.error || data?.message || "Failed to save row");
+        return false;
+      }
+
+      const serverHistory = Array.isArray(data?.remarksHistory)
+        ? (data.remarksHistory as any[]).map((h: any) => ({
+            text: String(h?.text || ""),
+            createdAt: h?.createdAt
+              ? new Date(h.createdAt).toISOString()
+              : "",
+          }))
+        : null;
+      const historyForRow = serverHistory || savedRemarksHistory;
 
       setRows((prev) =>
         prev.map((r) => {
@@ -1846,7 +1903,20 @@ export default function CallingView({ followup = false }: { followup?: boolean }
             ticketDelhiBeas: normalizeTicketId(draft.ticketDelhiBeas) || "",
             ticketBeasDelhi: normalizeTicketId(draft.ticketBeasDelhi) || "",
             ...(followup
-              ? { remarks: "", remarksHistory: savedRemarksHistory }
+              ? {
+                  remarks: "",
+                  remarksHistory: historyForRow,
+                  customerName: String(draft.customerName || ""),
+                  fatherOrHusbandName: draft.fatherOrHusbandName || "",
+                  gender: draft.gender || "",
+                  age: draft.age ?? null,
+                  mobile: draft.mobile || "",
+                  address: draft.address || "",
+                  emergencyNumber: draft.emergencyNumber || "",
+                  badgeNo: draft.badgeNo || "",
+                  adhaarNumber: draft.adhaarNumber || "",
+                  sangat: draft.sangat || "",
+                }
               : { remarks: draft.remarks || "" }),
           };
         })
@@ -2875,9 +2945,22 @@ export default function CallingView({ followup = false }: { followup?: boolean }
                                   <div className="text-[10px] text-zinc-500 dark:text-zinc-400">
                                     {formatRemarkDateTime(existing.createdAt)}
                                   </div>
-                                  <div className="whitespace-normal break-words">
-                                    {existing.text || "-"}
-                                  </div>
+                                  <textarea
+                                    className={inputCls()}
+                                    style={{ minHeight: 48 }}
+                                    value={existing.text || ""}
+                                    onClick={stopRowClick}
+                                    onChange={(e) => {
+                                      const nextHistory = history.map((h, i) =>
+                                        i === idx
+                                          ? { ...h, text: e.target.value }
+                                          : h
+                                      );
+                                      updateDraft(r, {
+                                        remarksHistory: nextHistory,
+                                      });
+                                    }}
+                                  />
                                 </>
                               ) : isNewSlot ? (
                                 <textarea
@@ -3141,25 +3224,164 @@ export default function CallingView({ followup = false }: { followup?: boolean }
             />
           </div>
 
-          <div>
-            <div className="app-label">Name</div>
-            <input className={inputCls()} value={modalDraft.customerName || ""} disabled />
-          </div>
+          {followup ? (
+            <>
+              <div>
+                <div className="app-label">Name</div>
+                <input
+                  className={inputCls()}
+                  value={modalDraft.customerName || ""}
+                  onChange={(e) =>
+                    updateDraft(modalBaseRow, { customerName: e.target.value })
+                  }
+                />
+              </div>
 
-          <div>
-            <div className="app-label">Mobile</div>
-            <input className={inputCls()} value={modalDraft.mobile || ""} disabled />
-          </div>
+              <div>
+                <div className="app-label">Father/Husband</div>
+                <input
+                  className={inputCls()}
+                  value={modalDraft.fatherOrHusbandName || ""}
+                  onChange={(e) =>
+                    updateDraft(modalBaseRow, {
+                      fatherOrHusbandName: e.target.value,
+                    })
+                  }
+                />
+              </div>
 
-          <div>
-            <div className="app-label">Emergency Number</div>
-            <input className={inputCls()} value={getEmergencyNumber(modalDraft) || ""} disabled />
-          </div>
+              <div>
+                <div className="app-label">Gender</div>
+                <select
+                  className={inputCls()}
+                  value={modalDraft.gender || ""}
+                  onChange={(e) =>
+                    updateDraft(modalBaseRow, { gender: e.target.value })
+                  }
+                >
+                  <option value="">Select</option>
+                  <option value="M">Male</option>
+                  <option value="F">Female</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
 
-          <div>
-            <div className="app-label">Badge</div>
-            <input className={inputCls()} value={modalDraft.badgeNo || ""} disabled />
-          </div>
+              <div>
+                <div className="app-label">Age</div>
+                <input
+                  type="number"
+                  min={1}
+                  max={120}
+                  className={inputCls()}
+                  value={modalDraft.age ?? ""}
+                  onChange={(e) =>
+                    updateDraft(modalBaseRow, {
+                      age: e.target.value === "" ? null : Number(e.target.value),
+                    })
+                  }
+                />
+              </div>
+
+              <div>
+                <div className="app-label">Mobile</div>
+                <input
+                  className={inputCls()}
+                  value={modalDraft.mobile || ""}
+                  onChange={(e) =>
+                    updateDraft(modalBaseRow, { mobile: e.target.value })
+                  }
+                />
+              </div>
+
+              <div>
+                <div className="app-label">Emergency Number</div>
+                <input
+                  className={inputCls()}
+                  value={
+                    modalDraft.emergencyNumber ||
+                    getEmergencyNumber(modalDraft) ||
+                    ""
+                  }
+                  onChange={(e) =>
+                    updateDraft(modalBaseRow, {
+                      emergencyNumber: e.target.value,
+                    })
+                  }
+                />
+              </div>
+
+              <div>
+                <div className="app-label">Address</div>
+                <input
+                  className={inputCls()}
+                  value={modalDraft.address || ""}
+                  onChange={(e) =>
+                    updateDraft(modalBaseRow, { address: e.target.value })
+                  }
+                />
+              </div>
+
+              <div>
+                <div className="app-label">Badge</div>
+                <input
+                  className={inputCls()}
+                  value={modalDraft.badgeNo || ""}
+                  onChange={(e) =>
+                    updateDraft(modalBaseRow, { badgeNo: e.target.value })
+                  }
+                />
+              </div>
+
+              <div>
+                <div className="app-label">Aadhaar</div>
+                <input
+                  className={inputCls()}
+                  value={modalDraft.adhaarNumber || ""}
+                  onChange={(e) =>
+                    updateDraft(modalBaseRow, { adhaarNumber: e.target.value })
+                  }
+                />
+              </div>
+            </>
+          ) : (
+            <>
+              <div>
+                <div className="app-label">Name</div>
+                <input
+                  className={inputCls()}
+                  value={modalDraft.customerName || ""}
+                  disabled
+                />
+              </div>
+
+              <div>
+                <div className="app-label">Mobile</div>
+                <input
+                  className={inputCls()}
+                  value={modalDraft.mobile || ""}
+                  disabled
+                />
+              </div>
+
+              <div>
+                <div className="app-label">Emergency Number</div>
+                <input
+                  className={inputCls()}
+                  value={getEmergencyNumber(modalDraft) || ""}
+                  disabled
+                />
+              </div>
+
+              <div>
+                <div className="app-label">Badge</div>
+                <input
+                  className={inputCls()}
+                  value={modalDraft.badgeNo || ""}
+                  disabled
+                />
+              </div>
+            </>
+          )}
 
           {followup && (
             <div>
@@ -3197,7 +3419,7 @@ export default function CallingView({ followup = false }: { followup?: boolean }
             <div className="app-label">Mode</div>
             <select
               className={inputCls()}
-              value={modalDraft.mode || ""}
+              value={modalDraft.mode || modalSummary?.lastMode || ""}
               onChange={(e) => updateDraft(modalBaseRow, { mode: e.target.value })}
             >
               <option value="">Select</option>
@@ -3218,6 +3440,23 @@ export default function CallingView({ followup = false }: { followup?: boolean }
               placeholder="Department"
             />
           </div>
+
+          {followup && (
+            <div>
+              <div className="app-label">Sangat</div>
+              <select
+                className={inputCls()}
+                value={modalDraft.sangat || modalSummary?.lastSangat || ""}
+                onChange={(e) =>
+                  updateDraft(modalBaseRow, { sangat: e.target.value as YesNo })
+                }
+              >
+                <option value="">Select</option>
+                <option value="Yes">Yes</option>
+                <option value="No">No</option>
+              </select>
+            </div>
+          )}
 
           <div>
             <div className="app-label">Payment</div>
@@ -3332,16 +3571,65 @@ export default function CallingView({ followup = false }: { followup?: boolean }
             </div>
           )}
 
-          <div className="md:col-span-2">
-            <div className="app-label">Remarks</div>
-            <textarea
-              className={inputCls()}
-              style={{ minHeight: 100 }}
-              value={modalDraft.remarks || ""}
-              onChange={(e) => updateDraft(modalBaseRow, { remarks: e.target.value })}
-              placeholder="Enter remarks"
-            />
-          </div>
+          {followup ? (
+            <div className="md:col-span-2">
+              <div className="app-label">Remarks</div>
+              <div className="space-y-3">
+                {(Array.isArray(modalDraft.remarksHistory)
+                  ? modalDraft.remarksHistory
+                  : []
+                ).map((h, idx) => (
+                  <div key={`modal-remark-${idx}`}>
+                    <div className="text-[10px] text-zinc-500 dark:text-zinc-400">
+                      {formatRemarkDateTime(h.createdAt)}
+                    </div>
+                    <textarea
+                      className={inputCls()}
+                      style={{ minHeight: 72 }}
+                      value={h.text || ""}
+                      onChange={(e) => {
+                        const source = Array.isArray(modalDraft.remarksHistory)
+                          ? modalDraft.remarksHistory
+                          : [];
+                        const next = source.map((x, i) =>
+                          i === idx ? { ...x, text: e.target.value } : x
+                        );
+                        updateDraft(modalBaseRow, { remarksHistory: next });
+                      }}
+                    />
+                  </div>
+                ))}
+
+                <div>
+                  <div className="text-[10px] text-zinc-500 dark:text-zinc-400">
+                    New remark
+                  </div>
+                  <textarea
+                    className={inputCls()}
+                    style={{ minHeight: 72 }}
+                    value={modalDraft.remarks || ""}
+                    onChange={(e) =>
+                      updateDraft(modalBaseRow, { remarks: e.target.value })
+                    }
+                    placeholder="Enter remarks"
+                  />
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="md:col-span-2">
+              <div className="app-label">Remarks</div>
+              <textarea
+                className={inputCls()}
+                style={{ minHeight: 100 }}
+                value={modalDraft.remarks || ""}
+                onChange={(e) =>
+                  updateDraft(modalBaseRow, { remarks: e.target.value })
+                }
+                placeholder="Enter remarks"
+              />
+            </div>
+          )}
 
           {!followup && (
             <>
