@@ -446,6 +446,74 @@ export async function PUT(
   }
 }
 
+export async function PATCH(
+  req: Request,
+  ctx: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await ctx.params;
+
+    const oid = toObjectId(id);
+    if (!oid)
+      return NextResponse.json({ error: "Invalid customer id" }, { status: 400 });
+
+    const body = await req.json().catch(() => ({}));
+
+    const update: any = { updatedAt: new Date() };
+
+    if (Object.prototype.hasOwnProperty.call(body, "assignedTo")) {
+      update.assignedTo = String(body.assignedTo || "").trim();
+    }
+    if (Object.prototype.hasOwnProperty.call(body, "followupRemarks")) {
+      update.followupRemarks = String(body.followupRemarks || "");
+    }
+    if (Object.prototype.hasOwnProperty.call(body, "remarks")) {
+      update.remarks = String(body.remarks || "");
+    }
+    if (Object.prototype.hasOwnProperty.call(body, "mode")) {
+      update.mode = String(body.mode || "");
+    }
+    if (Object.prototype.hasOwnProperty.call(body, "department")) {
+      update.department = String(body.department || "");
+    }
+    if (Object.prototype.hasOwnProperty.call(body, "payment")) {
+      update.payment = String(body.payment || "");
+    }
+    if (Object.prototype.hasOwnProperty.call(body, "paymentMode")) {
+      update.paymentMode = String(body.paymentMode || "");
+    }
+    if (Object.prototype.hasOwnProperty.call(body, "paidTo")) {
+      update.paidTo = String(body.paidTo || "");
+    }
+    if (Object.prototype.hasOwnProperty.call(body, "busGroup")) {
+      update.busGroup = String(body.busGroup || "").trim().toUpperCase();
+    }
+    if (Object.prototype.hasOwnProperty.call(body, "confirm")) {
+      update.confirm = String(body.confirm || "");
+    }
+    if (Object.prototype.hasOwnProperty.call(body, "ferry")) {
+      update.ferry = String(body.ferry || "");
+    }
+
+    const db = await getDb();
+    const result = await db
+      .collection(COLLECTION)
+      .updateOne({ _id: oid }, { $set: update });
+
+    if (result.matchedCount === 0) {
+      return NextResponse.json({ error: "Customer not found" }, { status: 404 });
+    }
+
+    return NextResponse.json({ ok: true });
+  } catch (e: any) {
+    console.error("PATCH error:", e);
+    return NextResponse.json(
+      { error: e?.message || "Server error" },
+      { status: 500 }
+    );
+  }
+}
+
 export async function DELETE(
   _req: Request,
   ctx: { params: Promise<{ id: string }> }

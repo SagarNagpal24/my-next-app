@@ -1,7 +1,16 @@
 import { MongoClient, Db } from "mongodb";
+import dns from "node:dns";
 
 const uri = process.env.MONGODB_URI!;
 if (!uri) throw new Error("Missing MONGODB_URI in .env.local");
+
+try {
+  const servers = (process.env.MONGODB_DNS_SERVERS || "8.8.8.8,1.1.1.1")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (servers.length) dns.setServers(servers);
+} catch {}
 
 declare global {
   // eslint-disable-next-line no-var

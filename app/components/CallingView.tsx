@@ -2,8 +2,10 @@
 
 import React from "react";
 import * as XLSX from "xlsx";
+import { useSession } from "next-auth/react";
 
 type CallingCategory = "ladoo" | "parantha" | "bhati";
+type SourceType = CallingCategory | "customer";
 type YesNo = "" | "Yes" | "No";
 type ConfirmFilterValue = "Pending" | "Yes" | "No";
 type PaymentMode = "" | "Cash" | "Online";
@@ -173,8 +175,8 @@ type ReportRow = {
 };
 
 type CallingRow = ReportRow & {
-  sourceType: CallingCategory;
-  sourceLabel: "Ladoo" | "Parantha" | "Bhati";
+  sourceType: SourceType;
+  sourceLabel: string;
 };
 
 type TrainTicketRow = {
@@ -201,6 +203,11 @@ type TravellerSummary = {
   firstTravelDate: string;
   lastTravelDate: string;
   recentDates: string[];
+  lastTypeLabel: string;
+  lastMode: string;
+  lastSangat: string;
+  jathaDateIds: string[];
+  jathaStarts: string[];
 };
 
 function inputCls() {
@@ -386,8 +393,16 @@ function assigneeDisplayName(email: string) {
 }
 
 export default function CallingView({ followup = false }: { followup?: boolean }) {
+  const { data: session } = useSession();
+
+  const sessionEmail = String(session?.user?.email || "").toLowerCase().trim();
+  const isAdmin = String((session as any)?.role || "user") === "admin";
+  const canSeeAllFollowup = !followup || isAdmin;
+  const canAssign = !followup || isAdmin;
+
   const [loading, setLoading] = React.useState(true);
   const [rows, setRows] = React.useState<CallingRow[]>([]);
+  const [callingRows, setCallingRows] = React.useState<CallingRow[]>([]);
   const [allJathaDates, setAllJathaDates] = React.useState<JathaDate[]>([]);
   const [allTickets, setAllTickets] = React.useState<TrainTicketRow[]>([]);
   const [sangatEmergencyMap, setSangatEmergencyMap] = React.useState<Record<string, string>>({});
@@ -485,6 +500,47 @@ export default function CallingView({ followup = false }: { followup?: boolean }
     }));
   }
 
+  function mapCustomerToRow(c: any): CallingRow {
+    const id = String(c?._id || "");
+    return {
+      _id: id,
+      customerId: id,
+      customerName: String(c?.name || ""),
+      mobile: String(c?.mobile || ""),
+      adhaarNumber: String(c?.adhaarNumber || c?.aadhaarNumber || ""),
+      fatherOrHusbandName: String(c?.fatherOrHusbandName || ""),
+      gender: String(c?.gender || ""),
+      age: c?.age ?? null,
+      address: String(c?.address || ""),
+      department: String(c?.department || ""),
+      badgeNo: String(c?.badgeNo || ""),
+      emergencyNumber: String(c?.emergencyNumber || c?.emergencyNo || ""),
+      notes: String(c?.notes || ""),
+      remarks: String(c?.remarks || ""),
+      assignedTo: String(c?.assignedTo || ""),
+      followupRemarks: String(c?.followupRemarks || ""),
+      mode: String(c?.mode || ""),
+      sangat: String(c?.sangat || "") as YesNo,
+      payment: String(c?.payment || ""),
+      paymentMode: String(c?.paymentMode || ""),
+      paidTo: String(c?.paidTo || ""),
+      busGroup: String(c?.busGroup || "").trim().toUpperCase(),
+      confirm: c?.confirm === "Yes" || c?.confirm === "No" ? c.confirm : "",
+      ferry: c?.ferry === "Yes" || c?.ferry === "No" ? c.ferry : "",
+      createdAt: c?.createdAt ? new Date(c.createdAt).toISOString() : "",
+      updatedAt: c?.updatedAt ? new Date(c.updatedAt).toISOString() : "",
+      sourceType: "customer",
+      sourceLabel: "",
+    };
+  }
+
+  async function loadFollowupCustomers(): Promise<CallingRow[]> {
+    const res = await fetch("/api/customers?limit=10000", { cache: "no-store" });
+    const data = await res.json().catch(() => ({}));
+    const items = getItemsFromResponse(data) as any[];
+    return items.map(mapCustomerToRow);
+  }
+
   async function loadAll() {
     setLoading(true);
     try {
@@ -508,7 +564,18 @@ export default function CallingView({ followup = false }: { followup?: boolean }
         return String(a.customerName || "").localeCompare(String(b.customerName || ""));
       });
 
-      setRows(merged);
+      setCallingRows(merged);
+
+      if (followup) {
+        const customers = await loadFollowupCustomers();
+        customers.sort((a, b) =>
+          String(a.customerName || "").localeCompare(String(b.customerName || ""))
+        );
+        setRows(customers);
+      } else {
+        setRows(merged);
+      }
+
       setDraftMap({});
       setSelectedKeys([]);
       setDetailsOpen(false);
@@ -516,6 +583,7 @@ export default function CallingView({ followup = false }: { followup?: boolean }
     } catch (e) {
       console.error(e);
       setRows([]);
+      setCallingRows([]);
     } finally {
       setLoading(false);
     }
@@ -929,10 +997,10 @@ export default function CallingView({ followup = false }: { followup?: boolean }
   }
 
   function getTravellerKey(row: CallingRow) {
-    const mobile = normalizeText(row.mobile);
+    const mobile = String(row.mobile || "").replace(/\D/g, "");
     if (mobile) return `m:${mobile}`;
 
-    const aadhaar = normalizeText(row.adhaarNumber);
+    const aadhaar = String(row.adhaarNumber || "").replace(/\D/g, "");
     if (aadhaar) return `a:${aadhaar}`;
 
     const customerId = normalizeText(extractId(row.customerId));
@@ -975,10 +1043,20 @@ export default function CallingView({ followup = false }: { followup?: boolean }
     return "";
   }
 
-  const travellerSummaryMap = React.useMemo(() => {
-    const map = new Map<string, TravellerSummary & { allDates: string[] }>();
+  const summaryRows = followup ? callingRows : rows;
 
-    for (const row of rows) {
+  const travellerSummaryMap = React.useMemo(() => {
+    const map = new Map<
+      string,
+      TravellerSummary & {
+        allDates: string[];
+        jathaDateIdSet: Set<string>;
+        jathaStartSet: Set<string>;
+        latestDate: string;
+      }
+    >();
+
+    for (const row of summaryRows) {
       const travellerKey = getTravellerKey(row);
       const jatha = getJathaRange(row);
       const tripDate =
@@ -997,7 +1075,15 @@ export default function CallingView({ followup = false }: { followup?: boolean }
           firstTravelDate: "",
           lastTravelDate: "",
           recentDates: [],
+          lastTypeLabel: "",
+          lastMode: "",
+          lastSangat: "",
+          jathaDateIds: [],
+          jathaStarts: [],
           allDates: [],
+          jathaDateIdSet: new Set<string>(),
+          jathaStartSet: new Set<string>(),
+          latestDate: "",
         });
       }
 
@@ -1010,6 +1096,17 @@ export default function CallingView({ followup = false }: { followup?: boolean }
       item.totalCount += 1;
 
       if (tripDate) item.allDates.push(tripDate);
+
+      const jathaId = String(row.jathaDateId || "").trim();
+      if (jathaId) item.jathaDateIdSet.add(jathaId);
+      if (jatha.start) item.jathaStartSet.add(jatha.start);
+
+      if (tripDate >= item.latestDate) {
+        item.latestDate = tripDate;
+        item.lastTypeLabel = String(row.sourceLabel || "");
+        item.lastMode = String(row.mode || "");
+        item.lastSangat = String(row.sangat || "");
+      }
     }
 
     const finalMap = new Map<string, TravellerSummary>();
@@ -1025,14 +1122,44 @@ export default function CallingView({ followup = false }: { followup?: boolean }
         firstTravelDate: sortedDates[0] || "",
         lastTravelDate: sortedDates[sortedDates.length - 1] || "",
         recentDates: sortedDates.slice(-5).reverse(),
+        lastTypeLabel: value.lastTypeLabel,
+        lastMode: value.lastMode,
+        lastSangat: value.lastSangat,
+        jathaDateIds: Array.from(value.jathaDateIdSet),
+        jathaStarts: Array.from(value.jathaStartSet),
       });
     }
 
     return finalMap;
-  }, [rows, allJathaDates]);
+  }, [summaryRows, allJathaDates]);
+
+  const summaryByCustomerId = React.useMemo(() => {
+    const map = new Map<string, TravellerSummary>();
+
+    for (const row of summaryRows) {
+      const customerId = normalizeText(extractId(row.customerId));
+      if (!customerId) continue;
+
+      const summary = travellerSummaryMap.get(getTravellerKey(row));
+      if (summary) map.set(customerId, summary);
+    }
+
+    return map;
+  }, [summaryRows, travellerSummaryMap]);
 
   function getSummaryForRow(row: CallingRow) {
-    return travellerSummaryMap.get(getTravellerKey(row));
+    const direct = travellerSummaryMap.get(getTravellerKey(row));
+    if (direct) return direct;
+
+    const customerId = normalizeText(extractId(row.customerId));
+    if (customerId) return summaryByCustomerId.get(customerId);
+
+    return undefined;
+  }
+
+  function getTotalCount(summary?: TravellerSummary) {
+    if (!followup) return summary?.totalCount || 1;
+    return summary?.totalCount || 0;
   }
 
   function matchesFrequency(totalCount: number) {
@@ -1061,18 +1188,18 @@ export default function CallingView({ followup = false }: { followup?: boolean }
   const modeOptions = React.useMemo(() => {
     const unique = new Set<string>();
 
-    rows.forEach((r) => {
+    summaryRows.forEach((r) => {
       const mode = String(r.mode || "").trim();
       if (mode) unique.add(mode);
     });
 
     return Array.from(unique).sort((a, b) => a.localeCompare(b));
-  }, [rows]);
+  }, [summaryRows]);
 
   const busGroupOptions = React.useMemo(() => {
     const unique = new Set<string>();
 
-    rows.forEach((r) => {
+    summaryRows.forEach((r) => {
       const group = String(r.busGroup || "").trim().toUpperCase();
       if (group) unique.add(group);
     });
@@ -1085,7 +1212,7 @@ export default function CallingView({ followup = false }: { followup?: boolean }
       if (bn) return 1;
       return a.localeCompare(b);
     });
-  }, [rows]);
+  }, [summaryRows]);
 
   const filteredRows = React.useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -1093,7 +1220,7 @@ export default function CallingView({ followup = false }: { followup?: boolean }
     const next = rows.filter((r) => {
       const jr = getJathaRange(r);
       const freq = travellerSummaryMap.get(getTravellerKey(r));
-      const totalCount = freq?.totalCount || 1;
+      const totalCount = getTotalCount(freq);
       const frequencyTag = getTravellerTag(totalCount);
 
       const matchesSearch =
@@ -1110,12 +1237,12 @@ export default function CallingView({ followup = false }: { followup?: boolean }
           r.remarks,
           getAssigneeLabel(r.assignedTo),
           r.followupRemarks,
-          r.mode,
+          r.mode || freq?.lastMode,
           r.paymentMode,
           r.paidTo,
           r.payment,
           r.busGroup,
-          r.sangat,
+          r.sangat || freq?.lastSangat,
           r.gender,
           r.adhaarNumber,
           renderTicket(r.ticketDelhiBeas),
@@ -1133,14 +1260,27 @@ export default function CallingView({ followup = false }: { followup?: boolean }
           .toLowerCase()
           .includes(q);
 
+      const typeCount = !typeFilter
+        ? 0
+        : typeFilter === "ladoo"
+        ? freq?.ladooCount || 0
+        : typeFilter === "parantha"
+        ? freq?.paranthaCount || 0
+        : freq?.bhatiCount || 0;
       const matchesType =
         !typeFilter ||
-        String(r.sourceType || "").trim().toLowerCase() === typeFilter.toLowerCase();
+        (followup
+          ? typeCount > 0
+          : String(r.sourceType || "").trim().toLowerCase() ===
+            typeFilter.toLowerCase());
 
       const matchesJatha =
         !jathaDateFilter ||
-        String(r.jathaDateId || "").trim() === jathaDateFilter ||
-        jr.start === jathaDateFilter;
+        (followup
+          ? (freq?.jathaDateIds || []).includes(jathaDateFilter) ||
+            (freq?.jathaStarts || []).includes(jathaDateFilter)
+          : String(r.jathaDateId || "").trim() === jathaDateFilter ||
+            jr.start === jathaDateFilter);
 
       const rowMode = String(r.mode || "").trim();
       const matchesMode =
@@ -1174,6 +1314,10 @@ export default function CallingView({ followup = false }: { followup?: boolean }
       const matchesFollowupRemarks =
         !followupRemarksFilter ||
         String(r.followupRemarks || "").trim() === followupRemarksFilter;
+      const matchesAssigneeAccess =
+        canSeeAllFollowup ||
+        (!!sessionEmail &&
+          String(r.assignedTo || "").trim().toLowerCase() === sessionEmail);
 
       return (
         matchesSearch &&
@@ -1188,15 +1332,18 @@ export default function CallingView({ followup = false }: { followup?: boolean }
         matchesFerry &&
         matchesFreq &&
         matchesAssigned &&
-        matchesFollowupRemarks
+        matchesFollowupRemarks &&
+        matchesAssigneeAccess
       );
     });
 
-    if (!frequencySort) return next;
+    const visible = next;
 
-    return [...next].sort((a, b) => {
-      const aCount = travellerSummaryMap.get(getTravellerKey(a))?.totalCount || 1;
-      const bCount = travellerSummaryMap.get(getTravellerKey(b))?.totalCount || 1;
+    if (!frequencySort) return visible;
+
+    return [...visible].sort((a, b) => {
+      const aCount = getTotalCount(travellerSummaryMap.get(getTravellerKey(a)));
+      const bCount = getTotalCount(travellerSummaryMap.get(getTravellerKey(b)));
 
       if (frequencySort === "highest") {
         if (bCount !== aCount) return bCount - aCount;
@@ -1225,11 +1372,17 @@ export default function CallingView({ followup = false }: { followup?: boolean }
     allJathaDates,
     ticketLabelMap,
     travellerSummaryMap,
+    summaryByCustomerId,
     sangatEmergencyMap,
     assignees,
+    followup,
+    canSeeAllFollowup,
+    sessionEmail,
   ]);
 
   const visibleKeys = React.useMemo(() => filteredRows.map((r) => rowKey(r)), [filteredRows]);
+
+  const uniqueBaseCount = React.useMemo(() => rows.length, [rows]);
 
   const allVisibleSelected =
     visibleKeys.length > 0 && visibleKeys.every((k) => selectedKeys.includes(k));
@@ -1552,16 +1705,32 @@ export default function CallingView({ followup = false }: { followup?: boolean }
     try {
       setSavingKeys((prev) => [...prev, key]);
 
-      const payload = buildSavePayload(row, options?.override);
-
-      const res = await fetch(
-        `/api/nominal-roll/${draft.sourceType}/${encodeURIComponent(draft._id)}`,
-        {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        }
-      );
+      const res = followup
+        ? await fetch(`/api/customers/${encodeURIComponent(draft._id)}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              assignedTo: String(draft.assignedTo || ""),
+              followupRemarks: String(draft.followupRemarks || ""),
+              remarks: String(draft.remarks || ""),
+              mode: String(draft.mode || ""),
+              department: String(draft.department || ""),
+              payment: String(draft.payment || ""),
+              paymentMode: String(draft.paymentMode || ""),
+              paidTo: String(draft.paidTo || ""),
+              busGroup: String(draft.busGroup || "").trim().toUpperCase(),
+              confirm: draft.confirm || "",
+              ferry: draft.ferry || "",
+            }),
+          })
+        : await fetch(
+            `/api/nominal-roll/${draft.sourceType}/${encodeURIComponent(draft._id)}`,
+            {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(buildSavePayload(row, options?.override)),
+            }
+          );
 
       const data = await res.json().catch(() => ({}));
 
@@ -1813,7 +1982,7 @@ export default function CallingView({ followup = false }: { followup?: boolean }
       const c = rowComputed(draft);
       const pay = paymentToNumber(draft.payment);
       const freq = getSummaryForRow(draft);
-      const totalCount = freq?.totalCount || 1;
+      const totalCount = getTotalCount(freq);
 
       const out: Record<string, any> = {
         "S.NO": index + 1,
@@ -1826,10 +1995,10 @@ export default function CallingView({ followup = false }: { followup?: boolean }
         "EMERGENCY NUMBER": getEmergencyNumber(draft),
         "ADDRESS": draft.address || "",
         "BADGE": draft.badgeNo || "",
-         "MODE": draft.mode || "",
+        "MODE": draft.mode || freq?.lastMode || "",
           "DEPARTMENT": draft.department || "",
-        "SANGAT": draft.sangat || "",
-         "TYPE": draft.sourceLabel || "",
+        "SANGAT": draft.sangat || freq?.lastSangat || "",
+         "TYPE": draft.sourceLabel || freq?.lastTypeLabel || "",
         "AADHAAR": draft.adhaarNumber || "",
         "LADOO COUNT": freq?.ladooCount || 0,
         "PARANTHA COUNT": freq?.paranthaCount || 0,
@@ -1958,31 +2127,33 @@ export default function CallingView({ followup = false }: { followup?: boolean }
             </select>
           </div>
 
-          <div>
-            <div className="app-label">Mode</div>
-            <div className="flex min-h-10 max-h-28 flex-wrap items-center gap-2 overflow-y-auto rounded-lg border border-black/10 bg-white px-2 py-1.5 text-xs dark:border-white/10 dark:bg-zinc-950">
-              {modeOptions.length === 0 ? (
-                <span className="text-zinc-500 dark:text-zinc-400">No mode available</span>
-              ) : (
-                modeOptions.map((value) => (
-                  <label key={value} className="inline-flex items-center gap-1.5 whitespace-nowrap">
-                    <input
-                      type="checkbox"
-                      checked={modeFilters.includes(value)}
-                      onChange={(e) => {
-                        setModeFilters((prev) =>
-                          e.target.checked
-                            ? Array.from(new Set([...prev, value]))
-                            : prev.filter((x) => x !== value)
-                        );
-                      }}
-                    />
-                    <span>{value}</span>
-                  </label>
-                ))
-              )}
+          {!followup && (
+            <div>
+              <div className="app-label">Mode</div>
+              <div className="flex min-h-10 max-h-28 flex-wrap items-center gap-2 overflow-y-auto rounded-lg border border-black/10 bg-white px-2 py-1.5 text-xs dark:border-white/10 dark:bg-zinc-950">
+                {modeOptions.length === 0 ? (
+                  <span className="text-zinc-500 dark:text-zinc-400">No mode available</span>
+                ) : (
+                  modeOptions.map((value) => (
+                    <label key={value} className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                      <input
+                        type="checkbox"
+                        checked={modeFilters.includes(value)}
+                        onChange={(e) => {
+                          setModeFilters((prev) =>
+                            e.target.checked
+                              ? Array.from(new Set([...prev, value]))
+                              : prev.filter((x) => x !== value)
+                          );
+                        }}
+                      />
+                      <span>{value}</span>
+                    </label>
+                  ))
+                )}
+              </div>
             </div>
-          </div>
+          )}
 
           {!followup && (
             <>
@@ -2031,21 +2202,23 @@ export default function CallingView({ followup = false }: { followup?: boolean }
             </>
           )}
 
-          <div>
-            <div className="app-label">Bus Group</div>
-            <select
-              className={inputCls()}
-              value={busGroupFilter}
-              onChange={(e) => setBusGroupFilter(e.target.value)}
-            >
-              <option value="">All</option>
-              {busGroupOptions.map((g) => (
-                <option key={g} value={g}>
-                  {g}
-                </option>
-              ))}
-            </select>
-          </div>
+          {!followup && (
+            <div>
+              <div className="app-label">Bus Group</div>
+              <select
+                className={inputCls()}
+                value={busGroupFilter}
+                onChange={(e) => setBusGroupFilter(e.target.value)}
+              >
+                <option value="">All</option>
+                {busGroupOptions.map((g) => (
+                  <option key={g} value={g}>
+                    {g}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {!followup && (
             <>
@@ -2101,20 +2274,22 @@ export default function CallingView({ followup = false }: { followup?: boolean }
                 </select>
               </div>
 
-              <div>
-                <div className="app-label">Sort By Trips</div>
-                <select
-                  className={inputCls()}
-                  value={frequencySort}
-                  onChange={(e) => setFrequencySort(e.target.value as FrequencySort)}
-                >
-                  <option value="">Default</option>
-                  <option value="highest">Highest First</option>
-                  <option value="lowest">Lowest First</option>
-                </select>
-              </div>
+          {!followup && (
+            <div>
+              <div className="app-label">Sort By Trips</div>
+              <select
+                className={inputCls()}
+                value={frequencySort}
+                onChange={(e) => setFrequencySort(e.target.value as FrequencySort)}
+              >
+                <option value="">Default</option>
+                <option value="highest">Highest First</option>
+                <option value="lowest">Lowest First</option>
+              </select>
+            </div>
+          )}
 
-          {followup && (
+          {followup && canAssign && (
             <div>
               <div className="app-label">Assigned Name</div>
               <select
@@ -2155,10 +2330,10 @@ export default function CallingView({ followup = false }: { followup?: boolean }
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-zinc-600 dark:text-zinc-400">
             <span>
               Total Records: <span className="font-semibold">{filteredRows.length}</span>
-              {filteredRows.length !== rows.length ? (
+              {filteredRows.length !== uniqueBaseCount ? (
                 <span className="text-zinc-500 dark:text-zinc-400">
                   {" "}
-                  of {rows.length}
+                  of {uniqueBaseCount}
                 </span>
               ) : null}
             </span>
@@ -2209,7 +2384,7 @@ export default function CallingView({ followup = false }: { followup?: boolean }
         <div className="mt-4 flex flex-wrap items-center gap-2 rounded-xl border border-black/10 p-3 dark:border-white/10">
           <div className="text-sm font-medium">Selected: {selectedKeys.length}</div>
 
-          {followup && (
+          {followup && canAssign && (
             <select
               className={inputCls()}
               value={bulkAssignee}
@@ -2224,7 +2399,7 @@ export default function CallingView({ followup = false }: { followup?: boolean }
             </select>
           )}
 
-          {followup && (
+          {followup && canAssign && (
             <div className="flex flex-wrap items-center gap-2 rounded-lg border border-black/10 bg-zinc-50 px-2 py-1.5 dark:border-white/10 dark:bg-white/5">
               <span className="text-xs font-semibold">Assign by S.No</span>
               <input
@@ -2453,7 +2628,7 @@ export default function CallingView({ followup = false }: { followup?: boolean }
                   const c = rowComputed(draft);
                   const pay = paymentToNumber(draft.payment);
                   const summary = getSummaryForRow(draft);
-                  const totalCount = summary?.totalCount || 1;
+                  const totalCount = getTotalCount(summary);
                   const stickyBg =
                     i % 2 === 0
                       ? "bg-white dark:bg-zinc-950"
@@ -2491,7 +2666,7 @@ export default function CallingView({ followup = false }: { followup?: boolean }
                         className={`td px-2 py-2 sticky z-[5] ${stickyBg}`}
                         style={{ left: stickyLefts[2] }}
                       >
-                        {draft.sourceLabel || "-"}
+                        {draft.sourceLabel || summary?.lastTypeLabel || "-"}
                       </td>
 
                       <td
@@ -2511,25 +2686,29 @@ export default function CallingView({ followup = false }: { followup?: boolean }
 
                       {followup && (
                         <td className="td px-2 py-2">
-                          <select
-                            className={inputCls()}
-                            value={draft.assignedTo || ""}
-                            onClick={stopRowClick}
-                            onChange={(e) => updateDraft(r, { assignedTo: e.target.value })}
-                          >
-                            <option value="">Unassigned</option>
-                            {assignees.every((a) => a.email !== draft.assignedTo) &&
-                            draft.assignedTo ? (
-                              <option value={draft.assignedTo}>
-                                {getAssigneeLabel(draft.assignedTo)}
-                              </option>
-                            ) : null}
-                            {assignees.map((a) => (
-                              <option key={a.email} value={a.email}>
-                                {a.name}
-                              </option>
-                            ))}
-                          </select>
+                          {canAssign ? (
+                            <select
+                              className={inputCls()}
+                              value={draft.assignedTo || ""}
+                              onClick={stopRowClick}
+                              onChange={(e) => updateDraft(r, { assignedTo: e.target.value })}
+                            >
+                              <option value="">Unassigned</option>
+                              {assignees.every((a) => a.email !== draft.assignedTo) &&
+                              draft.assignedTo ? (
+                                <option value={draft.assignedTo}>
+                                  {getAssigneeLabel(draft.assignedTo)}
+                                </option>
+                              ) : null}
+                              {assignees.map((a) => (
+                                <option key={a.email} value={a.email}>
+                                  {a.name}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <span>{getAssigneeLabel(draft.assignedTo) || "Unassigned"}</span>
+                          )}
                         </td>
                       )}
 
@@ -2616,11 +2795,15 @@ export default function CallingView({ followup = false }: { followup?: boolean }
                       </td>
                       <td className="td px-2 py-2">{draft.badgeNo || "-"}</td>
                       <td className="td px-2 py-2">{draft.adhaarNumber || "-"}</td>
-                      <td className="td px-2 py-2">{draft.mode || "-"}</td>
+                      <td className="td px-2 py-2">
+                        {draft.mode || summary?.lastMode || "-"}
+                      </td>
                       <td className="td px-2 py-2 whitespace-normal break-words">
                         {draft.department || "-"}
                       </td>
-                      <td className="td px-2 py-2">{draft.sangat || "-"}</td>
+                      <td className="td px-2 py-2">
+                        {draft.sangat || summary?.lastSangat || "-"}
+                      </td>
                       {!followup && (
                         <>
                           <td className="td px-2 py-2">{draft.bookingReqDelhiBeas || "-"}</td>
@@ -2819,7 +3002,11 @@ export default function CallingView({ followup = false }: { followup?: boolean }
         <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
           <div>
             <div className="app-label">Type</div>
-            <input className={inputCls()} value={modalDraft.sourceLabel || ""} disabled />
+            <input
+              className={inputCls()}
+              value={modalDraft.sourceLabel || modalSummary?.lastTypeLabel || ""}
+              disabled
+            />
           </div>
 
           <div>
@@ -2845,24 +3032,32 @@ export default function CallingView({ followup = false }: { followup?: boolean }
           {followup && (
             <div>
               <div className="app-label">Assigned Name</div>
-              <select
-                className={inputCls()}
-                value={modalDraft.assignedTo || ""}
-                onChange={(e) => updateDraft(modalBaseRow, { assignedTo: e.target.value })}
-              >
-                <option value="">Unassigned</option>
-                {assignees.every((a) => a.email !== modalDraft.assignedTo) &&
-                modalDraft.assignedTo ? (
-                  <option value={modalDraft.assignedTo}>
-                    {getAssigneeLabel(modalDraft.assignedTo)}
-                  </option>
-                ) : null}
-                {assignees.map((a) => (
-                  <option key={a.email} value={a.email}>
-                    {a.name}
-                  </option>
-                ))}
-              </select>
+              {canAssign ? (
+                <select
+                  className={inputCls()}
+                  value={modalDraft.assignedTo || ""}
+                  onChange={(e) => updateDraft(modalBaseRow, { assignedTo: e.target.value })}
+                >
+                  <option value="">Unassigned</option>
+                  {assignees.every((a) => a.email !== modalDraft.assignedTo) &&
+                  modalDraft.assignedTo ? (
+                    <option value={modalDraft.assignedTo}>
+                      {getAssigneeLabel(modalDraft.assignedTo)}
+                    </option>
+                  ) : null}
+                  {assignees.map((a) => (
+                    <option key={a.email} value={a.email}>
+                      {a.name}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  className={inputCls()}
+                  value={getAssigneeLabel(modalDraft.assignedTo) || "Unassigned"}
+                  disabled
+                />
+              )}
             </div>
           )}
 

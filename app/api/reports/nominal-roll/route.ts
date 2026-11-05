@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "../../../lib/authOptions";
 import { getDb } from "../../../lib/mongodb";
 
 const MAP: Record<string, string> = {
@@ -112,6 +114,23 @@ export async function GET(req: Request) {
         if (travelFrom) and.push({ travelStartDate: { $gte: toDateStart(travelFrom) } });
         if (travelTo) and.push({ travelEndDate: { $lte: toDateEnd(travelTo) } });
         if (and.length) filter.$and = (filter.$and || []).concat(and);
+      }
+    }
+
+    const followupMode = asStr(searchParams.get("followup")) === "1";
+
+    if (followupMode) {
+      try {
+        const session = await getServerSession(authOptions);
+        const role = String((session as any)?.role || "user");
+
+        if (role !== "admin") {
+          const email = String(session?.user?.email || "").toLowerCase().trim();
+          if (!email) return NextResponse.json({ items: [] });
+          filter.assignedTo = email;
+        }
+      } catch {
+        return NextResponse.json({ items: [] });
       }
     }
 

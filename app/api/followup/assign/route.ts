@@ -6,6 +6,7 @@ const COLLECTIONS: Record<string, string> = {
   ladoo: "nominalRollLadoo",
   parantha: "nominalRollParantha",
   bhati: "nominalRollBhati",
+  customer: "customers",
 };
 
 export async function POST(req: Request) {
