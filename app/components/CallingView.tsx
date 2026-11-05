@@ -169,9 +169,15 @@ type ReportRow = {
   confirm?: YesNo;
   ferry?: YesNo;
   remarks?: string;
+  remarksHistory?: RemarkHistoryEntry[];
 
   assignedTo?: string;
   followupRemarks?: string;
+};
+
+type RemarkHistoryEntry = {
+  text: string;
+  createdAt?: string;
 };
 
 type CallingRow = ReportRow & {
@@ -262,6 +268,20 @@ function formatDDMonYYYY(v: any) {
   const mon = d.toLocaleString("en-GB", { month: "short" });
   const yyyy = d.getFullYear();
   return `${dd}-${mon}-${yyyy}`;
+}
+
+function formatRemarkDateTime(v: any) {
+  const s = String(v || "").trim();
+  if (!s) return "";
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return s;
+
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mon = d.toLocaleString("en-GB", { month: "short" });
+  const yyyy = d.getFullYear();
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  return `${dd}-${mon}-${yyyy} ${hh}:${mm}`;
 }
 
 function toNumberOrNull(v: any): number | null {
@@ -502,6 +522,22 @@ export default function CallingView({ followup = false }: { followup?: boolean }
 
   function mapCustomerToRow(c: any): CallingRow {
     const id = String(c?._id || "");
+    const rawHistory = Array.isArray(c?.remarksHistory) ? c.remarksHistory : [];
+    const remarksHistory: RemarkHistoryEntry[] = rawHistory
+      .map((h: any) => ({
+        text: String(h?.text || "").trim(),
+        createdAt: h?.createdAt ? new Date(h.createdAt).toISOString() : "",
+      }))
+      .filter((h: RemarkHistoryEntry) => Boolean(h.text));
+
+    if (remarksHistory.length === 0 && String(c?.remarks || "").trim()) {
+      const legacyDate = c?.updatedAt || c?.createdAt || "";
+      remarksHistory.push({
+        text: String(c.remarks).trim(),
+        createdAt: legacyDate ? new Date(legacyDate).toISOString() : "",
+      });
+    }
+
     return {
       _id: id,
       customerId: id,
@@ -516,7 +552,8 @@ export default function CallingView({ followup = false }: { followup?: boolean }
       badgeNo: String(c?.badgeNo || ""),
       emergencyNumber: String(c?.emergencyNumber || c?.emergencyNo || ""),
       notes: String(c?.notes || ""),
-      remarks: String(c?.remarks || ""),
+      remarks: "",
+      remarksHistory,
       assignedTo: String(c?.assignedTo || ""),
       followupRemarks: String(c?.followupRemarks || ""),
       mode: String(c?.mode || ""),
@@ -1162,6 +1199,14 @@ export default function CallingView({ followup = false }: { followup?: boolean }
     return summary?.totalCount || 0;
   }
 
+  function getFrequencyCount(summary?: TravellerSummary) {
+    if (!typeFilter) return getTotalCount(summary);
+
+    if (typeFilter === "ladoo") return summary?.ladooCount || 0;
+    if (typeFilter === "parantha") return summary?.paranthaCount || 0;
+    return summary?.bhatiCount || 0;
+  }
+
   function matchesFrequency(totalCount: number) {
     if (!frequencyFilter) return true;
     if (frequencyFilter === "new") return totalCount === 1;
@@ -1220,8 +1265,8 @@ export default function CallingView({ followup = false }: { followup?: boolean }
     const next = rows.filter((r) => {
       const jr = getJathaRange(r);
       const freq = travellerSummaryMap.get(getTravellerKey(r));
-      const totalCount = getTotalCount(freq);
-      const frequencyTag = getTravellerTag(totalCount);
+      const frequencyCount = getFrequencyCount(freq);
+      const frequencyTag = getTravellerTag(frequencyCount);
 
       const matchesSearch =
         !q ||
@@ -1235,6 +1280,9 @@ export default function CallingView({ followup = false }: { followup?: boolean }
           r.department,
           r.notes,
           r.remarks,
+          ...(Array.isArray(r.remarksHistory)
+            ? r.remarksHistory.map((h) => h.text)
+            : []),
           getAssigneeLabel(r.assignedTo),
           r.followupRemarks,
           r.mode || freq?.lastMode,
@@ -1308,7 +1356,7 @@ export default function CallingView({ followup = false }: { followup?: boolean }
       const matchesConfirm =
         confirmFilters.length === 0 || confirmFilters.includes(confirmStatus);
       const matchesFerry = !ferryFilter || String(r.ferry || "") === ferryFilter;
-      const matchesFreq = matchesFrequency(totalCount);
+      const matchesFreq = matchesFrequency(frequencyCount);
       const matchesAssigned =
         !assignedFilter || String(r.assignedTo || "").trim() === assignedFilter;
       const matchesFollowupRemarks =
@@ -1342,8 +1390,8 @@ export default function CallingView({ followup = false }: { followup?: boolean }
     if (!frequencySort) return visible;
 
     return [...visible].sort((a, b) => {
-      const aCount = getTotalCount(travellerSummaryMap.get(getTravellerKey(a)));
-      const bCount = getTotalCount(travellerSummaryMap.get(getTravellerKey(b)));
+      const aCount = getFrequencyCount(travellerSummaryMap.get(getTravellerKey(a)));
+      const bCount = getFrequencyCount(travellerSummaryMap.get(getTravellerKey(b)));
 
       if (frequencySort === "highest") {
         if (bCount !== aCount) return bCount - aCount;
@@ -1383,6 +1431,34 @@ export default function CallingView({ followup = false }: { followup?: boolean }
   const visibleKeys = React.useMemo(() => filteredRows.map((r) => rowKey(r)), [filteredRows]);
 
   const uniqueBaseCount = React.useMemo(() => rows.length, [rows]);
+
+  const followupRemarkColumns = React.useMemo(() => {
+    if (!followup) return 1;
+
+    let max = 0;
+    for (const r of rows) {
+      const len = Array.isArray(r.remarksHistory) ? r.remarksHistory.length : 0;
+      if (len > max) max = len;
+    }
+
+    return max + 1;
+  }, [rows, followup]);
+
+  const remarkColumnDates = React.useMemo(() => {
+    const dates: string[] = [];
+    if (!followup) return dates;
+
+    for (const r of rows) {
+      const history = Array.isArray(r.remarksHistory) ? r.remarksHistory : [];
+      history.forEach((h, idx) => {
+        const s = String(h.createdAt || "");
+        if (!s) return;
+        if (!dates[idx] || s > dates[idx]) dates[idx] = s;
+      });
+    }
+
+    return dates;
+  }, [rows, followup]);
 
   const allVisibleSelected =
     visibleKeys.length > 0 && visibleKeys.every((k) => selectedKeys.includes(k));
@@ -1712,7 +1788,7 @@ export default function CallingView({ followup = false }: { followup?: boolean }
             body: JSON.stringify({
               assignedTo: String(draft.assignedTo || ""),
               followupRemarks: String(draft.followupRemarks || ""),
-              remarks: String(draft.remarks || ""),
+              newRemark: String(draft.remarks || "").trim(),
               mode: String(draft.mode || ""),
               department: String(draft.department || ""),
               payment: String(draft.payment || ""),
@@ -1739,27 +1815,41 @@ export default function CallingView({ followup = false }: { followup?: boolean }
         return false;
       }
 
+      const newRemarkText = followup ? String(draft.remarks || "").trim() : "";
+      const baseRemarksHistory = Array.isArray(draft.remarksHistory)
+        ? draft.remarksHistory
+        : [];
+      const savedRemarksHistory =
+        followup && newRemarkText
+          ? [
+              ...baseRemarksHistory,
+              { text: newRemarkText, createdAt: new Date().toISOString() },
+            ]
+          : baseRemarksHistory;
+
       setRows((prev) =>
-        prev.map((r) =>
-          rowKey(r) === key
-            ? {
-                ...r,
-                confirm: draft.confirm || "",
-                ferry: draft.ferry || "",
-                remarks: draft.remarks || "",
-                payment: draft.payment || "",
-                paymentMode: draft.paymentMode || "",
-                paidTo: draft.paidTo || "",
-                busGroup: String(draft.busGroup || "").trim().toUpperCase(),
-                mode: draft.mode || "",
-                department: draft.department || "",
-                assignedTo: draft.assignedTo || "",
-                followupRemarks: draft.followupRemarks || "",
-                ticketDelhiBeas: normalizeTicketId(draft.ticketDelhiBeas) || "",
-                ticketBeasDelhi: normalizeTicketId(draft.ticketBeasDelhi) || "",
-              }
-            : r
-        )
+        prev.map((r) => {
+          if (rowKey(r) !== key) return r;
+
+          return {
+            ...r,
+            confirm: draft.confirm || "",
+            ferry: draft.ferry || "",
+            payment: draft.payment || "",
+            paymentMode: draft.paymentMode || "",
+            paidTo: draft.paidTo || "",
+            busGroup: String(draft.busGroup || "").trim().toUpperCase(),
+            mode: draft.mode || "",
+            department: draft.department || "",
+            assignedTo: draft.assignedTo || "",
+            followupRemarks: draft.followupRemarks || "",
+            ticketDelhiBeas: normalizeTicketId(draft.ticketDelhiBeas) || "",
+            ticketBeasDelhi: normalizeTicketId(draft.ticketBeasDelhi) || "",
+            ...(followup
+              ? { remarks: "", remarksHistory: savedRemarksHistory }
+              : { remarks: draft.remarks || "" }),
+          };
+        })
       );
 
       setDraftMap((prev) => {
@@ -2004,7 +2094,7 @@ export default function CallingView({ followup = false }: { followup?: boolean }
         "PARANTHA COUNT": freq?.paranthaCount || 0,
         "BHATI COUNT": freq?.bhatiCount || 0,
         "TOTAL COUNT": totalCount,
-        "FREQUENCY TAG": getTravellerTag(totalCount),
+        "FREQUENCY TAG": getTravellerTag(getFrequencyCount(freq)),
         "LAST TRAVEL": formatDDMonYYYY(freq?.lastTravelDate),
        
        
@@ -2024,7 +2114,12 @@ export default function CallingView({ followup = false }: { followup?: boolean }
         "NOTES": draft.notes || "",
         "CONFIRM": getConfirmLabel(draft.confirm),
         "FERRY": draft.ferry || "",
-        "REMARKS": draft.remarks || "",
+        "REMARKS": followup
+          ? (Array.isArray(draft.remarksHistory) ? draft.remarksHistory : [])
+              .map((h) => h.text)
+              .filter(Boolean)
+              .join(" | ")
+          : draft.remarks || "",
         "CREATED AT": formatDDMonYYYY(draft.createdAt),
         "UPDATED AT": formatDDMonYYYY(draft.updatedAt),
       };
@@ -2557,7 +2652,17 @@ export default function CallingView({ followup = false }: { followup?: boolean }
                 {followup && <th className="th w-44 px-2 py-2">Assigned Name</th>}
                 {followup && <th className="th w-64 px-2 py-2">Followup Remarks</th>}
                 {followup && <th className="th w-28 px-2 py-2">Save</th>}
-                {followup && <th className="th w-64 px-2 py-2">Remarks</th>}
+                {followup &&
+                  Array.from({ length: followupRemarkColumns }).map((_, idx) => (
+                    <th key={`remarks-head-${idx}`} className="th w-64 px-2 py-2">
+                      <div>{idx === 0 ? "Remarks" : `Remarks ${idx + 1}`}</div>
+                      {remarkColumnDates[idx] ? (
+                        <div className="mt-0.5 text-[10px] font-normal text-zinc-500 dark:text-zinc-400">
+                          {formatRemarkDateTime(remarkColumnDates[idx])}
+                        </div>
+                      ) : null}
+                    </th>
+                  ))}
                 <th className="th w-32 px-2 py-2">Tag</th>
                 <th className="th w-24 px-2 py-2">Ladoo</th>
                 <th className="th w-24 px-2 py-2">Parantha</th>
@@ -2609,13 +2714,13 @@ export default function CallingView({ followup = false }: { followup?: boolean }
             <tbody className="divide-y divide-black/5 dark:divide-white/10">
               {loading ? (
                 <tr>
-                  <td className="td px-2 py-2 text-zinc-600 dark:text-zinc-400" colSpan={followup ? 27 : 41}>
+                  <td className="td px-2 py-2 text-zinc-600 dark:text-zinc-400" colSpan={followup ? 27 + (followupRemarkColumns - 1) : 41}>
                     Loading...
                   </td>
                 </tr>
               ) : filteredRows.length === 0 ? (
                 <tr>
-                  <td className="td px-2 py-2 text-zinc-600 dark:text-zinc-400" colSpan={followup ? 27 : 41}>
+                  <td className="td px-2 py-2 text-zinc-600 dark:text-zinc-400" colSpan={followup ? 27 + (followupRemarkColumns - 1) : 41}>
                     No records found.
                   </td>
                 </tr>
@@ -2629,6 +2734,7 @@ export default function CallingView({ followup = false }: { followup?: boolean }
                   const pay = paymentToNumber(draft.payment);
                   const summary = getSummaryForRow(draft);
                   const totalCount = getTotalCount(summary);
+                  const frequencyCount = getFrequencyCount(summary);
                   const stickyBg =
                     i % 2 === 0
                       ? "bg-white dark:bg-zinc-950"
@@ -2754,22 +2860,48 @@ export default function CallingView({ followup = false }: { followup?: boolean }
                         </td>
                       )}
 
-                      {followup && (
-                        <td className="td px-2 py-2">
-                          <textarea
-                            className={inputCls()}
-                            style={{ minHeight: 48 }}
-                            value={draft.remarks || ""}
-                            onClick={stopRowClick}
-                            onChange={(e) => updateDraft(r, { remarks: e.target.value })}
-                            placeholder="Remarks"
-                          />
-                        </td>
-                      )}
+                      {followup &&
+                        Array.from({ length: followupRemarkColumns }).map((_, idx) => {
+                          const history = Array.isArray(draft.remarksHistory)
+                            ? draft.remarksHistory
+                            : [];
+                          const existing = history[idx];
+                          const isNewSlot = idx === history.length;
+
+                          return (
+                            <td key={`remarks-cell-${idx}`} className="td px-2 py-2">
+                              {existing ? (
+                                <>
+                                  <div className="text-[10px] text-zinc-500 dark:text-zinc-400">
+                                    {formatRemarkDateTime(existing.createdAt)}
+                                  </div>
+                                  <div className="whitespace-normal break-words">
+                                    {existing.text || "-"}
+                                  </div>
+                                </>
+                              ) : isNewSlot ? (
+                                <textarea
+                                  className={inputCls()}
+                                  style={{ minHeight: 48 }}
+                                  value={draft.remarks || ""}
+                                  onClick={stopRowClick}
+                                  onChange={(e) =>
+                                    updateDraft(r, { remarks: e.target.value })
+                                  }
+                                  placeholder={
+                                    idx === 0 ? "Remarks" : `Remarks ${idx + 1}`
+                                  }
+                                />
+                              ) : (
+                                <span className="text-zinc-400">-</span>
+                              )}
+                            </td>
+                          );
+                        })}
 
                       <td className="td px-2 py-2">
-                        <span className={frequencyBadgeCls(totalCount)}>
-                          {getTravellerTag(totalCount)}
+                        <span className={frequencyBadgeCls(frequencyCount)}>
+                          {getTravellerTag(frequencyCount)}
                         </span>
                       </td>
 

@@ -496,9 +496,51 @@ export async function PATCH(
     }
 
     const db = await getDb();
-    const result = await db
-      .collection(COLLECTION)
-      .updateOne({ _id: oid }, { $set: update });
+    const col = db.collection(COLLECTION);
+
+    const newRemark = String(body?.newRemark || "").trim();
+
+    if (newRemark) {
+      const existing = await col.findOne(
+        { _id: oid },
+        {
+          projection: {
+            remarks: 1,
+            remarksHistory: 1,
+            updatedAt: 1,
+            createdAt: 1,
+          },
+        }
+      );
+
+      if (!existing) {
+        return NextResponse.json(
+          { error: "Customer not found" },
+          { status: 404 }
+        );
+      }
+
+      const history = Array.isArray(existing.remarksHistory)
+        ? [...existing.remarksHistory]
+        : [];
+
+      if (history.length === 0) {
+        const legacy = String(existing.remarks || "").trim();
+        if (legacy && legacy !== newRemark) {
+          history.push({
+            text: legacy,
+            createdAt: existing.updatedAt || existing.createdAt || new Date(),
+          });
+        }
+      }
+
+      history.push({ text: newRemark, createdAt: new Date() });
+
+      update.remarksHistory = history;
+      update.remarks = newRemark;
+    }
+
+    const result = await col.updateOne({ _id: oid }, { $set: update });
 
     if (result.matchedCount === 0) {
       return NextResponse.json({ error: "Customer not found" }, { status: 404 });
