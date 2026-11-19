@@ -571,20 +571,53 @@ export default function CallingView({ followup = false }: { followup?: boolean }
     };
   }
 
-  async function loadFollowupCustomers(): Promise<CallingRow[]> {
-    const res = await fetch("/api/customers?limit=10000", { cache: "no-store" });
+  async function loadCustomersCompact(): Promise<any[]> {
+    const res = await fetch("/api/customers?limit=10000&compact=1", {
+      cache: "no-store",
+    });
     const data = await res.json().catch(() => ({}));
-    const items = getItemsFromResponse(data) as any[];
-    return items.map(mapCustomerToRow);
+    return (getItemsFromResponse(data) as any[]) || [];
+  }
+
+  function buildEmergencyMap(rawItems: any[]): Record<string, string> {
+    const map: Record<string, string> = {};
+
+    for (const x of rawItems) {
+      const emergency = String(
+        x.emergencyNumber ||
+          x.emergencyNo ||
+          x.emergencyMobile ||
+          x.emergencyContact ||
+          x.emergencyPhone ||
+          ""
+      ).trim();
+
+      if (!emergency) continue;
+
+      const customerId = normalizeText(extractId(x._id || x.customerId || x.id));
+      const mobile = normalizeText(x.mobile);
+      const aadhaar = normalizeText(x.adhaarNumber || x.aadhaarNumber);
+      const name = normalizeText(x.name || x.customerName);
+      const father = normalizeText(x.fatherOrHusbandName);
+      const age = String(x.age ?? "").trim();
+
+      if (customerId) map[`c:${customerId}`] = emergency;
+      if (mobile) map[`m:${mobile}`] = emergency;
+      if (aadhaar) map[`a:${aadhaar}`] = emergency;
+      if (name || father || age) map[`n:${name}|f:${father}|age:${age}`] = emergency;
+    }
+
+    return map;
   }
 
   async function loadAll() {
     setLoading(true);
     try {
-      const [ladoo, parantha, bhati] = await Promise.all([
+      const [ladoo, parantha, bhati, customerItems] = await Promise.all([
         loadCategory("ladoo"),
         loadCategory("parantha"),
         loadCategory("bhati"),
+        loadCustomersCompact(),
       ]);
 
       const merged = [...ladoo, ...parantha, ...bhati];
@@ -604,7 +637,7 @@ export default function CallingView({ followup = false }: { followup?: boolean }
       setCallingRows(merged);
 
       if (followup) {
-        const customers = await loadFollowupCustomers();
+        const customers = customerItems.map(mapCustomerToRow);
         customers.sort((a, b) =>
           String(a.customerName || "").localeCompare(String(b.customerName || ""))
         );
@@ -612,6 +645,8 @@ export default function CallingView({ followup = false }: { followup?: boolean }
       } else {
         setRows(merged);
       }
+
+      setSangatEmergencyMap(buildEmergencyMap(customerItems));
 
       setDraftMap({});
       setSelectedKeys([]);
@@ -628,21 +663,19 @@ export default function CallingView({ followup = false }: { followup?: boolean }
 
   async function loadJathaDates() {
     try {
-      const endpoints = ["/api/jatha-date", "/api/jatha-dates"];
-
-      let all: any[] = [];
-      for (const url of endpoints) {
+      async function fetchJatha(url: string): Promise<any[]> {
         try {
           const res = await fetch(url, { cache: "no-store" });
-          if (!res.ok) continue;
+          if (!res.ok) return [];
           const data = await res.json().catch(() => ({}));
-          const arr = getItemsFromResponse(data);
-          if (arr.length) {
-            all = arr;
-            break;
-          }
-        } catch {}
+          return getItemsFromResponse(data);
+        } catch {
+          return [];
+        }
       }
+
+      let all = await fetchJatha("/api/jatha-date");
+      if (all.length === 0) all = await fetchJatha("/api/jatha-dates");
 
       const normalized: JathaDate[] = all.map((j: any) => {
         const id = extractId(j);
@@ -672,15 +705,6 @@ export default function CallingView({ followup = false }: { followup?: boolean }
 
   async function loadTrainTickets() {
     try {
-      const endpoints = [
-        "/api/train-data?limit=10000",
-        "/api/train-data?limit=20000",
-        "/api/train-data",
-        "/api/train-data?all=1",
-        `/api/train-data?route=${encodeURIComponent("DLI-BEAS")}&limit=10000`,
-        `/api/train-data?route=${encodeURIComponent("BEAS-DLI")}&limit=10000`,
-      ];
-
       async function fetchOne(url: string): Promise<any[]> {
         try {
           const res = await fetch(url, { cache: "no-store" });
@@ -692,14 +716,9 @@ export default function CallingView({ followup = false }: { followup?: boolean }
         }
       }
 
-      let rawItems: any[] = [];
-      for (const url of endpoints) {
-        const arr = await fetchOne(url);
-        if (arr.length > 0) {
-          rawItems = arr;
-          break;
-        }
-      }
+      // The API already clamps limit to 10000, so a single request returns
+      // all tickets. Only fall back to route-specific queries if it is empty.
+      let rawItems = await fetchOne("/api/train-data?limit=10000");
 
       if (rawItems.length === 0) {
         const [a, b] = await Promise.all([
@@ -741,70 +760,6 @@ export default function CallingView({ followup = false }: { followup?: boolean }
     }
   }
 
-  async function loadSangatEmergencyNumbers() {
-    try {
-      const endpoints = [
-        "/api/customers?limit=10000",
-        "/api/customers?limit=20000",
-        "/api/customers?all=1",
-        "/api/customers",
-        "/api/sangat?limit=10000",
-        "/api/sangat?all=1",
-        "/api/sangat-data?limit=10000",
-        "/api/sangat-data?all=1",
-      ];
-
-      let rawItems: any[] = [];
-
-      for (const url of endpoints) {
-        try {
-          const res = await fetch(url, { cache: "no-store" });
-          if (!res.ok) continue;
-
-          const data = await res.json().catch(() => ({}));
-          const arr = getItemsFromResponse(data);
-
-          if (arr.length) {
-            rawItems = arr;
-            break;
-          }
-        } catch {}
-      }
-
-      const map: Record<string, string> = {};
-
-      for (const x of rawItems) {
-        const emergency = String(
-          x.emergencyNumber ||
-            x.emergencyNo ||
-            x.emergencyMobile ||
-            x.emergencyContact ||
-            x.emergencyPhone ||
-            ""
-        ).trim();
-
-        if (!emergency) continue;
-
-        const customerId = normalizeText(extractId(x._id || x.customerId || x.id));
-        const mobile = normalizeText(x.mobile);
-        const aadhaar = normalizeText(x.adhaarNumber || x.aadhaarNumber);
-        const name = normalizeText(x.name || x.customerName);
-        const father = normalizeText(x.fatherOrHusbandName);
-        const age = String(x.age ?? "").trim();
-
-        if (customerId) map[`c:${customerId}`] = emergency;
-        if (mobile) map[`m:${mobile}`] = emergency;
-        if (aadhaar) map[`a:${aadhaar}`] = emergency;
-        if (name || father || age) map[`n:${name}|f:${father}|age:${age}`] = emergency;
-      }
-
-      setSangatEmergencyMap(map);
-    } catch (e) {
-      console.error("Failed to load emergency numbers from Sangat data", e);
-      setSangatEmergencyMap({});
-    }
-  }
-
   async function loadAssignees() {
     try {
       const res = await fetch("/api/followup/assignees", { cache: "no-store" });
@@ -827,7 +782,6 @@ export default function CallingView({ followup = false }: { followup?: boolean }
     loadAll();
     loadJathaDates();
     loadTrainTickets();
-    loadSangatEmergencyNumbers();
     if (followup) loadAssignees();
   }, []);
 

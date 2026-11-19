@@ -189,6 +189,9 @@ function pickImg(x: any): ImgData | null {
 }
 
 // ✅ ensure unique indexes for badgeNo + adhaarNumber (only when non-empty)
+// ✅ Run only once per server process instead of on every request.
+let indexesReady: Promise<void> | null = null;
+
 async function ensureIndexes(db: any) {
   const col = db.collection(COLLECTION);
 
@@ -211,6 +214,17 @@ async function ensureIndexes(db: any) {
   );
 }
 
+async function ensureIndexesOnce(db: any) {
+  if (!indexesReady) {
+    indexesReady = ensureIndexes(db).catch((e) => {
+      // allow retry on next request if index creation failed
+      indexesReady = null;
+      throw e;
+    });
+  }
+  return indexesReady;
+}
+
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
@@ -227,6 +241,10 @@ export async function GET(req: Request) {
     // ✅ limit support (needed for Export All)
     const limitRaw = toNum(searchParams.get("limit"));
     const limit = limitRaw != null ? Math.min(Math.max(limitRaw, 1), 10000) : 50000;
+
+    // ✅ compact=1 skips heavy base64 photo fields (huge payloads).
+    //    Used by list/report screens that never render the images.
+    const compact = (searchParams.get("compact") || "") === "1";
 
     const filter: any = {};
 
@@ -286,14 +304,23 @@ export async function GET(req: Request) {
 
     const db = await getDb();
     try {
-      await ensureIndexes(db);
+      await ensureIndexesOnce(db);
     } catch (e: any) {
       console.error("ensureIndexes failed (customers GET):", e?.message || e);
     }
 
+    const projection = compact
+      ? {
+          passportPhoto: 0,
+          aadhaarFrontPhoto: 0,
+          aadhaarBackPhoto: 0,
+          medicalPhoto: 0,
+        }
+      : undefined;
+
     const items = await db
       .collection(COLLECTION)
-      .find(filter)
+      .find(filter, projection ? { projection } : undefined)
       .limit(limit)
       .toArray();
 
@@ -471,7 +498,7 @@ export async function POST(req: Request) {
 
     const db = await getDb();
     try {
-      await ensureIndexes(db);
+      await ensureIndexesOnce(db);
     } catch (e: any) {
       console.error("ensureIndexes failed (customers POST):", e?.message || e);
     }
