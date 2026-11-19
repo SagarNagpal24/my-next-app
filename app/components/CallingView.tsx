@@ -22,6 +22,19 @@ const FOLLOWUP_REMARK_OPTIONS = [
   "Others",
 ];
 
+const FOLLOWUP_REMARK_SEPARATOR = " | ";
+
+function splitFollowupRemarks(value: any): string[] {
+  const s = String(value ?? "").trim();
+  if (!s) return [];
+
+  const parts = s.includes(FOLLOWUP_REMARK_SEPARATOR)
+    ? s.split(FOLLOWUP_REMARK_SEPARATOR)
+    : s.split(",");
+
+  return parts.map((p) => p.trim()).filter(Boolean);
+}
+
 // ✅ same ALLOTED values as Reports page (dept report)
 const DEPT_ALLOTTED_BY_TAB: Record<string, Record<string, number>> = {
   ladoo: {
@@ -401,6 +414,33 @@ type Assignee = {
   name: string;
 };
 
+type FollowupListMeta = {
+  _id: string;
+  name: string;
+  count: number;
+  createdBy?: string;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+type FollowupListEntry = {
+  customerId: string;
+  assignedTo: string;
+  followupRemarks: string;
+  remarksHistory: RemarkHistoryEntry[];
+};
+
+type FollowupHistoryItem = {
+  _id: string;
+  type: string;
+  assignedTo?: string;
+  previousAssignedTo?: string;
+  remark?: string;
+  previousStatus?: string;
+  createdBy?: string;
+  createdAt?: string;
+};
+
 function assigneeDisplayName(email: string) {
   const s = String(email || "").trim();
   if (!s) return "";
@@ -428,6 +468,17 @@ export default function CallingView({ followup = false }: { followup?: boolean }
   const [sangatEmergencyMap, setSangatEmergencyMap] = React.useState<Record<string, string>>({});
   const [assignees, setAssignees] = React.useState<Assignee[]>([]);
 
+  const [allCustomers, setAllCustomers] = React.useState<CallingRow[]>([]);
+  const [savedLists, setSavedLists] = React.useState<FollowupListMeta[]>([]);
+  const [activeListId, setActiveListId] = React.useState("");
+  const [listCustomerIds, setListCustomerIds] = React.useState<string[]>([]);
+  const [listEntries, setListEntries] = React.useState<
+    Record<string, FollowupListEntry>
+  >({});
+  const [savingList, setSavingList] = React.useState(false);
+  const [personHistory, setPersonHistory] = React.useState<FollowupHistoryItem[]>([]);
+  const [personHistoryLoading, setPersonHistoryLoading] = React.useState(false);
+
   const [search, setSearch] = React.useState("");
   const [typeFilter, setTypeFilter] = React.useState<"" | CallingCategory>("");
   const [jathaDateFilter, setJathaDateFilter] = React.useState("");
@@ -441,7 +492,9 @@ export default function CallingView({ followup = false }: { followup?: boolean }
   const [frequencyFilter, setFrequencyFilter] = React.useState<FrequencyFilter>("");
   const [frequencySort, setFrequencySort] = React.useState<FrequencySort>("");
   const [assignedFilter, setAssignedFilter] = React.useState("");
-  const [followupRemarksFilter, setFollowupRemarksFilter] = React.useState("");
+  const [followupRemarksFilter, setFollowupRemarksFilter] = React.useState<string[]>(
+    []
+  );
   const [bulkAssignee, setBulkAssignee] = React.useState("");
   const [rangeFrom, setRangeFrom] = React.useState("");
   const [rangeTo, setRangeTo] = React.useState("");
@@ -641,6 +694,7 @@ export default function CallingView({ followup = false }: { followup?: boolean }
         customers.sort((a, b) =>
           String(a.customerName || "").localeCompare(String(b.customerName || ""))
         );
+        setAllCustomers(customers);
         setRows(customers);
       } else {
         setRows(merged);
@@ -778,12 +832,215 @@ export default function CallingView({ followup = false }: { followup?: boolean }
     }
   }
 
+  async function loadSavedLists() {
+    try {
+      const res = await fetch("/api/followup/lists", { cache: "no-store" });
+      if (!res.ok) return;
+      const data = await res.json().catch(() => ({}));
+      setSavedLists(Array.isArray(data?.items) ? data.items : []);
+    } catch (e) {
+      console.error("Failed to load saved lists", e);
+      setSavedLists([]);
+    }
+  }
+
+  async function selectSavedList(id: string) {
+    if (!id) {
+      setActiveListId("");
+      setListCustomerIds([]);
+      setListEntries({});
+      setDraftMap({});
+      setSelectedKeys([]);
+      setDetailsOpen(false);
+      setDetailsRowKey("");
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/followup/lists/${encodeURIComponent(id)}`, {
+        cache: "no-store",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data?.error || "Failed to open list");
+        return;
+      }
+
+      const entries: Record<string, FollowupListEntry> = {};
+      for (const raw of Array.isArray(data?.entries) ? data.entries : []) {
+        const customerId = String(raw?.customerId || "");
+        if (!customerId) continue;
+        entries[customerId] = {
+          customerId,
+          assignedTo: String(raw?.assignedTo || ""),
+          followupRemarks: String(raw?.followupRemarks || ""),
+          remarksHistory: Array.isArray(raw?.remarksHistory)
+            ? raw.remarksHistory.map((h: any) => ({
+                text: String(h?.text || ""),
+                createdAt: h?.createdAt
+                  ? new Date(h.createdAt).toISOString()
+                  : "",
+              }))
+            : [],
+        };
+      }
+
+      setActiveListId(id);
+      setListCustomerIds(
+        (Array.isArray(data?.customerIds) ? data.customerIds : []).map((x: any) =>
+          String(x)
+        )
+      );
+      setListEntries(entries);
+      setDraftMap({});
+      setSelectedKeys([]);
+      setDetailsOpen(false);
+      setDetailsRowKey("");
+    } catch (e) {
+      console.error("Failed to open saved list", e);
+      alert("Failed to open list");
+    }
+  }
+
+  async function saveCurrentList() {
+    if (!followup) return;
+
+    const entered = window.prompt("Name this list");
+    if (entered === null) return;
+
+    const name = entered.trim();
+    if (!name) {
+      alert("Enter a list name");
+      return;
+    }
+
+    const customerIds = Array.from(
+      new Set(filteredRows.map((r) => String(r._id || "")).filter(Boolean))
+    );
+    if (customerIds.length === 0) {
+      alert("No customers match the current filters");
+      return;
+    }
+
+    setSavingList(true);
+    try {
+      const res = await fetch("/api/followup/lists", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, customerIds }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data?.error || "Failed to save list");
+        return;
+      }
+
+      await loadSavedLists();
+      const newId = String(data?.item?._id || "");
+      if (newId) await selectSavedList(newId);
+      alert(`Saved list "${name}" (${customerIds.length} customers).`);
+    } catch (e) {
+      console.error("Failed to save list", e);
+      alert("Failed to save list");
+    } finally {
+      setSavingList(false);
+    }
+  }
+
+  async function deleteCurrentList() {
+    if (!followup || !activeListId) return;
+
+    const meta = savedLists.find((l) => l._id === activeListId);
+    if (
+      !window.confirm(
+        `Delete list "${meta?.name || ""}" and all of its assignment/remark history?`
+      )
+    ) {
+      return;
+    }
+
+    try {
+      const res = await fetch(
+        `/api/followup/lists/${encodeURIComponent(activeListId)}`,
+        { method: "DELETE" }
+      );
+      if (!res.ok) {
+        alert("Failed to delete list");
+        return;
+      }
+
+      setActiveListId("");
+      setListCustomerIds([]);
+      setListEntries({});
+      setDraftMap({});
+      setSelectedKeys([]);
+      setDetailsOpen(false);
+      setDetailsRowKey("");
+      await loadSavedLists();
+    } catch (e) {
+      console.error("Failed to delete list", e);
+      alert("Failed to delete list");
+    }
+  }
+
+  async function loadPersonHistory(customerId: string) {
+    if (!activeListId || !customerId) {
+      setPersonHistory([]);
+      return;
+    }
+
+    setPersonHistoryLoading(true);
+    try {
+      const res = await fetch(
+        `/api/followup/lists/${encodeURIComponent(
+          activeListId
+        )}/history?customerId=${encodeURIComponent(customerId)}`,
+        { cache: "no-store" }
+      );
+      const data = await res.json().catch(() => ({}));
+      setPersonHistory(Array.isArray(data?.items) ? data.items : []);
+    } catch (e) {
+      console.error("Failed to load person history", e);
+      setPersonHistory([]);
+    } finally {
+      setPersonHistoryLoading(false);
+    }
+  }
+
   React.useEffect(() => {
     loadAll();
     loadJathaDates();
     loadTrainTickets();
-    if (followup) loadAssignees();
+    if (followup) {
+      loadAssignees();
+      loadSavedLists();
+    }
   }, []);
+
+  React.useEffect(() => {
+    if (!followup) return;
+
+    if (!activeListId) {
+      setRows(allCustomers);
+      return;
+    }
+
+    const idSet = new Set(listCustomerIds);
+    const next = allCustomers
+      .filter((c) => idSet.has(String(c._id)))
+      .map((c) => {
+        const entry = listEntries[String(c._id)];
+        return {
+          ...c,
+          assignedTo: entry?.assignedTo || "",
+          followupRemarks: entry?.followupRemarks || "",
+          remarks: "",
+          remarksHistory: entry?.remarksHistory || [],
+        };
+      });
+
+    setRows(next);
+  }, [followup, activeListId, listCustomerIds, listEntries, allCustomers]);
 
   React.useEffect(() => {
     setJathaDateFilter("");
@@ -899,6 +1156,33 @@ export default function CallingView({ followup = false }: { followup?: boolean }
     const s = String(v || "").trim();
     if (!s) return "";
     return assigneeNameMap.get(s) || assigneeDisplayName(s) || s;
+  }
+
+  function followupHistoryLabel(item: FollowupHistoryItem) {
+    if (item.type === "assign") {
+      return item.assignedTo
+        ? `Assigned to ${getAssigneeLabel(item.assignedTo)}`
+        : "Unassigned";
+    }
+    if (item.type === "remark") return "Remark added";
+    if (item.type === "status") return "Followup status updated";
+    return "Update";
+  }
+
+  function followupHistoryDetail(item: FollowupHistoryItem) {
+    if (item.type === "assign") {
+      const prev = item.previousAssignedTo
+        ? getAssigneeLabel(item.previousAssignedTo)
+        : "Unassigned";
+      const next = item.assignedTo ? getAssigneeLabel(item.assignedTo) : "Unassigned";
+      return `${prev} → ${next}`;
+    }
+    if (item.type === "remark") return item.remark || "";
+    if (item.type === "status") {
+      const prev = item.previousStatus || "None";
+      return `${prev} → ${item.remark || "None"}`;
+    }
+    return "";
   }
 
   function renderTicket(v?: any) {
@@ -1314,8 +1598,11 @@ export default function CallingView({ followup = false }: { followup?: boolean }
       const matchesAssigned =
         !assignedFilter || String(r.assignedTo || "").trim() === assignedFilter;
       const matchesFollowupRemarks =
-        !followupRemarksFilter ||
-        String(r.followupRemarks || "").trim() === followupRemarksFilter;
+        followupRemarksFilter.length === 0 ||
+        (() => {
+          const selected = splitFollowupRemarks(r.followupRemarks);
+          return followupRemarksFilter.some((value) => selected.includes(value));
+        })();
       const matchesAssigneeAccess =
         canSeeAllFollowup ||
         (!!sessionEmail &&
@@ -1760,7 +2047,69 @@ export default function CallingView({ followup = false }: { followup?: boolean }
 
       let res: Response;
 
-      if (followup) {
+      if (followup && activeListId) {
+        const customerPayload: Record<string, any> = {
+          name: String(draft.customerName || "").trim(),
+          fatherOrHusbandName: String(draft.fatherOrHusbandName || "").trim(),
+          gender: String(draft.gender || "").trim(),
+          mobile: String(draft.mobile || "").trim(),
+          address: String(draft.address || "").trim(),
+          emergencyNumber: String(draft.emergencyNumber || "").trim(),
+          badgeNo: String(draft.badgeNo || "").trim(),
+          adhaarNumber: String(draft.adhaarNumber || "").trim(),
+          sangat: String(draft.sangat || "").trim(),
+          mode: String(draft.mode || ""),
+          department: String(draft.department || ""),
+          payment: String(draft.payment || ""),
+          paymentMode: String(draft.paymentMode || ""),
+          paidTo: String(draft.paidTo || ""),
+          busGroup: String(draft.busGroup || "").trim().toUpperCase(),
+          confirm: draft.confirm || "",
+          ferry: draft.ferry || "",
+        };
+
+        if (String(draft.age ?? "") !== String(row.age ?? "")) {
+          customerPayload.age = draft.age ?? "";
+        }
+
+        const custRes = await fetch(
+          `/api/customers/${encodeURIComponent(draft._id)}`,
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(customerPayload),
+          }
+        );
+        const custData = await custRes.json().catch(() => ({}));
+        if (!custRes.ok) {
+          alert(
+            custData?.error ||
+              custData?.message ||
+              "Failed to save customer details"
+          );
+          return false;
+        }
+
+        res = await fetch(
+          `/api/followup/lists/${encodeURIComponent(activeListId)}/entries`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              updates: [
+                {
+                  customerId: String(draft._id),
+                  customerName: String(draft.customerName || ""),
+                  assignedTo: String(draft.assignedTo || ""),
+                  followupRemarks: String(draft.followupRemarks || ""),
+                  newRemark: newRemarkText,
+                  remarksHistory: baseRemarksHistory,
+                },
+              ],
+            }),
+          }
+        );
+      } else if (followup) {
         const payload: Record<string, any> = {
           assignedTo: String(draft.assignedTo || ""),
           followupRemarks: String(draft.followupRemarks || ""),
@@ -1812,14 +2161,25 @@ export default function CallingView({ followup = false }: { followup?: boolean }
         return false;
       }
 
-      const serverHistory = Array.isArray(data?.remarksHistory)
-        ? (data.remarksHistory as any[]).map((h: any) => ({
+      let serverHistory: RemarkHistoryEntry[] | null = null;
+      if (followup && activeListId) {
+        const entry = Array.isArray(data?.entries) ? data.entries[0] : null;
+        if (entry && Array.isArray(entry.remarksHistory)) {
+          serverHistory = (entry.remarksHistory as any[]).map((h: any) => ({
             text: String(h?.text || ""),
             createdAt: h?.createdAt
               ? new Date(h.createdAt).toISOString()
               : "",
-          }))
-        : null;
+          }));
+        }
+      } else if (Array.isArray(data?.remarksHistory)) {
+        serverHistory = (data.remarksHistory as any[]).map((h: any) => ({
+          text: String(h?.text || ""),
+          createdAt: h?.createdAt
+            ? new Date(h.createdAt).toISOString()
+            : "",
+        }));
+      }
       const historyForRow = serverHistory || savedRemarksHistory;
 
       setRows((prev) =>
@@ -1859,6 +2219,46 @@ export default function CallingView({ followup = false }: { followup?: boolean }
           };
         })
       );
+
+      if (followup && activeListId) {
+        const customerId = String(draft._id);
+        const customerFields: Partial<CallingRow> = {
+          customerName: String(draft.customerName || ""),
+          fatherOrHusbandName: draft.fatherOrHusbandName || "",
+          gender: draft.gender || "",
+          age: draft.age ?? null,
+          mobile: draft.mobile || "",
+          address: draft.address || "",
+          emergencyNumber: draft.emergencyNumber || "",
+          badgeNo: draft.badgeNo || "",
+          adhaarNumber: draft.adhaarNumber || "",
+          sangat: draft.sangat || "",
+          mode: draft.mode || "",
+          department: draft.department || "",
+          payment: draft.payment || "",
+          paymentMode: draft.paymentMode || "",
+          paidTo: draft.paidTo || "",
+          busGroup: String(draft.busGroup || "").trim().toUpperCase(),
+          confirm: draft.confirm || "",
+          ferry: draft.ferry || "",
+        };
+
+        setAllCustomers((prev) =>
+          prev.map((c) =>
+            String(c._id) === customerId ? { ...c, ...customerFields } : c
+          )
+        );
+
+        setListEntries((prev) => ({
+          ...prev,
+          [customerId]: {
+            customerId,
+            assignedTo: String(draft.assignedTo || ""),
+            followupRemarks: String(draft.followupRemarks || ""),
+            remarksHistory: historyForRow,
+          },
+        }));
+      }
 
       setDraftMap((prev) => {
         const next = { ...prev };
@@ -1944,14 +2344,30 @@ export default function CallingView({ followup = false }: { followup?: boolean }
   async function bulkAssignRows(rows: CallingRow[], value: string) {
     setSavingRange(true);
     try {
-      const res = await fetch("/api/followup/assign", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          assignedTo: value,
-          items: rows.map((row) => ({ sourceType: row.sourceType, id: row._id })),
-        }),
-      });
+      const res =
+        followup && activeListId
+          ? await fetch(
+              `/api/followup/lists/${encodeURIComponent(activeListId)}/entries`,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  assignedTo: value,
+                  customerIds: rows.map((row) => row._id),
+                }),
+              }
+            )
+          : await fetch("/api/followup/assign", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                assignedTo: value,
+                items: rows.map((row) => ({
+                  sourceType: row.sourceType,
+                  id: row._id,
+                })),
+              }),
+            });
 
       const data = await res.json().catch(() => ({}));
 
@@ -1960,10 +2376,27 @@ export default function CallingView({ followup = false }: { followup?: boolean }
         return false;
       }
 
-      const keys = new Set(rows.map((row) => rowKey(row)));
-      setRows((prev) =>
-        prev.map((r) => (keys.has(rowKey(r)) ? { ...r, assignedTo: value } : r))
-      );
+      if (followup && activeListId) {
+        setListEntries((prev) => {
+          const next = { ...prev };
+          for (const row of rows) {
+            const customerId = String(row._id);
+            const existing = next[customerId];
+            next[customerId] = {
+              customerId,
+              assignedTo: value,
+              followupRemarks: existing?.followupRemarks || "",
+              remarksHistory: existing?.remarksHistory || [],
+            };
+          }
+          return next;
+        });
+      } else {
+        const keys = new Set(rows.map((row) => rowKey(row)));
+        setRows((prev) =>
+          prev.map((r) => (keys.has(rowKey(r)) ? { ...r, assignedTo: value } : r))
+        );
+      }
 
       return true;
     } catch (e) {
@@ -2067,12 +2500,25 @@ export default function CallingView({ followup = false }: { followup?: boolean }
         [key]: { ...row },
       }));
     }
+
+    if (followup && activeListId) {
+      loadPersonHistory(String(row._id || ""));
+    } else {
+      setPersonHistory([]);
+    }
   }
 
   const modalBaseRow = detailsRowKey ? getBaseRowByKey(detailsRowKey) : undefined;
   const modalDraft = modalBaseRow ? getRowDraft(modalBaseRow) : null;
   const modalSaving = detailsRowKey ? savingKeys.includes(detailsRowKey) : false;
   const modalSummary = modalDraft ? getSummaryForRow(modalDraft) : null;
+  const modalGeneralHistory = React.useMemo(() => {
+    if (!modalBaseRow) return [] as RemarkHistoryEntry[];
+    const base = allCustomers.find(
+      (c) => String(c._id) === String(modalBaseRow._id)
+    );
+    return Array.isArray(base?.remarksHistory) ? base!.remarksHistory : [];
+  }, [allCustomers, modalBaseRow]);
 
   function exportExcel() {
     const exportRows = filteredRows.map((r, index) => {
@@ -2413,21 +2859,75 @@ export default function CallingView({ followup = false }: { followup?: boolean }
           {followup && (
             <div>
               <div className="app-label">Followup Remarks</div>
+              <div className="flex min-h-10 max-h-28 flex-col gap-1 overflow-y-auto rounded-lg border border-black/10 bg-white px-2 py-1.5 text-xs dark:border-white/10 dark:bg-zinc-950">
+                {FOLLOWUP_REMARK_OPTIONS.map((option) => (
+                  <label
+                    key={option}
+                    className="inline-flex items-center gap-1.5 whitespace-nowrap"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={followupRemarksFilter.includes(option)}
+                      onChange={(e) =>
+                        setFollowupRemarksFilter((prev) =>
+                          e.target.checked
+                            ? Array.from(new Set([...prev, option]))
+                            : prev.filter((x) => x !== option)
+                        )
+                      }
+                    />
+                    <span>{option}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {followup && (
+          <div className="mt-3 flex flex-wrap items-end gap-2 rounded-xl border border-black/10 p-3 dark:border-white/10">
+            <div>
+              <div className="app-label">Saved List</div>
               <select
                 className={inputCls()}
-                value={followupRemarksFilter}
-                onChange={(e) => setFollowupRemarksFilter(e.target.value)}
+                value={activeListId}
+                onChange={(e) => selectSavedList(e.target.value)}
               >
-                <option value="">All</option>
-                {FOLLOWUP_REMARK_OPTIONS.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
+                <option value="">All Customers (default)</option>
+                {savedLists.map((l) => (
+                  <option key={l._id} value={l._id}>
+                    {l.name} ({l.count})
                   </option>
                 ))}
               </select>
             </div>
-          )}
-        </div>
+
+            <button
+              type="button"
+              className="app-btn app-btn-primary h-10 px-4"
+              onClick={saveCurrentList}
+              disabled={savingList || filteredRows.length === 0}
+            >
+              {savingList ? "Saving..." : "Save current filter as list"}
+            </button>
+
+            {activeListId && (
+              <button
+                type="button"
+                className="app-btn app-btn-secondary h-10 px-4"
+                onClick={deleteCurrentList}
+              >
+                Delete List
+              </button>
+            )}
+
+            <span className="pb-2 text-xs text-zinc-500 dark:text-zinc-400">
+              {activeListId
+                ? "Assignments & remarks are saved only for this list."
+                : "Using global assignments & remarks."}
+            </span>
+          </div>
+        )}
 
         <div className="mt-3 flex items-center justify-between gap-2">
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-zinc-600 dark:text-zinc-400">
@@ -2474,7 +2974,7 @@ export default function CallingView({ followup = false }: { followup?: boolean }
               setFrequencyFilter("");
               setFrequencySort("");
               setAssignedFilter("");
-              setFollowupRemarksFilter("");
+              setFollowupRemarksFilter([]);
               setRangeFrom("");
               setRangeTo("");
               setSelectedKeys([]);
@@ -3154,6 +3654,74 @@ export default function CallingView({ followup = false }: { followup?: boolean }
                 )}
               </div>
             </div>
+          </div>
+        )}
+
+        {followup && activeListId && (
+          <div className="mt-3 rounded-2xl border border-black/10 bg-zinc-50/70 p-4 dark:border-white/10 dark:bg-white/5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <div className="text-sm font-semibold">Saved History</div>
+                <div className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
+                  List: {savedLists.find((l) => l._id === activeListId)?.name || "-"}
+                </div>
+              </div>
+              {personHistoryLoading ? (
+                <span className="text-xs text-zinc-500">Loading...</span>
+              ) : null}
+            </div>
+
+            {personHistory.length === 0 ? (
+              <div className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
+                No assignment or remark history saved for this person in this list yet.
+              </div>
+            ) : (
+              <ul className="mt-3 space-y-2">
+                {personHistory.map((h) => (
+                  <li
+                    key={h._id}
+                    className="rounded-xl border border-black/10 bg-white p-2.5 text-xs dark:border-white/10 dark:bg-zinc-900"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-1">
+                      <span className="font-medium">{followupHistoryLabel(h)}</span>
+                      <span className="text-[10px] text-zinc-500 dark:text-zinc-400">
+                        {formatRemarkDateTime(h.createdAt || "") || "-"}
+                      </span>
+                    </div>
+                    {followupHistoryDetail(h) ? (
+                      <div className="mt-1 whitespace-pre-wrap break-words text-zinc-700 dark:text-zinc-300">
+                        {followupHistoryDetail(h)}
+                      </div>
+                    ) : null}
+                    {h.createdBy ? (
+                      <div className="mt-1 text-[10px] text-zinc-500 dark:text-zinc-400">
+                        by {getAssigneeLabel(h.createdBy)}
+                      </div>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {modalGeneralHistory.length > 0 && (
+              <div className="mt-3 border-t border-black/10 pt-3 dark:border-white/10">
+                <div className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
+                  General remarks history
+                </div>
+                <ul className="mt-2 space-y-1">
+                  {modalGeneralHistory.map((h, i) => (
+                    <li key={`general-${i}`} className="text-xs">
+                      {h.createdAt ? (
+                        <span className="text-[10px] text-zinc-500 dark:text-zinc-400">
+                          {formatRemarkDateTime(h.createdAt)}{" "}
+                        </span>
+                      ) : null}
+                      <span className="whitespace-pre-wrap break-words">{h.text}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
         )}
 
