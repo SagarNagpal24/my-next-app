@@ -23,6 +23,7 @@ const FOLLOWUP_REMARK_OPTIONS = [
 ];
 
 const FOLLOWUP_REMARK_SEPARATOR = " | ";
+const TABLE_PAGE_SIZE = 100;
 
 function splitFollowupRemarks(value: any): string[] {
   const s = String(value ?? "").trim();
@@ -459,8 +460,11 @@ export default function CallingView({ followup = false }: { followup?: boolean }
   const isAdmin = String((session as any)?.role || "user") === "admin";
   const canSeeAllFollowup = !followup || isAdmin;
   const canAssign = !followup || isAdmin;
+  // On the Followup tab, all filters are admin-only except Assigned Name.
+  const showFollowupFilters = !followup || isAdmin;
 
   const [loading, setLoading] = React.useState(true);
+  const [page, setPage] = React.useState(1);
   const [rows, setRows] = React.useState<CallingRow[]>([]);
   const [callingRows, setCallingRows] = React.useState<CallingRow[]>([]);
   const [allJathaDates, setAllJathaDates] = React.useState<JathaDate[]>([]);
@@ -534,6 +538,7 @@ export default function CallingView({ followup = false }: { followup?: boolean }
     const params = new URLSearchParams();
     params.set("category", category);
     params.set("limit", "10000");
+    params.set("nosort", "1");
 
     const res = await fetch(`/api/reports/nominal-roll?${params.toString()}`, {
       cache: "no-store",
@@ -666,41 +671,47 @@ export default function CallingView({ followup = false }: { followup?: boolean }
   async function loadAll() {
     setLoading(true);
     try {
-      const [ladoo, parantha, bhati, customerItems] = await Promise.all([
+      const categoriesPromise = Promise.all([
         loadCategory("ladoo"),
         loadCategory("parantha"),
         loadCategory("bhati"),
-        loadCustomersCompact(),
       ]);
 
-      const merged = [...ladoo, ...parantha, ...bhati];
-
-      merged.sort((a, b) => {
-        const aj = String(a.jathaDateId || a.jathaDate || "");
-        const bj = String(b.jathaDateId || b.jathaDate || "");
-        if (aj !== bj) return aj.localeCompare(bj);
-
-        const at = String(a.sourceLabel || "");
-        const bt = String(b.sourceLabel || "");
-        if (at !== bt) return at.localeCompare(bt);
-
-        return String(a.customerName || "").localeCompare(String(b.customerName || ""));
-      });
-
-      setCallingRows(merged);
+      let merged: CallingRow[];
 
       if (followup) {
+        const [[ladoo, parantha, bhati], customerItems] = await Promise.all([
+          categoriesPromise,
+          loadCustomersCompact(),
+        ]);
+
+        merged = [...ladoo, ...parantha, ...bhati];
+        sortMergedCallingRows(merged);
+        setCallingRows(merged);
+
         const customers = customerItems.map(mapCustomerToRow);
         customers.sort((a, b) =>
           String(a.customerName || "").localeCompare(String(b.customerName || ""))
         );
         setAllCustomers(customers);
         setRows(customers);
+        setSangatEmergencyMap(buildEmergencyMap(customerItems));
       } else {
-        setRows(merged);
-      }
+        const [ladoo, parantha, bhati] = await categoriesPromise;
 
-      setSangatEmergencyMap(buildEmergencyMap(customerItems));
+        merged = [...ladoo, ...parantha, ...bhati];
+        sortMergedCallingRows(merged);
+        setCallingRows(merged);
+        setRows(merged);
+
+        // Emergency numbers are only a lookup fallback on the Calling tab;
+        // load them after the table data so they don't compete for bandwidth.
+        setTimeout(() => {
+          loadCustomersCompact()
+            .then((items) => setSangatEmergencyMap(buildEmergencyMap(items)))
+            .catch(() => {});
+        }, 0);
+      }
 
       setDraftMap({});
       setSelectedKeys([]);
@@ -713,6 +724,20 @@ export default function CallingView({ followup = false }: { followup?: boolean }
     } finally {
       setLoading(false);
     }
+  }
+
+  function sortMergedCallingRows(list: CallingRow[]) {
+    list.sort((a, b) => {
+      const aj = String(a.jathaDateId || a.jathaDate || "");
+      const bj = String(b.jathaDateId || b.jathaDate || "");
+      if (aj !== bj) return aj.localeCompare(bj);
+
+      const at = String(a.sourceLabel || "");
+      const bt = String(b.sourceLabel || "");
+      if (at !== bt) return at.localeCompare(bt);
+
+      return String(a.customerName || "").localeCompare(String(b.customerName || ""));
+    });
   }
 
   async function loadJathaDates() {
@@ -1042,6 +1067,14 @@ export default function CallingView({ followup = false }: { followup?: boolean }
     setRows(next);
   }, [followup, activeListId, listCustomerIds, listEntries, allCustomers]);
 
+  // Non-admins are scoped to their assigned lists, so auto-open the first one.
+  React.useEffect(() => {
+    if (!followup || !session || isAdmin) return;
+    if (activeListId) return;
+    if (savedLists.length === 0) return;
+    selectSavedList(savedLists[0]._id);
+  }, [followup, session, isAdmin, savedLists, activeListId]);
+
   React.useEffect(() => {
     setJathaDateFilter("");
   }, [typeFilter]);
@@ -1094,6 +1127,7 @@ export default function CallingView({ followup = false }: { followup?: boolean }
   }, [loading, followup]);
 
   React.useEffect(() => {
+    setPage(1);
     if (tableScrollRef.current) {
       tableScrollRef.current.scrollTop = 0;
       tableScrollRef.current.scrollLeft = 0;
@@ -1669,7 +1703,22 @@ export default function CallingView({ followup = false }: { followup?: boolean }
     sessionEmail,
   ]);
 
-  const visibleKeys = React.useMemo(() => filteredRows.map((r) => rowKey(r)), [filteredRows]);
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / TABLE_PAGE_SIZE));
+  const currentPage = Math.min(Math.max(page, 1), totalPages);
+
+  const pagedRows = React.useMemo(
+    () =>
+      filteredRows.slice(
+        (currentPage - 1) * TABLE_PAGE_SIZE,
+        currentPage * TABLE_PAGE_SIZE
+      ),
+    [filteredRows, currentPage]
+  );
+
+  const visibleKeys = React.useMemo(
+    () => pagedRows.map((r) => rowKey(r)),
+    [pagedRows]
+  );
 
   const uniqueBaseCount = React.useMemo(() => rows.length, [rows]);
 
@@ -1729,21 +1778,6 @@ export default function CallingView({ followup = false }: { followup?: boolean }
 
     return { male, female };
   }, [filteredRows]);
-
-  const paymentStats = React.useMemo(() => {
-    let paymentSum = 0;
-    let fareSum = 0;
-    let pendingSum = 0;
-
-    for (const row of filteredRows) {
-      const c = rowComputed(row);
-      paymentSum += paymentToNumber(row.payment);
-      fareSum += c.fareTotal;
-      pendingSum += c.pending;
-    }
-
-    return { paymentSum, fareSum, pendingSum };
-  }, [filteredRows, ticketFareMap, allJathaDates]);
 
   // ✅ Department Summary — same shape as Reports -> Dept Report,
   // but driven by Calling's filteredRows (respects ALL calling filters).
@@ -2520,6 +2554,34 @@ export default function CallingView({ followup = false }: { followup?: boolean }
     return Array.isArray(base?.remarksHistory) ? base!.remarksHistory : [];
   }, [allCustomers, modalBaseRow]);
 
+  const modalDateTypes = React.useMemo(() => {
+    const map = new Map<string, string[]>();
+    if (!modalDraft) return map;
+
+    const travellerKey = getTravellerKey(modalDraft);
+
+    for (const row of summaryRows) {
+      if (getTravellerKey(row) !== travellerKey) continue;
+
+      const jr = getJathaRange(row);
+      const tripDate =
+        jr.start ||
+        toYMD(row.travelStartDate || "") ||
+        toYMD(row.travelEndDate || "") ||
+        toYMD(row.jathaDate || "");
+      if (!tripDate) continue;
+
+      const label = String(row.sourceLabel || row.sourceType || "").trim();
+      if (!label) continue;
+
+      const existing = map.get(tripDate) || [];
+      if (!existing.includes(label)) existing.push(label);
+      map.set(tripDate, existing);
+    }
+
+    return map;
+  }, [modalDraft, summaryRows, allJathaDates]);
+
   function exportExcel() {
     const exportRows = filteredRows.map((r, index) => {
       const draft = getRowDraft(r);
@@ -2630,51 +2692,57 @@ export default function CallingView({ followup = false }: { followup?: boolean }
         </div>
 
         <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
-          <div>
-            <div className="app-label">Search</div>
-            <input
-              className={inputCls()}
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Type anything..."
-            />
-          </div>
+          {showFollowupFilters && (
+            <div>
+              <div className="app-label">Search</div>
+              <input
+                className={inputCls()}
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Type anything..."
+              />
+            </div>
+          )}
 
-          <div>
-            <div className="app-label">Type</div>
-            <select
-              className={inputCls()}
-              value={typeFilter}
-              onChange={(e) => setTypeFilter(e.target.value as "" | CallingCategory)}
-            >
-              <option value="">All</option>
-              <option value="ladoo">Ladoo</option>
-              <option value="parantha">Parantha</option>
-              <option value="bhati">Bhati</option>
-            </select>
-          </div>
+          {showFollowupFilters && (
+            <div>
+              <div className="app-label">Type</div>
+              <select
+                className={inputCls()}
+                value={typeFilter}
+                onChange={(e) => setTypeFilter(e.target.value as "" | CallingCategory)}
+              >
+                <option value="">All</option>
+                <option value="ladoo">Ladoo</option>
+                <option value="parantha">Parantha</option>
+                <option value="bhati">Bhati</option>
+              </select>
+            </div>
+          )}
 
-          <div>
-            <div className="app-label">Jatha Date</div>
-            <select
-              className={inputCls()}
-              value={jathaDateFilter}
-              onChange={(e) => setJathaDateFilter(e.target.value)}
-            >
-              <option value="">All</option>
-              {jathaDateOptions.map((j) => {
-                const start = toYMD(j.jathaStartDate || j.travelDate || "");
-                const end = toYMD(j.jathaEndDate || j.travelDate || j.jathaStartDate || "");
-                const label = `${formatDDMonYYYY(start) || "-"} → ${formatDDMonYYYY(end) || "-"}`;
+          {showFollowupFilters && (
+            <div>
+              <div className="app-label">Jatha Date</div>
+              <select
+                className={inputCls()}
+                value={jathaDateFilter}
+                onChange={(e) => setJathaDateFilter(e.target.value)}
+              >
+                <option value="">All</option>
+                {jathaDateOptions.map((j) => {
+                  const start = toYMD(j.jathaStartDate || j.travelDate || "");
+                  const end = toYMD(j.jathaEndDate || j.travelDate || j.jathaStartDate || "");
+                  const label = `${formatDDMonYYYY(start) || "-"} → ${formatDDMonYYYY(end) || "-"}`;
 
-                return (
-                  <option key={j._id} value={j._id || start}>
-                    {label}
-                  </option>
-                );
-              })}
-            </select>
-          </div>
+                  return (
+                    <option key={j._id} value={j._id || start}>
+                      {label}
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+          )}
 
           {!followup && (
             <div>
@@ -2808,20 +2876,22 @@ export default function CallingView({ followup = false }: { followup?: boolean }
             </>
           )}
 
-          <div>
-            <div className="app-label">Traveller Frequency</div>
-                <select
-                  className={inputCls()}
-                  value={frequencyFilter}
-                  onChange={(e) => setFrequencyFilter(e.target.value as FrequencyFilter)}
-                >
-                  <option value="">All</option>
-                  <option value="new">New (1)</option>
-                  <option value="repeat">Repeat (2-3)</option>
-                  <option value="frequent">Frequent (4-6)</option>
-                  <option value="very-frequent">Very Frequent (7+)</option>
-                </select>
-              </div>
+          {showFollowupFilters && (
+            <div>
+              <div className="app-label">Traveller Frequency</div>
+              <select
+                className={inputCls()}
+                value={frequencyFilter}
+                onChange={(e) => setFrequencyFilter(e.target.value as FrequencyFilter)}
+              >
+                <option value="">All</option>
+                <option value="new">New (1)</option>
+                <option value="repeat">Repeat (2-3)</option>
+                <option value="frequent">Frequent (4-6)</option>
+                <option value="very-frequent">Very Frequent (7+)</option>
+              </select>
+            </div>
+          )}
 
           {!followup && (
             <div>
@@ -2838,7 +2908,7 @@ export default function CallingView({ followup = false }: { followup?: boolean }
             </div>
           )}
 
-          {followup && canAssign && (
+          {followup && (
             <div>
               <div className="app-label">Assigned Name</div>
               <select
@@ -2856,7 +2926,7 @@ export default function CallingView({ followup = false }: { followup?: boolean }
             </div>
           )}
 
-          {followup && (
+          {followup && isAdmin && (
             <div>
               <div className="app-label">Followup Remarks</div>
               <div className="flex min-h-10 max-h-28 flex-col gap-1 overflow-y-auto rounded-lg border border-black/10 bg-white px-2 py-1.5 text-xs dark:border-white/10 dark:bg-zinc-950">
@@ -2902,16 +2972,18 @@ export default function CallingView({ followup = false }: { followup?: boolean }
               </select>
             </div>
 
-            <button
-              type="button"
-              className="app-btn app-btn-primary h-10 px-4"
-              onClick={saveCurrentList}
-              disabled={savingList || filteredRows.length === 0}
-            >
-              {savingList ? "Saving..." : "Save current filter as list"}
-            </button>
+            {isAdmin && (
+              <button
+                type="button"
+                className="app-btn app-btn-primary h-10 px-4"
+                onClick={saveCurrentList}
+                disabled={savingList || filteredRows.length === 0}
+              >
+                {savingList ? "Saving..." : "Save current filter as list"}
+              </button>
+            )}
 
-            {activeListId && (
+            {isAdmin && activeListId && (
               <button
                 type="button"
                 className="app-btn app-btn-secondary h-10 px-4"
@@ -2922,9 +2994,13 @@ export default function CallingView({ followup = false }: { followup?: boolean }
             )}
 
             <span className="pb-2 text-xs text-zinc-500 dark:text-zinc-400">
-              {activeListId
-                ? "Assignments & remarks are saved only for this list."
-                : "Using global assignments & remarks."}
+              {isAdmin
+                ? activeListId
+                  ? "Assignments & remarks are saved only for this list."
+                  : "Using global assignments & remarks."
+                : activeListId
+                ? "Showing only the customers assigned to you in this list."
+                : "Select a list to see the customers assigned to you."}
             </span>
           </div>
         )}
@@ -2946,42 +3022,56 @@ export default function CallingView({ followup = false }: { followup?: boolean }
             <span>
               Female: <span className="font-semibold">{genderStats.female}</span>
             </span>
-            <span>
-              Payment Sum: <span className="font-semibold">{paymentStats.paymentSum}</span>
-            </span>
-            <span>
-              Fare Sum: <span className="font-semibold">{paymentStats.fareSum}</span>
-            </span>
-            <span>
-              Pending Sum: <span className="font-semibold">{paymentStats.pendingSum}</span>
-            </span>
           </div>
 
-          <button
-            type="button"
-            className="app-btn app-btn-secondary h-10 px-4"
-            onClick={() => {
-              setSearch("");
-              setTypeFilter("");
-              setJathaDateFilter("");
-              setModeFilters([]);
-              setPaymentModeFilter("");
-              setPaidToFilter("");
-              setPaymentFilter("");
-              setBusGroupFilter("");
-              setConfirmFilters([]);
-              setFerryFilter("");
-              setFrequencyFilter("");
-              setFrequencySort("");
-              setAssignedFilter("");
-              setFollowupRemarksFilter([]);
-              setRangeFrom("");
-              setRangeTo("");
-              setSelectedKeys([]);
-            }}
-          >
-            Clear Filters
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className="app-btn app-btn-secondary h-10 px-3"
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={currentPage <= 1}
+            >
+              Prev
+            </button>
+            <span className="whitespace-nowrap text-xs text-zinc-600 dark:text-zinc-400">
+              Page {currentPage} / {totalPages}
+            </span>
+            <button
+              type="button"
+              className="app-btn app-btn-secondary h-10 px-3"
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={currentPage >= totalPages}
+            >
+              Next
+            </button>
+
+            <button
+              type="button"
+              className="app-btn app-btn-secondary h-10 px-4"
+              onClick={() => {
+                setSearch("");
+                setTypeFilter("");
+                setJathaDateFilter("");
+                setModeFilters([]);
+                setPaymentModeFilter("");
+                setPaidToFilter("");
+                setPaymentFilter("");
+                setBusGroupFilter("");
+                setConfirmFilters([]);
+                setFerryFilter("");
+                setFrequencyFilter("");
+                setFrequencySort("");
+                setAssignedFilter("");
+                setFollowupRemarksFilter([]);
+                setRangeFrom("");
+                setRangeTo("");
+                setSelectedKeys([]);
+                setPage(1);
+              }}
+            >
+              Clear Filters
+            </button>
+          </div>
         </div>
 
         <div className="mt-4 flex flex-wrap items-center gap-2 rounded-xl border border-black/10 p-3 dark:border-white/10">
@@ -3124,7 +3214,14 @@ export default function CallingView({ followup = false }: { followup?: boolean }
           onScroll={syncTableScroll}
           className="w-full overflow-auto max-h-[75vh]"
         >
-          <table className="min-w-[3400px] table-fixed border-collapse text-xs">
+          <table
+            className="table-fixed border-collapse text-xs"
+            style={{
+              minWidth: followup
+                ? 2880 + followupRemarkColumns * 256
+                : 3400,
+            }}
+          >
             <thead className="thead">
               <tr ref={headerRowRef}>
                 <th
@@ -3145,13 +3242,13 @@ export default function CallingView({ followup = false }: { followup?: boolean }
                   S.No
                 </th>
                 <th
-                  className="th w-28 px-2 py-2 sticky z-20 bg-zinc-50 dark:bg-zinc-900"
+                  className="th w-24 px-2 py-2 sticky z-20 bg-zinc-50 dark:bg-zinc-900"
                   style={{ left: stickyLefts[2] }}
                 >
                   Type
                 </th>
                 <th
-                  className="th w-56 px-2 py-2 sticky z-20 bg-zinc-50 dark:bg-zinc-900"
+                  className="th w-44 px-2 py-2 sticky z-20 bg-zinc-50 dark:bg-zinc-900"
                   style={{ left: stickyLefts[3] }}
                 >
                   Name
@@ -3167,10 +3264,6 @@ export default function CallingView({ followup = false }: { followup?: boolean }
                     </th>
                   ))}
                 <th className="th w-32 px-2 py-2">Tag</th>
-                <th className="th w-24 px-2 py-2">Ladoo</th>
-                <th className="th w-24 px-2 py-2">Parantha</th>
-                <th className="th w-24 px-2 py-2">Bhati</th>
-                <th className="th w-24 px-2 py-2">Total</th>
                 <th className="th w-32 px-2 py-2">Last Travel</th>
                 <th className="th w-48 px-2 py-2">Father/Husband</th>
                 <th className="th w-24 px-2 py-2">Gender</th>
@@ -3180,7 +3273,6 @@ export default function CallingView({ followup = false }: { followup?: boolean }
                 <th className="th w-72 px-2 py-2">Address</th>
                 <th className="th w-28 px-2 py-2">Badge</th>
                 <th className="th w-36 px-2 py-2">Aadhaar</th>
-                <th className="th w-20 px-2 py-2">Mode</th>
                 <th className="th w-40 px-2 py-2">Department</th>
                 <th className="th w-20 px-2 py-2">Sangat</th>
                 {!followup && (
@@ -3217,19 +3309,20 @@ export default function CallingView({ followup = false }: { followup?: boolean }
             <tbody className="divide-y divide-black/5 dark:divide-white/10">
               {loading ? (
                 <tr>
-                  <td className="td px-2 py-2 text-zinc-600 dark:text-zinc-400" colSpan={followup ? 27 + (followupRemarkColumns - 1) : 41}>
+                  <td className="td px-2 py-2 text-zinc-600 dark:text-zinc-400" colSpan={followup ? 22 + (followupRemarkColumns - 1) : 36}>
                     Loading...
                   </td>
                 </tr>
               ) : filteredRows.length === 0 ? (
                 <tr>
-                  <td className="td px-2 py-2 text-zinc-600 dark:text-zinc-400" colSpan={followup ? 27 + (followupRemarkColumns - 1) : 41}>
+                  <td className="td px-2 py-2 text-zinc-600 dark:text-zinc-400" colSpan={followup ? 22 + (followupRemarkColumns - 1) : 36}>
                     No records found.
                   </td>
                 </tr>
               ) : (
-                filteredRows.map((r, i) => {
+                pagedRows.map((r, i) => {
                   const key = rowKey(r);
+                  const sNo = (currentPage - 1) * TABLE_PAGE_SIZE + i + 1;
                   const draft = getRowDraft(r);
                   const saving = savingKeys.includes(key);
                   const dirty = isDirty(r);
@@ -3239,7 +3332,7 @@ export default function CallingView({ followup = false }: { followup?: boolean }
                   const totalCount = getTotalCount(summary);
                   const frequencyCount = getFrequencyCount(summary);
                   const stickyBg =
-                    i % 2 === 0
+                    sNo % 2 === 1
                       ? "bg-white dark:bg-zinc-950"
                       : "bg-zinc-50 dark:bg-zinc-900";
 
@@ -3248,7 +3341,7 @@ export default function CallingView({ followup = false }: { followup?: boolean }
                       key={key}
                       className={[
                         "row cursor-pointer hover:bg-zinc-50 dark:hover:bg-white/5",
-                        i % 2 === 0 ? "row-alt" : "row-alt2",
+                        sNo % 2 === 1 ? "row-alt" : "row-alt2",
                       ].join(" ")}
                       onClick={() => openDetails(r)}
                       title="Click row to edit"
@@ -3269,7 +3362,7 @@ export default function CallingView({ followup = false }: { followup?: boolean }
                         className={`td px-2 py-2 sticky z-[5] ${stickyBg}`}
                         style={{ left: stickyLefts[1] }}
                       >
-                        {i + 1}
+                        {sNo}
                       </td>
                       <td
                         className={`td px-2 py-2 sticky z-[5] ${stickyBg}`}
@@ -3431,10 +3524,6 @@ export default function CallingView({ followup = false }: { followup?: boolean }
                         </span>
                       </td>
 
-                      <td className="td px-2 py-2 text-center">{summary?.ladooCount || 0}</td>
-                      <td className="td px-2 py-2 text-center">{summary?.paranthaCount || 0}</td>
-                      <td className="td px-2 py-2 text-center">{summary?.bhatiCount || 0}</td>
-                      <td className="td px-2 py-2 text-center font-semibold">{totalCount}</td>
                       <td className="td px-2 py-2 whitespace-nowrap">
                         {formatDDMonYYYY(summary?.lastTravelDate) || "-"}
                       </td>
@@ -3453,9 +3542,6 @@ export default function CallingView({ followup = false }: { followup?: boolean }
                       </td>
                       <td className="td px-2 py-2">{draft.badgeNo || "-"}</td>
                       <td className="td px-2 py-2">{draft.adhaarNumber || "-"}</td>
-                      <td className="td px-2 py-2">
-                        {draft.mode || summary?.lastMode || "-"}
-                      </td>
                       <td className="td px-2 py-2 whitespace-normal break-words">
                         {draft.department || "-"}
                       </td>
@@ -3641,14 +3727,22 @@ export default function CallingView({ followup = false }: { followup?: boolean }
               </div>
               <div className="mt-2 flex flex-wrap gap-2">
                 {modalSummary.recentDates.length ? (
-                  modalSummary.recentDates.map((d) => (
-                    <span
-                      key={d}
-                      className="rounded-full border border-black/10 bg-white px-2.5 py-1 text-[11px] dark:border-white/10 dark:bg-zinc-900"
-                    >
-                      {formatDDMonYYYY(d)}
-                    </span>
-                  ))
+                  modalSummary.recentDates.map((d) => {
+                    const types = modalDateTypes.get(d) || [];
+                    return (
+                      <span
+                        key={d}
+                        className="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-white px-2.5 py-1 text-[11px] dark:border-white/10 dark:bg-zinc-900"
+                      >
+                        <span>{formatDDMonYYYY(d)}</span>
+                        {types.length ? (
+                          <span className="text-[10px] text-zinc-500 dark:text-zinc-400">
+                            {types.join(", ")}
+                          </span>
+                        ) : null}
+                      </span>
+                    );
+                  })
                 ) : (
                   <span className="text-xs text-zinc-500">No travel history found</span>
                 )}
@@ -3969,92 +4063,96 @@ export default function CallingView({ followup = false }: { followup?: boolean }
             </div>
           )}
 
-          <div>
-            <div className="app-label">Payment</div>
-            <input
-              className={inputCls()}
-              value={modalDraft.payment || ""}
-              onChange={(e) => updateDraft(modalBaseRow, { payment: e.target.value })}
-              placeholder="Payment"
-            />
-          </div>
+          {!followup && (
+            <>
+              <div>
+                <div className="app-label">Payment</div>
+                <input
+                  className={inputCls()}
+                  value={modalDraft.payment || ""}
+                  onChange={(e) => updateDraft(modalBaseRow, { payment: e.target.value })}
+                  placeholder="Payment"
+                />
+              </div>
 
-          <div>
-            <div className="app-label">Payment Mode</div>
-            <select
-              className={inputCls()}
-              value={modalDraft.paymentMode || ""}
-              onChange={(e) => updateDraft(modalBaseRow, { paymentMode: e.target.value })}
-            >
-              <option value="">Select</option>
-              {PAYMENT_MODE_OPTIONS.map((x) => (
-                <option key={x} value={x}>
-                  {x}
-                </option>
-              ))}
-            </select>
-          </div>
+              <div>
+                <div className="app-label">Payment Mode</div>
+                <select
+                  className={inputCls()}
+                  value={modalDraft.paymentMode || ""}
+                  onChange={(e) => updateDraft(modalBaseRow, { paymentMode: e.target.value })}
+                >
+                  <option value="">Select</option>
+                  {PAYMENT_MODE_OPTIONS.map((x) => (
+                    <option key={x} value={x}>
+                      {x}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-          <div>
-            <div className="app-label">Paid To</div>
-            <select
-              className={inputCls()}
-              value={modalDraft.paidTo || ""}
-              onChange={(e) => updateDraft(modalBaseRow, { paidTo: e.target.value })}
-            >
-              <option value="">Select</option>
-              {PAID_TO_OPTIONS.map((x) => (
-                <option key={x} value={x}>
-                  {x}
-                </option>
-              ))}
-            </select>
-          </div>
+              <div>
+                <div className="app-label">Paid To</div>
+                <select
+                  className={inputCls()}
+                  value={modalDraft.paidTo || ""}
+                  onChange={(e) => updateDraft(modalBaseRow, { paidTo: e.target.value })}
+                >
+                  <option value="">Select</option>
+                  {PAID_TO_OPTIONS.map((x) => (
+                    <option key={x} value={x}>
+                      {x}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-          <div>
-            <div className="app-label">Bus Group</div>
-            <select
-              className={inputCls()}
-              value={modalDraft.busGroup || ""}
-              onChange={(e) => updateDraft(modalBaseRow, { busGroup: e.target.value })}
-            >
-              <option value="">No Group</option>
-              {busGroupOptions.map((g) => (
-                <option key={g} value={g}>
-                  {g}
-                </option>
-              ))}
-            </select>
-            <div className="mt-1 text-[11px] text-zinc-600 dark:text-zinc-400">
-              Same Bus/Friend Group should be kept in one bus.
-            </div>
-          </div>
+              <div>
+                <div className="app-label">Bus Group</div>
+                <select
+                  className={inputCls()}
+                  value={modalDraft.busGroup || ""}
+                  onChange={(e) => updateDraft(modalBaseRow, { busGroup: e.target.value })}
+                >
+                  <option value="">No Group</option>
+                  {busGroupOptions.map((g) => (
+                    <option key={g} value={g}>
+                      {g}
+                    </option>
+                  ))}
+                </select>
+                <div className="mt-1 text-[11px] text-zinc-600 dark:text-zinc-400">
+                  Same Bus/Friend Group should be kept in one bus.
+                </div>
+              </div>
 
-          <div>
-            <div className="app-label">Confirm</div>
-            <select
-              className={inputCls()}
-              value={modalDraft.confirm || ""}
-              onChange={(e) => updateDraft(modalBaseRow, { confirm: e.target.value as YesNo })}
-            >
-              <option value="">Pending</option>
-              <option value="Yes">Yes</option>
-              <option value="No">No</option>
-            </select>
-          </div>
+              <div>
+                <div className="app-label">Confirm</div>
+                <select
+                  className={inputCls()}
+                  value={modalDraft.confirm || ""}
+                  onChange={(e) => updateDraft(modalBaseRow, { confirm: e.target.value as YesNo })}
+                >
+                  <option value="">Pending</option>
+                  <option value="Yes">Yes</option>
+                  <option value="No">No</option>
+                </select>
+              </div>
 
-          <div>
-            <div className="app-label">Ferry</div>
-            <select
-              className={inputCls()}
-              value={modalDraft.ferry || ""}
-              onChange={(e) => updateDraft(modalBaseRow, { ferry: e.target.value as YesNo })}
-            >
-              <option value="">Select</option>
-              <option value="Yes">Yes</option>
-              <option value="No">No</option>
-            </select>
-          </div>
+              <div>
+                <div className="app-label">Ferry</div>
+                <select
+                  className={inputCls()}
+                  value={modalDraft.ferry || ""}
+                  onChange={(e) => updateDraft(modalBaseRow, { ferry: e.target.value as YesNo })}
+                >
+                  <option value="">Select</option>
+                  <option value="Yes">Yes</option>
+                  <option value="No">No</option>
+                </select>
+              </div>
+            </>
+          )}
 
           {followup && (
             <div className="md:col-span-2">

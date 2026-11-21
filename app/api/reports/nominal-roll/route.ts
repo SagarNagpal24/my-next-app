@@ -135,12 +135,15 @@ export async function GET(req: Request) {
     }
 
     const db = await getDb();
-    const items = await db
-      .collection(COLLECTION)
-      .find(filter)
-      .sort({ createdAt: -1 })
-      .limit(limit)
-      .toArray();
+
+    // Optional: skip the createdAt sort (client re-sorts). Avoids an expensive
+    // unindexed in-memory sort for large collections on the Calling tab.
+    const noSort = asStr(searchParams.get("nosort")) === "1";
+
+    let cursor = db.collection(COLLECTION).find(filter);
+    if (!noSort) cursor = cursor.sort({ createdAt: -1 });
+
+    const items = await cursor.limit(limit).toArray();
 
     const safe = items.map((x: any) => ({
       ...x,

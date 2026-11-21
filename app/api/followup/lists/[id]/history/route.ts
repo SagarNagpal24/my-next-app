@@ -5,6 +5,7 @@ import { authOptions } from "../../../../../lib/authOptions";
 import { getDb } from "../../../../../lib/mongodb";
 
 const HISTORY = "followupHistory";
+const ENTRIES = "followupEntries";
 
 function toObjectId(raw: string) {
   try {
@@ -29,10 +30,25 @@ export async function GET(
     const { searchParams } = new URL(req.url);
     const customerId = String(searchParams.get("customerId") || "").trim();
 
+    const db = await getDb();
+
+    const role = String((session as any)?.role || "user");
+    const email = String(session?.user?.email || "").toLowerCase().trim();
+
+    // Non-admins may only read history for customers assigned to them in this list.
+    if (role !== "admin") {
+      if (!customerId || !email) return NextResponse.json({ items: [] });
+
+      const assigned = await db.collection(ENTRIES).findOne(
+        { listId: oid.toString(), customerId, assignedTo: email },
+        { projection: { _id: 1 } }
+      );
+      if (!assigned) return NextResponse.json({ items: [] });
+    }
+
     const filter: any = { listId: oid.toString() };
     if (customerId) filter.customerId = customerId;
 
-    const db = await getDb();
     const items = await db
       .collection(HISTORY)
       .find(filter)

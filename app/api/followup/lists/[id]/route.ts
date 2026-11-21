@@ -49,7 +49,22 @@ export async function GET(
     if (!list) return NextResponse.json({ error: "List not found" }, { status: 404 });
 
     const listId = oid.toString();
-    const entries = await db.collection(ENTRIES).find({ listId }).toArray();
+    const role = String((session as any)?.role || "user");
+    const email = String(session?.user?.email || "").toLowerCase().trim();
+
+    let entries: any[];
+    let customerIds: string[];
+
+    if (role === "admin") {
+      entries = await db.collection(ENTRIES).find({ listId }).toArray();
+      customerIds = (list.customerIds || []).map((x: any) => String(x));
+    } else {
+      // Non-admins only see the customers assigned to them within this list.
+      entries = email
+        ? await db.collection(ENTRIES).find({ listId, assignedTo: email }).toArray()
+        : [];
+      customerIds = entries.map((e: any) => String(e.customerId));
+    }
 
     return NextResponse.json({
       list: {
@@ -60,7 +75,7 @@ export async function GET(
         createdAt: list.createdAt ? new Date(list.createdAt).toISOString() : "",
         updatedAt: list.updatedAt ? new Date(list.updatedAt).toISOString() : "",
       },
-      customerIds: (list.customerIds || []).map((x: any) => String(x)),
+      customerIds,
       entries: entries.map(mapEntry),
     });
   } catch (e: any) {
@@ -75,6 +90,10 @@ export async function PATCH(
   try {
     const session = await getServerSession(authOptions);
     if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    if (String((session as any)?.role || "user") !== "admin") {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
 
     const { id } = await ctx.params;
     const oid = toObjectId(id);
@@ -121,6 +140,10 @@ export async function DELETE(
   try {
     const session = await getServerSession(authOptions);
     if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    if (String((session as any)?.role || "user") !== "admin") {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
 
     const { id } = await ctx.params;
     const oid = toObjectId(id);

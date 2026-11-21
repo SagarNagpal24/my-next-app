@@ -90,12 +90,17 @@ export async function POST(
     const listId = oid.toString();
     const listName = String(list.name || "");
     const email = String(session?.user?.email || "").toLowerCase().trim();
+    const isAdmin = String((session as any)?.role || "user") === "admin";
 
     const body = await req.json().catch(() => ({}));
     const now = new Date();
 
     // ---- Bulk assignment mode: { customerIds: [...], assignedTo: "..." } ----
     if (Array.isArray(body?.customerIds)) {
+      if (!isAdmin) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+
       const ids = Array.from(
         new Set<string>(
           (body.customerIds as any[])
@@ -174,10 +179,15 @@ export async function POST(
       if (!customerId) continue;
 
       const prev = await entCol.findOne({ listId, customerId });
+
+      // Non-admins can only modify customers assigned to them in this list.
+      if (!isAdmin && String(prev?.assignedTo || "") !== email) continue;
+
       const prevAssigned = String(prev?.assignedTo || "");
       const prevStatus = String(prev?.followupRemarks || "");
 
-      const hasAssigned = Object.prototype.hasOwnProperty.call(raw, "assignedTo");
+      const hasAssigned =
+        isAdmin && Object.prototype.hasOwnProperty.call(raw, "assignedTo");
       const hasStatus = Object.prototype.hasOwnProperty.call(raw, "followupRemarks");
       const assignedTo = hasAssigned
         ? String(raw.assignedTo || "").trim()
