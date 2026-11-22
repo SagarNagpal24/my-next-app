@@ -2660,6 +2660,105 @@ export default function CallingView({ followup = false }: { followup?: boolean }
     );
   }
 
+  function printNominal() {
+    const genderRank = (value: any) => {
+      const s = String(value || "").trim().toUpperCase();
+      if (s === "F" || s === "FEMALE") return 0;
+      if (s === "M" || s === "MALE") return 1;
+      return 2;
+    };
+
+    const sorted = [...filteredRows]
+      .map((r) => ({ row: r, draft: getRowDraft(r) }))
+      .sort((a, b) => {
+        const ar = genderRank(a.draft.gender);
+        const br = genderRank(b.draft.gender);
+        if (ar !== br) return ar - br;
+
+        return String(a.draft.customerName || "").localeCompare(
+          String(b.draft.customerName || ""),
+          undefined,
+          { sensitivity: "base" }
+        );
+      });
+
+    const exportRows = sorted.map(({ draft }, index) => ({
+      "S.No": index + 1,
+      "Name of Sewadaar/Sewadaarni": draft.customerName || "",
+      "Father's / Husband's Name": draft.fatherOrHusbandName || "",
+      "M/F": draft.gender || "",
+      "Age": draft.age ?? "",
+      "Mobile Number": draft.mobile || "",
+      "R/o Village / Town / Locality / District": draft.address || "",
+      "Badge No": draft.badgeNo || "",
+      "REMARKS": draft.remarks || "",
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(exportRows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "PRINT_NOMINAL");
+    XLSX.writeFile(
+      wb,
+      `PRINT_NOMINAL_${(typeFilter || "all").toUpperCase()}_${new Date()
+        .toISOString()
+        .slice(0, 10)}.xlsx`
+    );
+  }
+
+  function printBusList() {
+    const busNumber = (value: any) => {
+      const match = String(value || "").match(/(\d+)/);
+      return match ? Number(match[1]) : Number.POSITIVE_INFINITY;
+    };
+
+    const sorted = [...filteredRows]
+      .map((r) => ({ row: r, draft: getRowDraft(r) }))
+      .sort((a, b) => {
+        const aNum = busNumber(a.draft.busGroup);
+        const bNum = busNumber(b.draft.busGroup);
+        if (aNum !== bNum) {
+          if (aNum === Number.POSITIVE_INFINITY) return 1;
+          if (bNum === Number.POSITIVE_INFINITY) return -1;
+          return aNum - bNum;
+        }
+
+        const aGroup = String(a.draft.busGroup || "").trim();
+        const bGroup = String(b.draft.busGroup || "").trim();
+        if (aGroup !== bGroup) return aGroup.localeCompare(bGroup);
+
+        return String(a.draft.customerName || "").localeCompare(
+          String(b.draft.customerName || ""),
+          undefined,
+          { sensitivity: "base" }
+        );
+      });
+
+    const exportRows = sorted.map(({ draft }, index) => ({
+      "S.No": index + 1,
+      "Name of Sewadaar/Sewadaarni": draft.customerName || "",
+      "Payment": draft.payment || "",
+      "Payment Mode": draft.paymentMode || "",
+      "Paid to": draft.paidTo || "",
+      "Father's / Husband's Name": draft.fatherOrHusbandName || "",
+      "M/F": draft.gender || "",
+      "Age": draft.age ?? "",
+      "Mobile Number": draft.mobile || "",
+      "R/o Village / Town / Locality / District": draft.address || "",
+      "Badge No": draft.badgeNo || "",
+      "Bus group": draft.busGroup || "",
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(exportRows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "BUS_LIST");
+    XLSX.writeFile(
+      wb,
+      `BUS_LIST_${(typeFilter || "all").toUpperCase()}_${new Date()
+        .toISOString()
+        .slice(0, 10)}.xlsx`
+    );
+  }
+
   return (
     <div className="app-page w-full max-w-none">
       <div className="app-card app-card-pad w-full max-w-none">
@@ -2677,6 +2776,22 @@ export default function CallingView({ followup = false }: { followup?: boolean }
             <button onClick={exportExcel} className="app-btn app-btn-secondary h-10 px-4">
               Export Excel
             </button>
+            {!followup && (
+              <button
+                onClick={printNominal}
+                className="app-btn app-btn-secondary h-10 px-4"
+              >
+                Print Nominal
+              </button>
+            )}
+            {!followup && (
+              <button
+                onClick={printBusList}
+                className="app-btn app-btn-secondary h-10 px-4"
+              >
+                Print list
+              </button>
+            )}
             {!followup && (
               <button
                 onClick={() => setDeptOpen(true)}
