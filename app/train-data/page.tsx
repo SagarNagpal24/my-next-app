@@ -246,6 +246,15 @@ export default function TrainDataPage() {
 
   const [exporting, setExporting] = React.useState<"filtered" | "all" | null>(null);
   const [printing, setPrinting] = React.useState(false);
+
+  const [busTicketOpen, setBusTicketOpen] = React.useState(false);
+  const [busJathaDate, setBusJathaDate] = React.useState(todayISO());
+  const [busLabel, setBusLabel] = React.useState("1");
+  const [busRegNo, setBusRegNo] = React.useState("");
+  const [busContacts, setBusContacts] = React.useState<
+    { name: string; phone: string }[]
+  >([{ name: "", phone: "" }]);
+  const [busPrinting, setBusPrinting] = React.useState(false);
   const [bulkLoading, setBulkLoading] = React.useState(false);
 
   const [bulkStatus, setBulkStatus] = React.useState<{ type: "idle" | "ok" | "err"; msg: string }>({
@@ -814,6 +823,251 @@ html, body {
     }
   }
 
+  function prettyFullDate(d: any) {
+    if (!d) return "-";
+    const s = String(d).trim();
+    const dt = /^\d{4}-\d{2}-\d{2}$/.test(s)
+      ? new Date(s + "T00:00:00.000Z")
+      : new Date(s);
+    if (Number.isNaN(dt.getTime())) return s;
+    const day = ordinal(dt.getUTCDate());
+    const month = dt.toLocaleString("en-GB", { month: "long", timeZone: "UTC" });
+    const year = dt.getUTCFullYear();
+    return `${day} ${month} ${year}`;
+  }
+
+  function buildBusTicketsHtml(opts: {
+    jathaDate: string;
+    busLabel: string;
+    busRegNo: string;
+    contacts: { name: string; phone: string }[];
+  }) {
+    const dateStr = prettyFullDate(opts.jathaDate);
+    const busLabel = escapeHtml(opts.busLabel || "-");
+    const regNo = escapeHtml(opts.busRegNo || "-");
+
+    const personIcon = `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-3.4 3.6-6 8-6s8 2.6 8 6v1H4z"/></svg>`;
+
+    const contactRows = opts.contacts
+      .map((c) => {
+        const name = String(c.name || "");
+        const phone = String(c.phone || "");
+        const len = (name + " - " + phone).length || 1;
+        const fontPt = Math.min(8, Math.max(5.8, 196 / len));
+
+        return `
+          <div class="contact" style="font-size:${fontPt.toFixed(1)}pt">
+            <span class="icon">${personIcon}</span>
+            <span class="ctext">
+              <span class="cname">${escapeHtml(name)}</span>
+              <span class="dash"> - </span>
+              <span class="cphone">${escapeHtml(phone)}</span>
+            </span>
+          </div>
+        `;
+      })
+      .join("");
+
+    const card = `
+      <div class="ticket">
+        <div class="org">Pusa Road Center<br/>(New Delhi)</div>
+        <div class="busbig">BUS ${busLabel}</div>
+        <div class="datepill">
+          <div class="lbl">Jatha Date :</div>
+          <div class="val">${escapeHtml(dateStr)}</div>
+        </div>
+        <div class="busno">BUS NO. :&nbsp;&nbsp;${regNo}</div>
+        <div class="cpill">CONTACT PERSONS</div>
+        <div class="contactbox">${contactRows}</div>
+      </div>
+    `;
+
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8" />
+        <title>Bus Tickets</title>
+        <style>
+          @page { size: A4 portrait; margin: 0; }
+          html, body { margin: 0; padding: 0; font-family: Arial, Helvetica, sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          .page { width: 210mm; height: 297mm; box-sizing: border-box; page-break-after: always; }
+          .page:last-child { page-break-after: auto; }
+          .grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            grid-template-rows: repeat(4, 1fr);
+            gap: 2mm;
+            padding: 3mm;
+            box-sizing: border-box;
+            width: 100%;
+            height: 100%;
+          }
+          .ticket {
+            border: 0.85mm solid #0b2a6f;
+            border-radius: 2mm;
+            padding: 1.4mm;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: space-between;
+            overflow: hidden;
+            background: #fff;
+          }
+          .org {
+            background: #0b2a6f;
+            color: #fff;
+            border-radius: 999px;
+            padding: 0.9mm 2mm;
+            font-size: 8pt;
+            font-weight: 700;
+            text-align: center;
+            line-height: 1.08;
+            width: 90%;
+          }
+          .busbig {
+            font-size: 34pt;
+            font-weight: 900;
+            color: #0b2a6f;
+            line-height: 1;
+            margin: 1.4mm 0 1mm;
+            letter-spacing: -0.3mm;
+            white-space: nowrap;
+          }
+          .datepill {
+            background: #0b2a6f;
+            color: #fff;
+            border-radius: 1.8mm;
+            padding: 0.9mm 1mm;
+            width: 100%;
+            text-align: center;
+            box-sizing: border-box;
+          }
+          .datepill .lbl { font-size: 7.2pt; font-weight: 700; line-height: 1; }
+          .datepill .val { font-size: 10.5pt; font-weight: 900; line-height: 1.1; white-space: normal; word-break: break-word; }
+          .busno {
+            font-size: 8.8pt;
+            font-weight: 800;
+            color: #0b2a6f;
+            margin: 1.2mm 0 0.8mm;
+            white-space: normal;
+            word-break: break-word;
+            line-height: 1.1;
+            text-align: center;
+            width: 100%;
+          }
+          .cpill {
+            background: #0b2a6f;
+            color: #fff;
+            border-radius: 999px;
+            font-size: 7pt;
+            font-weight: 800;
+            padding: 0.6mm 2.4mm;
+            letter-spacing: 0.3mm;
+          }
+          .contactbox {
+            width: 100%;
+            border: 0.35mm solid #0b2a6f;
+            border-radius: 1.6mm;
+            margin-top: 1mm;
+            padding: 0.8mm;
+            box-sizing: border-box;
+            flex: 1 1 auto;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-evenly;
+            gap: 0.6mm;
+            overflow: hidden;
+          }
+          .contact {
+            display: flex;
+            align-items: center;
+            gap: 0.8mm;
+            font-size: 8pt;
+            font-weight: 800;
+            color: #0b2a6f;
+            line-height: 1.12;
+            width: 100%;
+            min-width: 0;
+            white-space: nowrap;
+            letter-spacing: -0.05mm;
+          }
+          .ctext {
+            flex: 1 1 auto;
+            min-width: 0;
+            white-space: nowrap;
+            overflow: hidden;
+          }
+          .icon {
+            width: 3.6mm;
+            height: 3.6mm;
+            border-radius: 50%;
+            background: #0b2a6f;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex: 0 0 auto;
+          }
+          .icon svg { width: 2.4mm; height: 2.4mm; fill: #fff; }
+          .cname, .cphone, .dash { white-space: nowrap; }
+          .dash { flex: 0 0 auto; }
+        </style>
+      </head>
+      <body>
+        <div class="page">
+          <div class="grid">
+            ${Array.from({ length: 16 }).map(() => card).join("")}
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+  }
+
+  function onPrintBusTickets() {
+    const contacts = busContacts
+      .map((c) => ({ name: c.name.trim(), phone: c.phone.trim() }))
+      .filter((c) => c.name || c.phone)
+      .slice(0, 3);
+
+    if (!busJathaDate) {
+      alert("Select Jatha Date");
+      return;
+    }
+    if (!busLabel.trim()) {
+      alert("Enter Bus No (e.g. 1)");
+      return;
+    }
+    if (contacts.length === 0) {
+      alert("Add at least one contact person.");
+      return;
+    }
+
+    setBusPrinting(true);
+    try {
+      const w = window.open("", "_blank");
+      if (!w) {
+        alert("Popup blocked. Please allow popups for printing.");
+        return;
+      }
+      w.document.open();
+      w.document.write(
+        buildBusTicketsHtml({
+          jathaDate: busJathaDate,
+          busLabel: busLabel.trim(),
+          busRegNo: busRegNo.trim(),
+          contacts,
+        })
+      );
+      w.document.close();
+      w.focus();
+      setTimeout(() => w.print(), 350);
+    } finally {
+      setBusPrinting(false);
+    }
+  }
+
   async function downloadSampleExcel() {
     const XLSX = await import("xlsx");
 
@@ -1055,6 +1309,14 @@ html, body {
 
             <button onClick={onPrintTickets} disabled={printing} className="app-btn app-btn-primary h-10 px-4">
               {printing ? "Preparing..." : "Print Tickets"}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setBusTicketOpen(true)}
+              className="app-btn app-btn-secondary h-10 px-4"
+            >
+              Print Bus Ticket
             </button>
           </div>
         </div>
@@ -1559,6 +1821,146 @@ html, body {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {busTicketOpen && (
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-3"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setBusTicketOpen(false);
+          }}
+        >
+          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-4 shadow-xl dark:bg-zinc-950">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-lg font-semibold">Print Bus Ticket</div>
+                <div className="text-xs text-zinc-600 dark:text-zinc-400">
+                  16 tickets per A4 page. Same design is repeated.
+                </div>
+              </div>
+              <button
+                type="button"
+                className="app-btn app-btn-secondary h-9 px-3"
+                onClick={() => setBusTicketOpen(false)}
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-3">
+              <div>
+                <div className="app-label">Jatha Date</div>
+                <input
+                  type="date"
+                  className="app-input"
+                  value={busJathaDate}
+                  onChange={(e) => setBusJathaDate(e.target.value)}
+                />
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <div className="app-label">Bus No (shown large)</div>
+                  <input
+                    className="app-input"
+                    value={busLabel}
+                    onChange={(e) => setBusLabel(e.target.value)}
+                    placeholder="1"
+                  />
+                </div>
+                <div>
+                  <div className="app-label">Bus Registration No</div>
+                  <input
+                    className="app-input"
+                    value={busRegNo}
+                    onChange={(e) => setBusRegNo(e.target.value)}
+                    placeholder="DD 01 R 9565"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between">
+                  <div className="app-label">Contact Persons (up to 3)</div>
+                  {busContacts.length < 3 && (
+                    <button
+                      type="button"
+                      className="app-btn app-btn-secondary h-8 px-2 text-xs"
+                      onClick={() =>
+                        setBusContacts((prev) => [...prev, { name: "", phone: "" }])
+                      }
+                    >
+                      + Add
+                    </button>
+                  )}
+                </div>
+
+                <div className="mt-1 space-y-2">
+                  {busContacts.map((c, idx) => (
+                    <div key={idx} className="flex items-center gap-2">
+                      <input
+                        className="app-input"
+                        value={c.name}
+                        onChange={(e) =>
+                          setBusContacts((prev) =>
+                            prev.map((x, i) =>
+                              i === idx ? { ...x, name: e.target.value } : x
+                            )
+                          )
+                        }
+                        placeholder="Name"
+                      />
+                      <input
+                        className="app-input"
+                        value={c.phone}
+                        onChange={(e) =>
+                          setBusContacts((prev) =>
+                            prev.map((x, i) =>
+                              i === idx ? { ...x, phone: e.target.value } : x
+                            )
+                          )
+                        }
+                        placeholder="Phone"
+                      />
+                      {busContacts.length > 1 && (
+                        <button
+                          type="button"
+                          className="app-btn app-btn-secondary h-10 px-3"
+                          onClick={() =>
+                            setBusContacts((prev) =>
+                              prev.filter((_, i) => i !== idx)
+                            )
+                          }
+                          title="Remove"
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                className="app-btn app-btn-secondary h-10 px-4"
+                onClick={() => setBusTicketOpen(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="app-btn app-btn-primary h-10 px-4"
+                onClick={onPrintBusTickets}
+                disabled={busPrinting}
+              >
+                {busPrinting ? "Preparing..." : "Print 16 Tickets"}
+              </button>
+            </div>
           </div>
         </div>
       )}
