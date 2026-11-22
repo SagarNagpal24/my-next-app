@@ -3023,7 +3023,7 @@ export default function CallingView({ followup = false }: { followup?: boolean }
             </div>
           )}
 
-          {followup && (
+          {followup && isAdmin && (
             <div>
               <div className="app-label">Assigned Name</div>
               <select
