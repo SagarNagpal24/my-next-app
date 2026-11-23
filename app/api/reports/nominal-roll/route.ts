@@ -155,7 +155,16 @@ export async function GET(req: Request) {
       updatedAt: x.updatedAt ? new Date(x.updatedAt).toISOString() : null,
     }));
 
-    return NextResponse.json({ items: safe });
+    return NextResponse.json(
+      { items: safe },
+      {
+        headers: {
+          "Cache-Control": followupMode
+            ? "private, no-store"
+            : "public, s-maxage=60, stale-while-revalidate=300",
+        },
+      }
+    );
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || "Server error" }, { status: 500 });
   }

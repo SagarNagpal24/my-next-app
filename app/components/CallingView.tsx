@@ -630,7 +630,7 @@ export default function CallingView({ followup = false }: { followup?: boolean }
   }
 
   async function loadCustomersCompact(): Promise<any[]> {
-    const res = await fetch("/api/customers?limit=10000&compact=1", {
+    const res = await fetch("/api/customers?limit=10000&photos=0", {
       cache: "no-store",
     });
     const data = await res.json().catch(() => ({}));

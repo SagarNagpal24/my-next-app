@@ -240,11 +240,13 @@ export async function GET(req: Request) {
 
     // ✅ limit support (needed for Export All)
     const limitRaw = toNum(searchParams.get("limit"));
-    const limit = limitRaw != null ? Math.min(Math.max(limitRaw, 1), 10000) : 50000;
+    const limit = limitRaw != null ? Math.min(Math.max(limitRaw, 1), 10000) : 10000;
 
-    // ✅ compact=1 skips heavy base64 photo fields (huge payloads).
-    //    Used by list/report screens that never render the images.
+    // ✅ compact=1 skips the heavy base64 image payloads.
+    //    Metadata (size/mime) is kept so the UI can show "Yes/No" without images.
     const compact = (searchParams.get("compact") || "") === "1";
+    // ✅ photos=0 drops the photo fields entirely (for list views that don't need them).
+    const photosOff = (searchParams.get("photos") || "") === "0";
 
     const filter: any = {};
 
@@ -309,12 +311,19 @@ export async function GET(req: Request) {
       console.error("ensureIndexes failed (customers GET):", e?.message || e);
     }
 
-    const projection = compact
+    const projection = photosOff
       ? {
           passportPhoto: 0,
           aadhaarFrontPhoto: 0,
           aadhaarBackPhoto: 0,
           medicalPhoto: 0,
+        }
+      : compact
+      ? {
+          "passportPhoto.dataUrl": 0,
+          "aadhaarFrontPhoto.dataUrl": 0,
+          "aadhaarBackPhoto.dataUrl": 0,
+          "medicalPhoto.dataUrl": 0,
         }
       : undefined;
 
@@ -356,7 +365,14 @@ export async function GET(req: Request) {
       };
     });
 
-    return NextResponse.json({ items: safeItems, departments: DEPARTMENTS });
+    return NextResponse.json(
+      { items: safeItems, departments: DEPARTMENTS },
+      {
+        headers: {
+          "Cache-Control": "public, s-maxage=60, stale-while-revalidate=300",
+        },
+      }
+    );
   } catch (e: any) {
     return NextResponse.json(
       { error: e?.message || "Server error" },

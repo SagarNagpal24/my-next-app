@@ -133,7 +133,14 @@ export async function GET() {
       remarks: asString(x.remarks),
     }));
 
-    return NextResponse.json({ items: safe });
+    return NextResponse.json(
+      { items: safe },
+      {
+        headers: {
+          "Cache-Control": "public, s-maxage=60, stale-while-revalidate=300",
+        },
+      }
+    );
   } catch (e: any) {
     console.error("GET /nominal-roll/parantha error:", e);
     return NextResponse.json(

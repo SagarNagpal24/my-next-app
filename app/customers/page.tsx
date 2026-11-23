@@ -467,6 +467,10 @@ export default function CustomersPage() {
       if (medFrom) params.set("medFrom", medFrom);
       if (medTo) params.set("medTo", medTo);
 
+      // Avoid downloading base64 photos for the whole list.
+      params.set("limit", "10000");
+      params.set("compact", "1");
+
       const res = await fetch(`/api/customers?${params.toString()}`, { cache: "no-store" });
 
       if (!res.ok) {
@@ -544,13 +548,35 @@ export default function CustomersPage() {
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, [hasUnsavedChanges]);
 
-  function openEdit(c: Customer) {
+  async function openEdit(c: Customer) {
+    // The list is loaded without photos, so fetch the full record on demand.
+    let full: Customer = c;
+    try {
+      const res = await fetch(`/api/customers/${encodeURIComponent(c._id)}`, {
+        cache: "no-store",
+      });
+      if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        if (data?.item) {
+          full = {
+            ...c,
+            ...data.item,
+            _id: normalizeId(data.item._id || c._id),
+            dob: toYmdAny(data.item.dob) || null,
+            medicalDate: toYmdAny(data.item.medicalDate) || null,
+          };
+        }
+      }
+    } catch {
+      // fall back to the compact row
+    }
+
     const nextEditing: Customer = {
-      ...c,
-      dob: toDateInputValue(c.dob) || "",
-      medicalDate: toDateInputValue(c.medicalDate) || "",
-      blacklisted: (c.blacklisted as any) || "No",
-      department: (c.department as any) || "",
+      ...full,
+      dob: toDateInputValue(full.dob) || "",
+      medicalDate: toDateInputValue(full.medicalDate) || "",
+      blacklisted: (full.blacklisted as any) || "No",
+      department: (full.department as any) || "",
     };
     setEditing(nextEditing);
     setEditInitialSnapshot(customerSnapshot(nextEditing));
@@ -671,10 +697,10 @@ export default function CustomersPage() {
         (c.blacklisted as any) || "No",
         c.emergencyNumber || "",
         fmtExcelDate(c.medicalDate),
-        c.passportPhoto?.dataUrl ? "Yes" : "No",
-        c.aadhaarFrontPhoto?.dataUrl ? "Yes" : "No",
-        c.aadhaarBackPhoto?.dataUrl ? "Yes" : "No",
-        c.medicalPhoto?.dataUrl ? "Yes" : "No",
+        c.passportPhoto ? "Yes" : "No",
+        c.aadhaarFrontPhoto ? "Yes" : "No",
+        c.aadhaarBackPhoto ? "Yes" : "No",
+        c.medicalPhoto ? "Yes" : "No",
         c.notes || "",
       ]);
     });
@@ -706,7 +732,7 @@ export default function CustomersPage() {
   async function onExportAll() {
     try {
       setExporting("all");
-      const res = await fetch(`/api/customers?limit=10000`, { cache: "no-store" });
+      const res = await fetch(`/api/customers?limit=10000&compact=1`, { cache: "no-store" });
 
       if (!res.ok) {
         const errBody = await res.json().catch(() => ({}));
@@ -838,7 +864,7 @@ export default function CustomersPage() {
 
   function ImgCell({ title, img }: { title: string; img?: ImgData }) {
     const src = safeImgSrc(img);
-    if (!src) return <span className="text-zinc-500">-</span>;
+    if (!src) return <span className="text-zinc-500">{img ? "Yes" : "-"}</span>;
 
     return (
       <div className="flex items-center gap-2">

@@ -161,6 +161,56 @@ async function ensureIndexes(db: any) {
   );
 }
 
+export async function GET(
+  _req: Request,
+  ctx: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await ctx.params;
+
+    const oid = toObjectId(id);
+    if (!oid)
+      return NextResponse.json({ error: "Invalid customer id" }, { status: 400 });
+
+    const db = await getDb();
+    const doc = await db.collection(COLLECTION).findOne({ _id: oid });
+    if (!doc) return NextResponse.json({ error: "Customer not found" }, { status: 404 });
+
+    const toYmd = (v: any) => {
+      if (!v) return "";
+      if (v instanceof Date) {
+        return Number.isNaN(v.getTime()) ? "" : v.toISOString().slice(0, 10);
+      }
+      const s = String(v).trim();
+      if (!s) return "";
+      if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+      const d = new Date(s);
+      return Number.isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10);
+    };
+
+    const dobYmd = toYmd((doc as any).dob);
+    let age = (doc as any).age;
+    if (dobYmd) {
+      const dob = new Date(dobYmd + "T00:00:00.000Z");
+      if (!Number.isNaN(dob.getTime())) age = calcAgeFromDob(dob);
+    }
+
+    const medicalYmd = toYmd((doc as any).medicalDate);
+
+    return NextResponse.json({
+      item: {
+        ...doc,
+        _id: oid.toString(),
+        dob: dobYmd || null,
+        age,
+        medicalDate: medicalYmd || null,
+      },
+    });
+  } catch (e: any) {
+    return NextResponse.json({ error: e?.message || "Server error" }, { status: 500 });
+  }
+}
+
 export async function PUT(
   req: Request,
   ctx: { params: Promise<{ id: string }> }
