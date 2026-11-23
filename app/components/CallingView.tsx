@@ -2768,7 +2768,19 @@ export default function CallingView({ followup = false }: { followup?: boolean }
     );
   }
 
-  function printBusList() {
+  async function printBusList() {
+    let photoMap = customerPhotoMap;
+    if (Object.keys(photoMap).length === 0) {
+      try {
+        const items = await loadCustomersCompact();
+        photoMap = buildCustomerPhotoMap(items);
+        setCustomerPhotoMap(photoMap);
+        setSangatEmergencyMap(buildEmergencyMap(items));
+      } catch {
+        // proceed with empty map (all "No")
+      }
+    }
+
     const busNumber = (value: any) => {
       const match = String(value || "").match(/(\d+)/);
       return match ? Number(match[1]) : Number.POSITIVE_INFINITY;
@@ -2796,20 +2808,26 @@ export default function CallingView({ followup = false }: { followup?: boolean }
         );
       });
 
-    const exportRows = sorted.map(({ draft }, index) => ({
-      "S.No": index + 1,
-      "Name of Sewadaar/Sewadaarni": draft.customerName || "",
-      "Payment": draft.payment || "",
-      "Payment Mode": draft.paymentMode || "",
-      "Paid to": draft.paidTo || "",
-      "Father's / Husband's Name": draft.fatherOrHusbandName || "",
-      "M/F": draft.gender || "",
-      "Age": draft.age ?? "",
-      "Mobile Number": draft.mobile || "",
-      "R/o Village / Town / Locality / District": draft.address || "",
-      "Badge No": draft.badgeNo || "",
-      "Bus group": draft.busGroup || "",
-    }));
+    const exportRows = sorted.map(({ row, draft }, index) => {
+      const flags = lookupPhotoFlags(photoMap, row);
+
+      return {
+        "S.No": index + 1,
+        "Name of Sewadaar/Sewadaarni": draft.customerName || "",
+        "Payment": draft.payment || "",
+        "Payment Mode": draft.paymentMode || "",
+        "Paid to": draft.paidTo || "",
+        "Father's / Husband's Name": draft.fatherOrHusbandName || "",
+        "M/F": draft.gender || "",
+        "Age": draft.age ?? "",
+        "Mobile Number": draft.mobile || "",
+        "R/o Village / Town / Locality / District": draft.address || "",
+        "Badge No": draft.badgeNo || "",
+        "Bus group": draft.busGroup || "",
+        "Passport Photo": flags.passport ? "Yes" : "No",
+        "Aadhaar Card": flags.aadhaar ? "Yes" : "No",
+      };
+    });
 
     const ws = XLSX.utils.json_to_sheet(exportRows);
     const wb = XLSX.utils.book_new();
