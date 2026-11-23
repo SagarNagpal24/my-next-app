@@ -242,11 +242,11 @@ export async function GET(req: Request) {
     const limitRaw = toNum(searchParams.get("limit"));
     const limit = limitRaw != null ? Math.min(Math.max(limitRaw, 1), 10000) : 10000;
 
-    // ✅ compact=1 skips the heavy base64 image payloads.
-    //    Metadata (size/mime) is kept so the UI can show "Yes/No" without images.
+    // ✅ Photo safety: the LIST endpoint NEVER returns base64 photos.
+    //    - compact=1  -> keep metadata only (size/mime) for Yes/No display
+    //    - default    -> drop photo fields entirely
+    //    Full photos are only available via GET /api/customers/[id] (single record).
     const compact = (searchParams.get("compact") || "") === "1";
-    // ✅ photos=0 drops the photo fields entirely (for list views that don't need them).
-    const photosOff = (searchParams.get("photos") || "") === "0";
 
     const filter: any = {};
 
@@ -311,21 +311,19 @@ export async function GET(req: Request) {
       console.error("ensureIndexes failed (customers GET):", e?.message || e);
     }
 
-    const projection = photosOff
-      ? {
-          passportPhoto: 0,
-          aadhaarFrontPhoto: 0,
-          aadhaarBackPhoto: 0,
-          medicalPhoto: 0,
-        }
-      : compact
+    const projection = compact
       ? {
           "passportPhoto.dataUrl": 0,
           "aadhaarFrontPhoto.dataUrl": 0,
           "aadhaarBackPhoto.dataUrl": 0,
           "medicalPhoto.dataUrl": 0,
         }
-      : undefined;
+      : {
+          passportPhoto: 0,
+          aadhaarFrontPhoto: 0,
+          aadhaarBackPhoto: 0,
+          medicalPhoto: 0,
+        };
 
     const items = await db
       .collection(COLLECTION)
