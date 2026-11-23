@@ -470,6 +470,9 @@ export default function CallingView({ followup = false }: { followup?: boolean }
   const [allJathaDates, setAllJathaDates] = React.useState<JathaDate[]>([]);
   const [allTickets, setAllTickets] = React.useState<TrainTicketRow[]>([]);
   const [sangatEmergencyMap, setSangatEmergencyMap] = React.useState<Record<string, string>>({});
+  const [customerPhotoMap, setCustomerPhotoMap] = React.useState<
+    Record<string, { passport: boolean; aadhaar: boolean }>
+  >({});
   const [assignees, setAssignees] = React.useState<Assignee[]>([]);
 
   const [allCustomers, setAllCustomers] = React.useState<CallingRow[]>([]);
@@ -630,11 +633,49 @@ export default function CallingView({ followup = false }: { followup?: boolean }
   }
 
   async function loadCustomersCompact(): Promise<any[]> {
-    const res = await fetch("/api/customers?limit=10000&photos=0", {
+    const res = await fetch("/api/customers?limit=10000&compact=1", {
       cache: "no-store",
     });
     const data = await res.json().catch(() => ({}));
     return (getItemsFromResponse(data) as any[]) || [];
+  }
+
+  function buildCustomerPhotoMap(
+    rawItems: any[]
+  ): Record<string, { passport: boolean; aadhaar: boolean }> {
+    const map: Record<string, { passport: boolean; aadhaar: boolean }> = {};
+
+    for (const x of rawItems) {
+      const flags = {
+        passport: !!x.passportPhoto,
+        aadhaar: !!(x.aadhaarFrontPhoto || x.aadhaarBackPhoto),
+      };
+
+      const customerId = normalizeText(extractId(x._id || x.customerId || x.id));
+      const mobile = normalizeText(x.mobile);
+      const aadhaar = normalizeText(x.adhaarNumber || x.aadhaarNumber);
+      const name = normalizeText(x.name || x.customerName);
+      const father = normalizeText(x.fatherOrHusbandName);
+      const age = String(x.age ?? "").trim();
+
+      if (customerId) map[`c:${customerId}`] = flags;
+      if (mobile) map[`m:${mobile}`] = flags;
+      if (aadhaar) map[`a:${aadhaar}`] = flags;
+      if (name || father || age) map[`n:${name}|f:${father}|age:${age}`] = flags;
+    }
+
+    return map;
+  }
+
+  function lookupPhotoFlags(
+    map: Record<string, { passport: boolean; aadhaar: boolean }>,
+    row: Partial<CallingRow>
+  ): { passport: boolean; aadhaar: boolean } {
+    for (const key of emergencyLookupKeys(row)) {
+      const flags = map[key];
+      if (flags) return flags;
+    }
+    return { passport: false, aadhaar: false };
   }
 
   function buildEmergencyMap(rawItems: any[]): Record<string, string> {
@@ -696,6 +737,7 @@ export default function CallingView({ followup = false }: { followup?: boolean }
         setAllCustomers(customers);
         setRows(customers);
         setSangatEmergencyMap(buildEmergencyMap(customerItems));
+        setCustomerPhotoMap(buildCustomerPhotoMap(customerItems));
       } else {
         const [ladoo, parantha, bhati] = await categoriesPromise;
 
@@ -708,7 +750,10 @@ export default function CallingView({ followup = false }: { followup?: boolean }
         // load them after the table data so they don't compete for bandwidth.
         setTimeout(() => {
           loadCustomersCompact()
-            .then((items) => setSangatEmergencyMap(buildEmergencyMap(items)))
+            .then((items) => {
+              setSangatEmergencyMap(buildEmergencyMap(items));
+              setCustomerPhotoMap(buildCustomerPhotoMap(items));
+            })
             .catch(() => {});
         }, 0);
       }
@@ -2660,7 +2705,19 @@ export default function CallingView({ followup = false }: { followup?: boolean }
     );
   }
 
-  function printNominal() {
+  async function printNominal() {
+    let photoMap = customerPhotoMap;
+    if (Object.keys(photoMap).length === 0) {
+      try {
+        const items = await loadCustomersCompact();
+        photoMap = buildCustomerPhotoMap(items);
+        setCustomerPhotoMap(photoMap);
+        setSangatEmergencyMap(buildEmergencyMap(items));
+      } catch {
+        // proceed with empty map (all "No")
+      }
+    }
+
     const genderRank = (value: any) => {
       const s = String(value || "").trim().toUpperCase();
       if (s === "F" || s === "FEMALE") return 0;
@@ -2682,17 +2739,23 @@ export default function CallingView({ followup = false }: { followup?: boolean }
         );
       });
 
-    const exportRows = sorted.map(({ draft }, index) => ({
-      "S.No": index + 1,
-      "Name of Sewadaar/Sewadaarni": draft.customerName || "",
-      "Father's / Husband's Name": draft.fatherOrHusbandName || "",
-      "M/F": draft.gender || "",
-      "Age": draft.age ?? "",
-      "Mobile Number": draft.mobile || "",
-      "R/o Village / Town / Locality / District": draft.address || "",
-      "Badge No": draft.badgeNo || "",
-      "REMARKS": draft.remarks || "",
-    }));
+    const exportRows = sorted.map(({ row, draft }, index) => {
+      const flags = lookupPhotoFlags(photoMap, row);
+
+      return {
+        "S.No": index + 1,
+        "Name of Sewadaar/Sewadaarni": draft.customerName || "",
+        "Father's / Husband's Name": draft.fatherOrHusbandName || "",
+        "M/F": draft.gender || "",
+        "Age": draft.age ?? "",
+        "Mobile Number": draft.mobile || "",
+        "R/o Village / Town / Locality / District": draft.address || "",
+        "Badge No": draft.badgeNo || "",
+        "REMARKS": draft.remarks || "",
+        "Passport Photo": flags.passport ? "Yes" : "No",
+        "Aadhaar Card": flags.aadhaar ? "Yes" : "No",
+      };
+    });
 
     const ws = XLSX.utils.json_to_sheet(exportRows);
     const wb = XLSX.utils.book_new();
