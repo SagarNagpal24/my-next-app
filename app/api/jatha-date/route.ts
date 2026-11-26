@@ -105,6 +105,28 @@ export async function POST(req: Request) {
     };
 
     const db = await getDb();
+
+    // Prevent duplicate jatha dates for the same category + start date.
+    // Re-adding an existing date returns the existing id (instead of creating
+    // a new id that would orphan nominal-roll entries).
+    const safeCategory = category.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const existing = await db.collection(COLLECTION).findOne({
+      category: { $regex: `^${safeCategory}$`, $options: "i" },
+      jathaStartDate,
+    });
+
+    if (existing) {
+      return NextResponse.json(
+        {
+          ok: true,
+          id: existing._id.toString(),
+          existed: true,
+          message: "A jatha date for this category and start date already exists.",
+        },
+        { status: 200 }
+      );
+    }
+
     const result = await db.collection(COLLECTION).insertOne(doc);
 
     return NextResponse.json({ ok: true, id: result.insertedId.toString() }, { status: 201 });

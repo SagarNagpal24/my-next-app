@@ -114,6 +114,35 @@ export async function DELETE(_req: Request, ctx: Ctx) {
     }
 
     const db = await getDb();
+
+    // Prevent orphaned nominal-roll entries: block delete if any rows reference
+    // this jatha date (by id). Entries store jathaDateId as a string.
+    const idValue = oid.toString();
+    const nominalCollections = [
+      "nominalRollLadoo",
+      "nominalRollParantha",
+      "nominalRollBhati",
+    ];
+    const linkedCounts = await Promise.all(
+      nominalCollections.map((name) =>
+        db.collection(name).countDocuments({
+          jathaDateId: { $in: [idValue, oid as any] },
+        })
+      )
+    );
+    const linkedTotal = linkedCounts.reduce((sum, n) => sum + n, 0);
+
+    if (linkedTotal > 0) {
+      return NextResponse.json(
+        {
+          error: `This jatha date has ${linkedTotal} linked nominal-roll entr${
+            linkedTotal === 1 ? "y" : "ies"
+          }. Reassign or remove those entries before deleting this date.`,
+        },
+        { status: 409 }
+      );
+    }
+
     const result = await db.collection(COLLECTION).deleteOne({ _id: oid });
 
     if (result.deletedCount === 0) {

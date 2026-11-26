@@ -142,6 +142,13 @@ export default function JathaDatePage() {
         return;
       }
 
+      if (data?.existed) {
+        alert(
+          data?.message ||
+            "This jatha date already exists, so no duplicate was created."
+        );
+      }
+
       clearForm();
       await load();
     } finally {
